@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
+import { generatePptx } from "./generatePptx";
 
 const C = {
   bg: "#f5f3f1",
@@ -249,6 +250,7 @@ export default function App() {
   const [selectedMetrics, setSelectedMetrics] = useState(METRICS.slice(0, 3).map(m => m.id));
   const [hospitalFilter, setHospitalFilter] = useState("All");
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
+  const [exporting, setExporting] = useState(false);
   const summaryRef = useRef(null);
 
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
@@ -295,6 +297,17 @@ export default function App() {
     setEntries(prev => [...prev, data]);
     setForm(defaultForm()); setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await generatePptx(filteredDashboard, summary);
+    } catch (e) {
+      console.error("Export failed:", e);
+      alert("Export failed. Please try again.");
+    }
+    setExporting(false);
   };
 
   const filteredDashboard = hospitalFilter === "All" ? entries : entries.filter(e => e.hospital === hospitalFilter);
@@ -510,7 +523,11 @@ export default function App() {
                     </ResponsiveContainer>
                   )}
                 </div>
-                <div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <button onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 10, background: exporting ? C.primaryLight : C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "12px 20px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", transition: "all 0.2s", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    <span>↓</span> {exporting ? "GENERATING..." : "EXPORT POWERPOINT"}
+                  </button>
                   <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 10, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 20px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", transition: "all 0.2s", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
                     <span style={{ color: C.primary }}>✦</span> {summarizing ? "ANALYZING..." : "GENERATE AI CLINICAL SUMMARY"}
@@ -524,6 +541,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
               </>
             )}
           </div>
