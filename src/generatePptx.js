@@ -209,5 +209,5 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const hospitalSlug = hospitalFilter && hospitalFilter !== "All" ? "_" + hospitalFilter.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_") : "";
-  prs.writeFile({ fileName: `CareTrack_Report${hospitalSlug}_${dateStr}.pptx` });
+  pres.writeFile({ fileName: `CareTrack_Report${hospitalSlug}_${dateStr}.pptx` });
 }
