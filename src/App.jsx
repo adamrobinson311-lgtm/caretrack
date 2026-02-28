@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { supabase } from "./supabaseClient";
 import { generatePptx } from "./generatePptx";
 import { generatePdf } from "./generatePdf";
+import { generateXlsx } from "./generateXlsx";
 
 const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
@@ -232,6 +233,25 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users
   const [reassignFrom, setReassignFrom] = useState(null);
   const [reassignTo, setReassignTo] = useState("");
+
+  // Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
+  const [onboardingStep, setOnboardingStep] = useState(0);
+
+  // Changelog
+  const [showChangelog, setShowChangelog] = useState(false);
+  const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
+  const CURRENT_VERSION = "2.0";
+  const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
+
+  // White-label
+  const [hospitalBranding, setHospitalBranding] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("caretrack_branding") || "{}"); } catch { return {}; }
+  });
+  const [showBrandingEditor, setShowBrandingEditor] = useState(false);
+
+  // Excel export
+  const [exportingXlsx, setExportingXlsx] = useState(false);
   const [form, setForm] = useState(defaultForm());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -266,6 +286,38 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
     return () => subscription.unsubscribe();
   }, []);
+
+  // Active hospital branding
+  const activeBranding = hospitalFilter !== "All" && hospitalBranding[hospitalFilter]
+    ? hospitalBranding[hospitalFilter]
+    : null;
+
+  // Excel export handler
+  const handleExportXlsx = async () => {
+    setExportingXlsx(true);
+    try {
+      generateXlsx(filteredDashboard, hospitalFilter, user?.user_metadata?.full_name || user?.email || "");
+    } catch (e) { alert("Excel export failed. Please try again."); }
+    setExportingXlsx(false);
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (!user) return;
+      // Ignore when typing in inputs
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+      if (e.key === "1") setTab("log");
+      if (e.key === "2") setTab("dashboard");
+      if (e.key === "3") setTab("history");
+      if (e.key === "4") setTab("performers");
+      if (e.key === "5" && isAdmin) setTab("admin");
+      if (e.key === "?" ) setShowChangelog(true);
+      if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); setShowBrandingEditor(false); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [user, isAdmin]);
 
   // Audit log helper
   const logAudit = async (action, details = {}, targetUser = null, sessionId = null) => {
@@ -711,6 +763,10 @@ export default function App() {
                       : null
               }
               {syncResult && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
+              <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
+                WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
+              </button>
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
               <div style={{ width: 1, height: 20, background: C.border }} />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -984,6 +1040,10 @@ export default function App() {
                   <button className="export-btn" onClick={handlePdfExport} disabled={exportingPdf || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 8, background: C.accent, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
                     ↓ {exportingPdf ? "GENERATING..." : "EXPORT PDF"}
+                  </button>
+                  <button className="export-btn" onClick={handleExportXlsx} disabled={exportingXlsx || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: "#217346", border: "1px solid #1a5c38", borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exportingXlsx ? "GENERATING..." : "EXPORT XLSX"}
                   </button>
                   <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 18px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
@@ -1329,6 +1389,10 @@ export default function App() {
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Admin Dashboard</h1>
                 <p style={{ color: C.inkMid, fontSize: 13 }}>Full visibility across all users, sessions, and hospitals.</p>
               </div>
+              <button onClick={() => setShowBrandingEditor(true)}
+                style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
+                🎨 HOSPITAL BRANDING
+              </button>
             </div>
 
             {/* Admin sub-nav */}
@@ -1528,6 +1592,169 @@ export default function App() {
           </div>
         )}
       </div>
+    </div>
+
+      {/* ── ONBOARDING MODAL ───────────────────────────────────────────────── */}
+      {showOnboarding && user && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 520, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            {onboardingStep === 0 && (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 16 }}>👋</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Welcome to CareTrack</h2>
+                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>CareTrack helps you track wound care compliance across hospitals and locations. Log sessions after each visit, view trends on your dashboard, and export reports for your team.</p>
+                <div style={{ background: C.bg, borderRadius: 10, padding: "16px 20px", marginBottom: 24, fontSize: 13, color: C.inkMid, lineHeight: 1.8 }}>
+                  <div>📋 <strong>Log Session</strong> — Record compliance data after each visit</div>
+                  <div>📊 <strong>Dashboard</strong> — View trends and national averages</div>
+                  <div>📁 <strong>History</strong> — Browse and edit past sessions</div>
+                  <div>🏆 <strong>Performers</strong> — See hospital and location rankings</div>
+                </div>
+                <button onClick={() => setOnboardingStep(1)} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+                  GET STARTED →
+                </button>
+              </>
+            )}
+            {onboardingStep === 1 && (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 16 }}>⌨️</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Keyboard Shortcuts</h2>
+                <p style={{ fontSize: 14, color: C.inkMid, marginBottom: 20 }}>Navigate CareTrack faster with these shortcuts:</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+                  {[["1","Log Session"],["2","Dashboard"],["3","History"],["4","Performers"],["5","Admin (admins only)"],["?","What's New / Changelog"],["Esc","Close any modal"]].map(([key, desc]) => (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
+                      <kbd style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.ink, minWidth: 36, textAlign: "center" }}>{key}</kbd>
+                      <span style={{ fontSize: 13, color: C.inkMid }}>{desc}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => setOnboardingStep(0)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
+                  <button onClick={() => { setOnboardingStep(2); }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>NEXT →</button>
+                </div>
+              </>
+            )}
+            {onboardingStep === 2 && (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 16 }}>✅</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>You're all set!</h2>
+                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>Start by logging your first session — tap <strong>Log Session</strong> and fill in your hospital, location, and metric data. Your dashboard will populate as you add more sessions.</p>
+                <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 24 }}>You can revisit this guide anytime from the <strong>What's New</strong> button in the top bar.</p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => setOnboardingStep(1)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
+                  <button onClick={() => { setShowOnboarding(false); localStorage.setItem("caretrack_onboarded", "true"); setTab("log"); }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>START LOGGING →</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CHANGELOG MODAL ────────────────────────────────────────────────── */}
+      {showChangelog && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setShowChangelog(false)}>
+          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 540, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400 }}>What's New</h2>
+              <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
+            </div>
+            {[
+              { version: "2.0", date: "February 2026", badge: "LATEST", items: [
+                "Excel export with Summary and Raw Sessions sheets",
+                "White-label branding per hospital (logo + color theme)",
+                "Onboarding flow for new users",
+                "In-app changelog (you're reading it!)",
+                "Keyboard shortcuts for quick navigation",
+                "PWA support — install CareTrack as a mobile app",
+                "Photo attachments on sessions (up to 3 per session)",
+                "Month-over-month comparison card on dashboard",
+                "Performers tab with hospital and location rankings",
+                "National average benchmarks on metric cards and chart",
+                "Offline mode with automatic sync on reconnect",
+                "Audit log — tracks all creates, edits, and deletes",
+                "User management — deactivate, reactivate, reset passwords",
+              ]},
+              { version: "1.5", date: "January 2026", badge: null, items: [
+                "Inline session editing from History tab",
+                "Required field validation on Log Session form",
+                "Duplicate session warnings",
+                "Export filenames now include hospital name",
+                "Session notes included in PDF and PPTX exports",
+                "Second admin account added",
+                "Admin can delete individual sessions or all sessions",
+              ]},
+              { version: "1.0", date: "December 2025", badge: null, items: [
+                "Initial release — session logging, dashboard, history",
+                "PDF and PowerPoint export",
+                "AI clinical summary",
+                "Date range filtering",
+                "Multi-hospital support",
+                "User authentication",
+              ]},
+            ].map(release => (
+              <div key={release.version} style={{ marginBottom: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.ink }}>v{release.version}</div>
+                  <div style={{ fontSize: 11, color: C.inkLight }}>{release.date}</div>
+                  {release.badge && <span style={{ background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace" }}>{release.badge}</span>}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {release.items.map((item, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, fontSize: 13, color: C.inkMid }}>
+                      <span style={{ color: C.primary, flexShrink: 0 }}>✓</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button onClick={() => { setShowChangelog(false); setShowOnboarding(true); setOnboardingStep(0); }} style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginTop: 8 }}>
+              REPLAY ONBOARDING TOUR
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WHITE-LABEL BRANDING EDITOR (ADMIN ONLY) ───────────────────────── */}
+      {showBrandingEditor && isAdmin && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setShowBrandingEditor(false)}>
+          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Hospital Branding</h2>
+              <button onClick={() => setShowBrandingEditor(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
+            </div>
+            <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>Customize the logo and accent color shown when a specific hospital is filtered. Affects dashboard header and exports.</p>
+            {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(hospital => {
+              const b = hospitalBranding[hospital] || {};
+              return (
+                <div key={hospital} style={{ marginBottom: 20, padding: "16px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, marginBottom: 12 }}>{hospital}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                    <div>
+                      <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
+                      <input type="text" placeholder="https://example.com/logo.png" defaultValue={b.logoUrl || ""}
+                        style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
+                        onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COLOR</label>
+                      <input type="color" defaultValue={b.accentColor || "#4a6f7a"}
+                        style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                        onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <button onClick={() => {
+              localStorage.setItem("caretrack_branding", JSON.stringify(hospitalBranding));
+              setShowBrandingEditor(false);
+              alert("Branding saved!");
+            }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+              SAVE BRANDING
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
