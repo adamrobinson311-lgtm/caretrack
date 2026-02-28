@@ -66,8 +66,9 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s1.addText("Compliance Report", { x: 0.55, y: 2.05, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.light, bold: false, italic: true, margin: 0 });
   s1.addShape(pres.shapes.RECTANGLE, { x: 0.55, y: 2.95, w: 2.5, h: 0.04, fill: { color: "7CA8B4" }, line: { color: "7CA8B4" } });
   s1.addText(`Generated ${today}`, { x: 0.55, y: 3.15, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
-  s1.addText(`${entries.length} sessions · ${hospitals.length || 1} hospital${hospitals.length !== 1 ? "s" : ""}`, { x: 0.55, y: 3.5, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
-  if (preparedBy) s1.addText(`Prepared by ${preparedBy}`, { x: 0.55, y: 3.85, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "7CA8B4", margin: 0 });
+  s1.addText(`${entries.length} units audited`, { x: 0.55, y: 3.5, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
+  s1.addText(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", { x: 0.55, y: 3.85, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
+  if (preparedBy) s1.addText(`Prepared by ${preparedBy}`, { x: 0.55, y: 4.2, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "7CA8B4", margin: 0 });
   s1.addText("HOVERTECH", { x: 6.95, y: 1.9, w: 2.5, h: 0.45, fontSize: 20, fontFace: "Georgia", color: BRAND.white, bold: true, align: "center", margin: 0 });
   s1.addText("an Etac Company", { x: 6.95, y: 2.38, w: 2.5, h: 0.28, fontSize: 11, fontFace: "Calibri", color: "A8C8D0", italic: true, align: "center", margin: 0 });
   s1.addText("CARETRACK", { x: 6.95, y: 4.8, w: 2.5, h: 0.3, fontSize: 9, fontFace: "Calibri", color: "7CA8B4", align: "center", charSpacing: 4, margin: 0 });

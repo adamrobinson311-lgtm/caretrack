@@ -107,8 +107,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(168, 200, 208);
   doc.setFontSize(11);
   doc.text(`Generated ${today}`, 20, 148);
-  doc.text(`${entries.length} sessions · ${hospitals.length || 1} hospital${hospitals.length !== 1 ? "s" : ""}`, 20, 156);
-  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 164); }
+  doc.text(`${entries.length} units audited`, 20, 156);
+  doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
+  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
 
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
