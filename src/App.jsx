@@ -341,7 +341,7 @@ export default function App() {
       setShowEmailModal(false);
       setEmailSuccess(`Report sent to ${to}`);
       setTimeout(() => setEmailSuccess(""), 4000);
-    } catch (e) { alert("Failed to send email. Please check your SendGrid setup."); }
+    } catch (e) { alert("Failed to send email: " + e.message); }
     setEmailSending(false);
   };
 
