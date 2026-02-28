@@ -199,31 +199,6 @@ const FilterBar = ({ value, onChange, label, hospitals }) => (
 );
 
 // ── Email Modal ───────────────────────────────────────────────────────────────
-const EmailModal = ({ onClose, onSend, sending, sessionCount, hospitalFilter }) => {
-  const [to, setTo] = useState("");
-  const inp = { width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 14px", fontSize: 14, color: C.ink, outline: "none" };
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(42,38,36,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ background: C.surface, borderRadius: 16, padding: 32, width: "100%", maxWidth: 420, boxShadow: "0 8px 48px rgba(0,0,0,0.15)" }}>
-        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 400, marginBottom: 8 }}>Email Report</div>
-        <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 24 }}>
-          A PDF report ({sessionCount} sessions{hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}) will be attached.
-        </p>
-        <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>RECIPIENT EMAIL</label>
-        <input type="email" value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@example.com" style={inp}
-          onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border}
-          onKeyDown={e => e.key === "Enter" && to && onSend(to)} />
-        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
-          <button onClick={() => onSend(to)} disabled={!to || sending}
-            style={{ flex: 1, background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: !to || sending ? "not-allowed" : "pointer", opacity: !to || sending ? 0.6 : 1 }}>
-            {sending ? "SENDING..." : "SEND REPORT →"}
-          </button>
-          <button onClick={onClose} style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 20px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, cursor: "pointer" }}>CANCEL</button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
@@ -244,9 +219,7 @@ export default function App() {
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
-  const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailSending, setEmailSending] = useState(false);
-  const [emailSuccess, setEmailSuccess] = useState("");
+
   // Date range filter
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -325,40 +298,6 @@ export default function App() {
     setExportingPdf(false);
   };
 
-  const handleEmailSend = async (to) => {
-    setEmailSending(true);
-    try {
-      // Dynamically load EmailJS
-      await new Promise((resolve, reject) => {
-        if (window.emailjs) { resolve(); return; }
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
-        script.onload = () => { window.emailjs.init("FcMXGUNqWT6UfP0Jj"); resolve(); };
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-
-      const pdfBase64 = await generatePdf(filteredDashboard, summary, true);
-      const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-
-      await window.emailjs.send("service_rw3zlj8", "template_1x3vxbi", {
-        to_email: to,
-        date: today,
-        session_count: filteredDashboard.length,
-        hospital_filter: hospitalFilter !== "All" ? hospitalFilter : "All Hospitals",
-        sender_name: user?.user_metadata?.full_name || user?.email || "CareTrack User",
-        pdf_attachment: pdfBase64,
-      });
-
-      setShowEmailModal(false);
-      setEmailSuccess(`Report sent to ${to}`);
-      setTimeout(() => setEmailSuccess(""), 4000);
-    } catch (e) {
-      console.error("EmailJS error:", e);
-      alert("Failed to send email: " + (e?.text || e.message || "Unknown error"));
-    }
-    setEmailSending(false);
-  };
 
   const handleSummarize = async () => {
     if (!filteredDashboard.length) return;
@@ -421,7 +360,6 @@ export default function App() {
         .signout:hover { color: ${C.accent} !important; }
       `}</style>
 
-      {showEmailModal && <EmailModal onClose={() => setShowEmailModal(false)} onSend={handleEmailSend} sending={emailSending} sessionCount={filteredDashboard.length} hospitalFilter={hospitalFilter} />}
 
       {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
@@ -439,7 +377,6 @@ export default function App() {
               {!loading && !dbError && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>● CONNECTED</span>}
               {dbError && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>● DB ERROR</span>}
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS</div>
-              {emailSuccess && <div style={{ background: C.greenLight, border: `1px solid #b8dfc9`, borderRadius: 6, padding: "4px 12px", fontSize: 11, color: C.green }}>✓ {emailSuccess}</div>}
               <div style={{ width: 1, height: 20, background: C.border }} />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
@@ -572,18 +509,6 @@ export default function App() {
                 </div>
                 {/* Action buttons */}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
-                  <button className="export-btn" onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ↓ {exporting ? "GENERATING..." : "EXPORT PPTX"}
-                  </button>
-                  <button className="export-btn" onClick={handlePdfExport} disabled={exportingPdf || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.accent, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ↓ {exportingPdf ? "GENERATING..." : "EXPORT PDF"}
-                  </button>
-                  <button className="export-btn" onClick={() => setShowEmailModal(true)} disabled={filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.secondary, border: `1px solid ${C.secondary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ✉ EMAIL REPORT
-                  </button>
                   <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 18px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
                     <span style={{ color: C.primary }}>✦</span> {summarizing ? "ANALYZING..." : "AI SUMMARY"}
