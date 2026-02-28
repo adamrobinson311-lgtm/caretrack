@@ -207,6 +207,6 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "") {
   sEnd.addText("CareTrack · Wound Care Compliance", { x: 0.55, y: 3.22, w: 9.0, h: 0.3, fontSize: 11, fontFace: "Calibri", color: "7CA8B4", align: "center", charSpacing: 2, margin: 0 });
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  presconst hospitalSlug = hospitalFilter && hospitalFilter !== "All" ? "_" + hospitalFilter.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_") : "";
+  const hospitalSlug = hospitalFilter && hospitalFilter !== "All" ? "_" + hospitalFilter.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_") : "";
   prs.writeFile({ fileName: `CareTrack_Report${hospitalSlug}_${dateStr}.pptx` });
 }
