@@ -38,7 +38,9 @@ const LINE_COLORS = ["#4F6E77", "#678093", "#7C5366", "#3a7d5c", "#8a6a2a", "#5b
 
 const formatTimestamp = (ts, date) => {
   if (ts) {
-    return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      + " · " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   }
   return date || "—";
 };
@@ -207,10 +209,13 @@ export default function App() {
   const [tab, setTab] = useState("log");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [allEntries, setAllEntries] = useState([]); // metric-only, for national avg
+  const [allEntriesFull, setAllEntriesFull] = useState([]); // admin only, full data
   const [dbError, setDbError] = useState(null);
   const [form, setForm] = useState(defaultForm());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
@@ -227,7 +232,7 @@ export default function App() {
 
   const isAdmin = user && ADMIN_EMAILS.includes(user.email);
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
-  const users = [...new Set(entries.map(e => e.logged_by).filter(Boolean))].sort();
+  const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
@@ -239,9 +244,42 @@ export default function App() {
     if (!user) return;
     (async () => {
       setLoading(true);
-      const { data, error } = await supabase.from("sessions").select("*").order("created_at", { ascending: true });
-      if (error) setDbError("Could not connect to database.");
-      else setEntries(data || []);
+      const userName = user?.user_metadata?.full_name || user?.email;
+      const isAdminUser = ADMIN_EMAILS.includes(user?.email);
+
+      // Step 1: Fetch user's own sessions to discover which hospitals they've logged for
+      const { data: ownData, error } = await supabase.from("sessions")
+        .select("*")
+        .eq("logged_by", userName)
+        .order("created_at", { ascending: true });
+      if (error) { setDbError("Could not connect to database."); setLoading(false); return; }
+
+      // Step 2: Get the unique hospitals this user has logged for
+      const userHospitals = [...new Set((ownData || []).map(e => e.hospital).filter(Boolean))];
+
+      // Step 3: Fetch ALL sessions for those hospitals (from any user)
+      let allHospitalData = ownData || [];
+      if (userHospitals.length > 0) {
+        const { data: hospitalData } = await supabase.from("sessions")
+          .select("*")
+          .in("hospital", userHospitals)
+          .order("created_at", { ascending: true });
+        allHospitalData = hospitalData || ownData || [];
+      }
+
+      setEntries(allHospitalData);
+
+      // Fetch all sessions for national average (metric values only, no PII)
+      const { data: allData } = await supabase.from("sessions")
+        .select("matt_applied_num,matt_applied_den,wedges_applied_num,wedges_applied_den,turning_criteria_num,turning_criteria_den,matt_proper_num,matt_proper_den,wedges_in_room_num,wedges_in_room_den,wedge_offload_num,wedge_offload_den,air_supply_num,air_supply_den")
+        .order("created_at", { ascending: true });
+      setAllEntries(allData || []);
+
+      // Admins get all sessions
+      if (isAdminUser) {
+        const { data: adminData } = await supabase.from("sessions").select("*").order("created_at", { ascending: true });
+        setAllEntriesFull(adminData || []);
+      }
       setLoading(false);
     })();
   }, [user]);
@@ -261,7 +299,8 @@ export default function App() {
     if (error) { setSaveError("Failed to save. " + error.message); setSaving(false); return; }
     setEntries(prev => [...prev, data]);
     setForm(defaultForm()); setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSavedAt(data.created_at || new Date().toISOString());
+    setTimeout(() => setSaved(false), 4000);
   };
 
   // Apply all filters
@@ -281,9 +320,31 @@ export default function App() {
     return row;
   });
 
+  // National avg is constant per metric — rendered as flat reference lines
+  const nationalAvgByMetric = METRICS.reduce((acc, m) => {
+    const vals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+    acc[m.label] = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    return acc;
+  }, {});
+
+  const chartDataWithNational = chartData.map(row => {
+    const enriched = { ...row };
+    METRICS.forEach(m => {
+      if (selectedMetrics.includes(m.id)) {
+        enriched[`${m.label} (National)`] = nationalAvgByMetric[m.label];
+      }
+    });
+    return enriched;
+  });
+
   const avgByMetric = METRICS.map(m => {
     const vals = filteredDashboard.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-    return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
+    const nationalVals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+    return {
+      ...m,
+      avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null,
+      national: nationalVals.length ? Math.round(nationalVals.reduce((a, b) => a + b, 0) / nationalVals.length) : null,
+    };
   });
 
   const handleExport = async () => {
@@ -445,7 +506,7 @@ export default function App() {
             {saveError && <div style={{ marginBottom: 16, padding: "10px 14px", background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, fontSize: 13, color: C.red }}>⚠ {saveError}</div>}
             <button className="savebtn" onClick={handleSave} disabled={saving || !!dbError}
               style={{ background: saved ? C.greenLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? C.green : C.ink, cursor: saving || dbError ? "not-allowed" : "pointer", transition: "all 0.2s", opacity: saving ? 0.6 : 1 }}>
-              {saved ? "✓ SESSION SAVED" : saving ? "SAVING..." : "SAVE SESSION →"}
+              {saved ? `✓ SAVED · ${savedAt ? new Date(savedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}` : saving ? "SAVING..." : "SAVE SESSION →"}
             </button>
           </div>
         )}
@@ -468,15 +529,36 @@ export default function App() {
             ) : (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-                  {avgByMetric.map(m => (
+                  {avgByMetric.map(m => {
+                    const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
+                    const showNational = hospitalFilter !== "All" && m.national !== null;
+                    return (
                     <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
                       <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, marginBottom: 10 }}>{m.label}</div>
                       <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>{m.avg !== null ? `${m.avg}%` : "—"}</div>
-                      <div style={{ marginTop: 8, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ marginTop: 8, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden", position: "relative" }}>
                         <div style={{ height: "100%", width: `${m.avg ?? 0}%`, background: m.avg !== null ? pctColor(m.avg) : C.inkFaint, borderRadius: 2, transition: "width 0.6s ease" }} />
+                        {showNational && <div style={{ position: "absolute", top: -2, left: `${m.national}%`, width: 2, height: 8, background: C.inkLight, borderRadius: 1, transform: "translateX(-50%)" }} />}
                       </div>
+                      {showNational && (
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>
+                            National avg: <span style={{ color: C.ink }}>{m.national}%</span>
+                          </div>
+                          {diff !== null && (
+                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: diff >= 0 ? C.green : C.red }}>
+                              {diff >= 0 ? "▲" : "▼"} {Math.abs(diff)}%
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!showNational && m.national !== null && (
+                        <div style={{ marginTop: 8, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>
+                          National avg: {m.national}%
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )})}
                 </div>
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
@@ -496,15 +578,30 @@ export default function App() {
                   {filteredDashboard.length === 0 ? (
                     <div style={{ padding: "40px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions for this filter.</div>
                   ) : (
-                    <ResponsiveContainer width="100%" height={260}>
-                      <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: -15 }}>
-                        <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="date" tick={{ fill: C.inkLight, fontSize: 11, fontFamily: "IBM Plex Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis domain={[0, 100]} tick={{ fill: C.inkLight, fontSize: 11, fontFamily: "IBM Plex Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                        <Tooltip content={<CustomTooltip />} />
-                        {METRICS.map((m, i) => selectedMetrics.includes(m.id) && <Line key={m.id} type="monotone" dataKey={m.label} stroke={LINE_COLORS[i]} strokeWidth={2} dot={{ fill: LINE_COLORS[i], r: 3 }} activeDot={{ r: 5 }} connectNulls />)}
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <div>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <LineChart data={chartDataWithNational} margin={{ top: 5, right: 20, bottom: 5, left: -15 }}>
+                          <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fill: C.inkLight, fontSize: 11, fontFamily: "IBM Plex Mono" }} axisLine={false} tickLine={false} />
+                          <YAxis domain={[0, 100]} tick={{ fill: C.inkLight, fontSize: 11, fontFamily: "IBM Plex Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                          <Tooltip content={<CustomTooltip />} />
+                          {METRICS.map((m, i) => selectedMetrics.includes(m.id) && <Line key={m.id} type="monotone" dataKey={m.label} stroke={LINE_COLORS[i]} strokeWidth={2} dot={{ fill: LINE_COLORS[i], r: 3 }} activeDot={{ r: 5 }} connectNulls />)}
+                          {METRICS.map((m, i) => selectedMetrics.includes(m.id) && nationalAvgByMetric[m.label] !== null && (
+                            <Line key={`${m.id}-national`} type="monotone" dataKey={`${m.label} (National)`} stroke={LINE_COLORS[i]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} activeDot={false} connectNulls legendType="none" />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 10, paddingLeft: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke={C.inkLight} strokeWidth="2" /></svg>
+                          <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>Selected hospital</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke={C.inkLight} strokeWidth="1.5" strokeDasharray="5 4" /></svg>
+                          <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>National average</span>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
                 {/* Action buttons */}
@@ -550,9 +647,16 @@ export default function App() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                         <div>
                           <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700 }}>{e.date}</div>
-                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, marginTop: 2 }}>
-                            {e.created_at ? `Logged ${formatTimestamp(e.created_at)}` : ""}
-                          </div>
+                          {e.created_at && (
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 5, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px" }}>
+                              <span style={{ fontSize: 9, color: C.inkLight }}>🕐</span>
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkMid, letterSpacing: "0.03em" }}>
+                                {new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                {" · "}
+                                {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            </div>
+                          )}
                           {e.hospital && <div style={{ fontSize: 13, color: C.primary, marginTop: 4, fontWeight: 500 }}>{e.hospital}</div>}
                           {e.location && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>{e.location}</div>}
                           {e.protocol_for_use && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, fontStyle: "italic" }}>Protocol: {e.protocol_for_use}</div>}
@@ -593,10 +697,10 @@ export default function App() {
             {/* Stats row */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
               {[
-                { label: "Total Sessions", value: entries.length },
-                { label: "Hospitals", value: hospitals.length },
-                { label: "Active Users", value: users.length },
-                { label: "Avg Overall", value: (() => { const vals = METRICS.flatMap(m => entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)); return vals.length ? `${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "—"; })() },
+                { label: "Total Sessions", value: allEntriesFull.length },
+                { label: "Hospitals", value: [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length },
+                { label: "Active Users", value: [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].length },
+                { label: "Avg Overall", value: (() => { const vals = METRICS.flatMap(m => allEntriesFull.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)); return vals.length ? `${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "—"; })() },
               ].map(s => (
                 <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
                   <div style={{ fontSize: 11, color: C.inkLight, marginBottom: 8 }}>{s.label}</div>
@@ -610,7 +714,7 @@ export default function App() {
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>SESSIONS BY USER</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {users.map(u => {
-                  const userEntries = entries.filter(e => e.logged_by === u);
+                  const userEntries = allEntriesFull.filter(e => e.logged_by === u);
                   const overallVals = METRICS.flatMap(m => userEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
                   const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
                   const lastSession = userEntries[userEntries.length - 1];
@@ -638,7 +742,7 @@ export default function App() {
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL SESSIONS (ADMIN VIEW)</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[...entries].reverse().map(e => {
+                {[...allEntriesFull].reverse().map(e => {
                   const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
                   const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
                   return (
