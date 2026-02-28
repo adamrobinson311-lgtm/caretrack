@@ -4,7 +4,7 @@ import { supabase } from "./supabaseClient";
 import { generatePptx } from "./generatePptx";
 import { generatePdf } from "./generatePdf";
 
-const ADMIN_EMAILS = ["arobinson@hovertechinternational.com"];
+const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
 const C = {
   bg: "#f5f3f1", surface: "#ffffff", surfaceAlt: "#DEDAD9", border: "#cec9c7", borderDark: "#b8b2af",
@@ -347,6 +347,14 @@ export default function App() {
     };
   });
 
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this session? This cannot be undone.")) return;
+    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    if (error) { alert("Failed to delete session: " + error.message); return; }
+    setAllEntriesFull(prev => prev.filter(e => e.id !== id));
+    setEntries(prev => prev.filter(e => e.id !== id));
+  };
+
   const handleExport = async () => {
     setExporting(true);
     try { await generatePptx(filteredDashboard, summary); } catch (e) { alert("PowerPoint export failed. Please try again."); }
@@ -606,6 +614,14 @@ export default function App() {
                 </div>
                 {/* Action buttons */}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+                  <button className="export-btn" onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exporting ? "GENERATING..." : "EXPORT PPTX"}
+                  </button>
+                  <button className="export-btn" onClick={handlePdfExport} disabled={exportingPdf || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.accent, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exportingPdf ? "GENERATING..." : "EXPORT PDF"}
+                  </button>
                   <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 18px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
                     <span style={{ color: C.primary }}>✦</span> {summarizing ? "ANALYZING..." : "AI SUMMARY"}
@@ -740,7 +756,21 @@ export default function App() {
 
             {/* Per-hospital breakdown */}
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL SESSIONS (ADMIN VIEW)</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 0 }}>ALL SESSIONS (ADMIN VIEW)</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: C.inkLight }}>{allEntriesFull.length} total sessions</div>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm(`Delete ALL ${allEntriesFull.length} sessions? This cannot be undone.`)) return;
+                    const ids = allEntriesFull.map(e => e.id);
+                    const { error } = await supabase.from("sessions").delete().in("id", ids);
+                    if (error) { alert("Failed: " + error.message); return; }
+                    setAllEntriesFull([]); setEntries([]);
+                  }}
+                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                  DELETE ALL SESSIONS
+                </button>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[...allEntriesFull].reverse().map(e => {
                   const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
@@ -756,6 +786,13 @@ export default function App() {
                         </div>
                       </div>
                       <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
+                      <button
+                        onClick={() => handleDelete(e.id)}
+                        style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
+                        onMouseEnter={el => { el.target.style.background = C.redLight; el.target.style.borderColor = C.red; }}
+                        onMouseLeave={el => { el.target.style.background = "none"; el.target.style.borderColor = C.border; }}>
+                        DELETE
+                      </button>
                     </div>
                   );
                 })}
