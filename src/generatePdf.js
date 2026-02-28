@@ -65,10 +65,10 @@ const addHeader = (doc, pageNum, totalPages) => {
   doc.setTextColor(...BRAND.inkLight);
   doc.setFontSize(7);
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  doc.text(`Generated ${today} · HoverTech CareTrack`, 105, 291, { align: "center" });
+  doc.text(`Generated ${today} · HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "") {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "") {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
   const avgMetrics = METRICS.map(m => {
@@ -108,6 +108,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFontSize(11);
   doc.text(`Generated ${today}`, 20, 148);
   doc.text(`${entries.length} sessions · ${hospitals.length || 1} hospital${hospitals.length !== 1 ? "s" : ""}`, 20, 156);
+  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 164); }
 
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");

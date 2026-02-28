@@ -614,13 +614,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || ""); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || ""); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
