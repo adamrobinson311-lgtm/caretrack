@@ -63,8 +63,17 @@ const LoginScreen = ({ onLogin }) => {
       else { setMessage("Account created! Check your email to confirm, then log in."); setMode("login"); }
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(error.message);
-      else onLogin(data.user);
+      if (error) { setError(error.message); }
+      else {
+        // Check if user is deactivated
+        const { data: profile } = await supabase.from("user_profiles").select("is_active").eq("email", email).single();
+        if (profile && profile.is_active === false) {
+          await supabase.auth.signOut();
+          setError("Your account has been deactivated. Please contact an administrator.");
+        } else {
+          onLogin(data.user);
+        }
+      }
     }
     setLoading(false);
   };
@@ -212,11 +221,29 @@ export default function App() {
   const [allEntries, setAllEntries] = useState([]); // metric-only, for national avg
   const [allEntriesFull, setAllEntriesFull] = useState([]); // admin only, full data
   const [dbError, setDbError] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [offlineQueue, setOfflineQueue] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("caretrack_offline_queue") || "[]"); } catch { return []; }
+  });
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [auditLog, setAuditLog] = useState([]);
+  const [userProfiles, setUserProfiles] = useState([]);
+  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users
+  const [reassignFrom, setReassignFrom] = useState(null);
+  const [reassignTo, setReassignTo] = useState("");
   const [form, setForm] = useState(defaultForm());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [photos, setPhotos] = useState([]); // files staged for new session
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [expandedPhotos, setExpandedPhotos] = useState({}); // { sessionId: bool }
+  const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [selectedMetrics, setSelectedMetrics] = useState(METRICS.slice(0, 3).map(m => m.id));
@@ -239,6 +266,55 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
     return () => subscription.unsubscribe();
   }, []);
+
+  // Audit log helper
+  const logAudit = async (action, details = {}, targetUser = null, sessionId = null) => {
+    const performedBy = user?.user_metadata?.full_name || user?.email || "Unknown";
+    try {
+      await supabase.from("audit_log").insert([{
+        action, performed_by: performedBy, target_user: targetUser,
+        session_id: sessionId, details,
+      }]);
+    } catch (e) { console.warn("Audit log failed:", e); }
+  };
+
+  // Online/offline detection
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    if (!isOnline || !user || offlineQueue.length === 0) return;
+    (async () => {
+      setSyncing(true);
+      const userName = user?.user_metadata?.full_name || user?.email;
+      const failed = [];
+      let successCount = 0;
+      for (const session of offlineQueue) {
+        const { queuedAt, tempId, ...payload } = session;
+        payload.logged_by = userName;
+        const { data, error } = await supabase.from("sessions").insert([payload]).select().single();
+        if (error) { failed.push(session); }
+        else {
+          setEntries(prev => [...prev.filter(e => e.id !== tempId), data]);
+          successCount++;
+        }
+      }
+      const newQueue = failed;
+      setOfflineQueue(newQueue);
+      localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
+      setSyncing(false);
+      if (successCount > 0) {
+        setSyncResult(`✓ Synced ${successCount} offline session${successCount !== 1 ? "s" : ""}`);
+        setTimeout(() => setSyncResult(null), 4000);
+      }
+    })();
+  }, [isOnline, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -275,11 +351,21 @@ export default function App() {
         .order("created_at", { ascending: true });
       setAllEntries(allData || []);
 
-      // Admins get all sessions
+      // Admins get all sessions + audit log + user profiles
       if (isAdminUser) {
         const { data: adminData } = await supabase.from("sessions").select("*").order("created_at", { ascending: true });
         setAllEntriesFull(adminData || []);
+        const { data: auditData } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+        setAuditLog(auditData || []);
+        const { data: profileData } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: true });
+        setUserProfiles(profileData || []);
       }
+
+      // Register/update user profile on login
+      await supabase.from("user_profiles").upsert([{
+        email: user.email,
+        full_name: user?.user_metadata?.full_name || user.email,
+      }], { onConflict: "email", ignoreDuplicates: true });
       setLoading(false);
     })();
   }, [user]);
@@ -288,6 +374,20 @@ export default function App() {
   const updateMetric = (id, field, val) => setForm(f => ({ ...f, [`${id}_${field}`]: val }));
 
   const handleSave = async () => {
+    // Validation
+    if (!form.date) { setSaveError("Date is required."); return; }
+    if (!form.hospital.trim()) { setSaveError("Hospital name is required."); return; }
+    if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
+    const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_den`] !== "");
+    if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
+
+    // Duplicate check
+    const duplicate = entries.find(e => e.date === form.date && e.hospital === form.hospital && e.location === form.location);
+    if (duplicate) {
+      const proceed = window.confirm(`A session for ${form.hospital} · ${form.location} on ${form.date} already exists. Save anyway?`);
+      if (!proceed) return;
+    }
+
     setSaving(true); setSaveError(null);
     const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
     const payload = {
@@ -295,12 +395,39 @@ export default function App() {
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
       ...Object.fromEntries(METRICS.flatMap(m => [[`${m.id}_num`, parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, parseInt(form[`${m.id}_den`]) || null]])),
     };
+    // If offline, queue the session locally
+    if (!isOnline) {
+      const tempId = `offline_${Date.now()}`;
+      const offlineSession = { ...payload, id: tempId, created_at: new Date().toISOString(), tempId, queuedAt: Date.now() };
+      const newQueue = [...offlineQueue, offlineSession];
+      setOfflineQueue(newQueue);
+      localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
+      setEntries(prev => [...prev, offlineSession]);
+      setForm(defaultForm()); setSaving(false); setSaved(true);
+      setSavedAt(new Date().toISOString());
+      setTimeout(() => setSaved(false), 4000);
+      return;
+    }
+
     const { data, error } = await supabase.from("sessions").insert([payload]).select().single();
     if (error) { setSaveError("Failed to save. " + error.message); setSaving(false); return; }
-    setEntries(prev => [...prev, data]);
+    // Upload any staged photos
+    let finalData = data;
+    if (photos.length > 0) {
+      setPhotoUploading(true);
+      const urls = await uploadPhotos(photos, data.id);
+      if (urls.length > 0) {
+        const allUrls = await savePhotoUrls(data.id, urls, []);
+        finalData = { ...data, photos: allUrls };
+      }
+      setPhotoUploading(false);
+      setPhotos([]);
+    }
+    setEntries(prev => [...prev, finalData]);
     setForm(defaultForm()); setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
     setTimeout(() => setSaved(false), 4000);
+    await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
   };
 
   // Apply all filters
@@ -337,6 +464,56 @@ export default function App() {
     return enriched;
   });
 
+  // Month-over-month calculation
+  const momData = (() => {
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+    const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
+
+    const thisMonthEntries = filteredDashboard.filter(e => {
+      const d = new Date(e.date);
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+    });
+    const lastMonthEntries = filteredDashboard.filter(e => {
+      const d = new Date(e.date);
+      return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+    });
+
+    const avg = (arr) => {
+      const vals = METRICS.flatMap(m => arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+    const metricAvg = (arr, m) => {
+      const vals = arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+
+    const thisAvg = avg(thisMonthEntries);
+    const lastAvg = avg(lastMonthEntries);
+    const delta = thisAvg !== null && lastAvg !== null ? thisAvg - lastAvg : null;
+
+    const metricDeltas = METRICS.map(m => ({
+      ...m,
+      this: metricAvg(thisMonthEntries, m),
+      last: metricAvg(lastMonthEntries, m),
+      delta: metricAvg(thisMonthEntries, m) !== null && metricAvg(lastMonthEntries, m) !== null
+        ? metricAvg(thisMonthEntries, m) - metricAvg(lastMonthEntries, m) : null,
+    }));
+
+    const monthName = (m, y) => new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    return {
+      thisMonth: monthName(thisMonth, thisYear),
+      lastMonth: monthName(lastMonth, lastMonthYear),
+      thisAvg, lastAvg, delta,
+      thisSessions: thisMonthEntries.length,
+      lastSessions: lastMonthEntries.length,
+      metricDeltas,
+      hasData: thisMonthEntries.length > 0 || lastMonthEntries.length > 0,
+    };
+  })();
+
   const avgByMetric = METRICS.map(m => {
     const vals = filteredDashboard.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     const nationalVals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
@@ -347,23 +524,103 @@ export default function App() {
     };
   });
 
+  const startEdit = (e) => {
+    setEditingId(e.id);
+    setEditForm({ ...e });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const saveEdit = async () => {
+    setEditSaving(true);
+    const payload = {
+      date: editForm.date,
+      hospital: editForm.hospital || null,
+      location: editForm.location || null,
+      protocol_for_use: editForm.protocol_for_use || null,
+      notes: editForm.notes || null,
+      ...Object.fromEntries(METRICS.flatMap(m => [
+        [`${m.id}_num`, parseInt(editForm[`${m.id}_num`]) || null],
+        [`${m.id}_den`, parseInt(editForm[`${m.id}_den`]) || null]
+      ])),
+    };
+    const { data, error } = await supabase.from("sessions").update(payload).eq("id", editingId).select().single();
+    if (error) { alert("Failed to save: " + error.message); setEditSaving(false); return; }
+
+    // Upload any new photos staged during edit
+    let finalData = data;
+    if (editPhotos.length > 0) {
+      const urls = await uploadPhotos(editPhotos, editingId);
+      if (urls.length > 0) {
+        const allUrls = await savePhotoUrls(editingId, urls, editForm.photos || []);
+        finalData = { ...data, photos: allUrls };
+      }
+      setEditPhotos([]);
+    }
+
+    // Build diff of what changed
+    const original = entries.find(e => e.id === editingId) || {};
+    const changed = {};
+    ["date","hospital","location","protocol_for_use","notes",...METRICS.flatMap(m=>[`${m.id}_num`,`${m.id}_den`])].forEach(k => {
+      if (String(original[k]||"") !== String(finalData[k]||"")) changed[k] = { from: original[k], to: finalData[k] };
+    });
+
+    setEntries(prev => prev.map(e => e.id === editingId ? finalData : e));
+    setAllEntriesFull(prev => prev.map(e => e.id === editingId ? finalData : e));
+    await logAudit("SESSION_EDITED", { changed, hospital: finalData.hospital, date: finalData.date }, null, editingId);
+    const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+    if (freshAudit) setAuditLog(freshAudit);
+    setEditingId(null);
+    setEditForm({});
+    setEditSaving(false);
+  };
+
+  // Upload photos to Supabase Storage and return public URLs
+  const uploadPhotos = async (files, sessionId) => {
+    const urls = [];
+    for (const file of files) {
+      const ext = file.name.split(".").pop();
+      const path = `${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("session-photos").upload(path, file, { upsert: false });
+      if (!error) {
+        const { data } = supabase.storage.from("session-photos").getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+    }
+    return urls;
+  };
+
+  // Save photo URLs array back to session record
+  const savePhotoUrls = async (sessionId, newUrls, existingUrls = []) => {
+    const all = [...(existingUrls || []), ...newUrls];
+    await supabase.from("sessions").update({ photos: all }).eq("id", sessionId);
+    return all;
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this session? This cannot be undone.")) return;
+    const session = allEntriesFull.find(e => e.id === id) || entries.find(e => e.id === id);
     const { error } = await supabase.from("sessions").delete().eq("id", id);
     if (error) { alert("Failed to delete session: " + error.message); return; }
     setAllEntriesFull(prev => prev.filter(e => e.id !== id));
     setEntries(prev => prev.filter(e => e.id !== id));
+    await logAudit("SESSION_DELETED", { hospital: session?.hospital, location: session?.location, date: session?.date, logged_by: session?.logged_by }, session?.logged_by, id);
+    const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+    if (freshAudit) setAuditLog(freshAudit);
   };
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -443,9 +700,18 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {!loading && !dbError && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>● CONNECTED</span>}
-              {dbError && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>● DB ERROR</span>}
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS</div>
+              {!isOnline
+                ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber }}>● OFFLINE{offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}</span>
+                : syncing
+                  ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>● SYNCING...</span>
+                  : !loading && !dbError
+                    ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>● CONNECTED</span>
+                    : dbError
+                      ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>● DB ERROR</span>
+                      : null
+              }
+              {syncResult && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
               <div style={{ width: 1, height: 20, background: C.border }} />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
@@ -463,12 +729,23 @@ export default function App() {
             <Tab id="log" label="LOG SESSION" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" />
+            <Tab id="performers" label="PERFORMERS" />
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
         </div>
       </div>
 
       {dbError && <div style={{ background: C.redLight, borderBottom: `1px solid #f0c8c8`, padding: "12px 32px" }}><div style={{ maxWidth: 1120, margin: "0 auto", fontSize: 13, color: C.red }}>⚠ {dbError}</div></div>}
+      {!isOnline && (
+        <div style={{ background: "#fdf6e8", borderBottom: `1px solid #e8d4a0`, padding: "10px 32px" }}>
+          <div style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, color: C.amber }}>
+              ⚠ You're offline — sessions will be saved locally and synced automatically when you reconnect.
+              {offlineQueue.length > 0 && <strong> {offlineQueue.length} session{offlineQueue.length !== 1 ? "s" : ""} pending sync.</strong>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 64px" }}>
 
@@ -511,10 +788,32 @@ export default function App() {
                 rows={3} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, resize: "vertical", lineHeight: 1.6 }}
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
+            {/* Photo Upload */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 8 }}>ATTACH PHOTOS (UP TO 3)</label>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                {photos.map((f, i) => (
+                  <div key={i} style={{ position: "relative" }}>
+                    <img src={URL.createObjectURL(f)} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                    <button onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                      style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: C.red, border: "none", color: "white", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                  </div>
+                ))}
+                {photos.length < 3 && (
+                  <label style={{ width: 72, height: 72, border: `2px dashed ${C.border}`, borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.inkLight, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", gap: 4 }}>
+                    <span style={{ fontSize: 20 }}>+</span>
+                    <span>PHOTO</span>
+                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={ev => { const f = ev.target.files[0]; if (f) setPhotos(prev => [...prev, f]); ev.target.value = ""; }} />
+                  </label>
+                )}
+              </div>
+              {photoUploading && <div style={{ marginTop: 8, fontSize: 11, color: C.inkMid, fontFamily: "'IBM Plex Mono', monospace" }}>Uploading photos...</div>}
+            </div>
+
             {saveError && <div style={{ marginBottom: 16, padding: "10px 14px", background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, fontSize: 13, color: C.red }}>⚠ {saveError}</div>}
             <button className="savebtn" onClick={handleSave} disabled={saving || !!dbError}
-              style={{ background: saved ? C.greenLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? C.green : C.ink, cursor: saving || dbError ? "not-allowed" : "pointer", transition: "all 0.2s", opacity: saving ? 0.6 : 1 }}>
-              {saved ? `✓ SAVED · ${savedAt ? new Date(savedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}` : saving ? "SAVING..." : "SAVE SESSION →"}
+              style={{ background: saved ? C.greenLight : !isOnline ? C.amberLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : !isOnline ? C.amber : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? C.green : !isOnline ? C.amber : C.ink, cursor: saving ? "not-allowed" : "pointer", transition: "all 0.2s", opacity: saving ? 0.6 : 1 }}>
+              {saved ? `✓ SAVED · ${savedAt ? new Date(savedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}` : saving ? "SAVING..." : !isOnline ? "SAVE OFFLINE →" : "SAVE SESSION →"}
             </button>
           </div>
         )}
@@ -568,6 +867,70 @@ export default function App() {
                     </div>
                   )})}
                 </div>
+                {/* Month-over-month card */}
+                {momData.hasData && (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+                      <div>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>MONTH-OVER-MONTH</div>
+                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 400 }}>
+                          {momData.thisMonth} vs {momData.lastMonth}
+                        </div>
+                      </div>
+                      {momData.delta !== null && (
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 36, fontWeight: 700, color: momData.delta >= 0 ? C.green : C.red, lineHeight: 1 }}>
+                            {momData.delta >= 0 ? "+" : ""}{momData.delta}%
+                          </div>
+                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginTop: 4 }}>overall change</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* This month vs last month summary row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                      {[
+                        { label: momData.thisMonth, avg: momData.thisAvg, sessions: momData.thisSessions, isCurrent: true },
+                        { label: momData.lastMonth, avg: momData.lastAvg, sessions: momData.lastSessions, isCurrent: false },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: m.isCurrent ? C.primaryLight : C.bg, border: `1px solid ${m.isCurrent ? C.primary + "33" : C.border}`, borderRadius: 10, padding: "14px 18px" }}>
+                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: m.isCurrent ? C.primary : C.inkLight, marginBottom: 6 }}>
+                            {m.isCurrent ? "▶ " : ""}{m.label}
+                          </div>
+                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>
+                            {m.avg !== null ? `${m.avg}%` : "—"}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4 }}>{m.sessions} session{m.sessions !== 1 ? "s" : ""}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Per-metric breakdown */}
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", marginBottom: 10 }}>BY METRIC</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {momData.metricDeltas.filter(m => m.this !== null || m.last !== null).map(m => (
+                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
+                          <div style={{ fontSize: 12, color: C.ink, flex: 1 }}>{m.label}</div>
+                          <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, minWidth: 36, textAlign: "right" }}>
+                            {m.last !== null ? `${m.last}%` : "—"}
+                          </div>
+                          <div style={{ fontSize: 10, color: C.inkFaint }}>→</div>
+                          <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: m.this !== null ? pctColor(m.this) : C.inkFaint, minWidth: 36, textAlign: "right", fontWeight: 600 }}>
+                            {m.this !== null ? `${m.this}%` : "—"}
+                          </div>
+                          {m.delta !== null ? (
+                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: m.delta > 0 ? C.green : m.delta < 0 ? C.red : C.inkLight, minWidth: 44, textAlign: "right" }}>
+                              {m.delta > 0 ? "▲ +" : m.delta < 0 ? "▼ " : "– "}{m.delta !== 0 ? `${Math.abs(m.delta)}%` : "no change"}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint, minWidth: 44, textAlign: "right" }}>new</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                     <div>
@@ -657,43 +1020,164 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {[...filteredHistory].reverse().map(e => {
-                  const metrics = METRICS.map(m => ({ label: m.label, p: pct(e[`${m.id}_num`], e[`${m.id}_den`]), num: e[`${m.id}_num`], den: e[`${m.id}_den`] }));
+                  const isOfflinePending = e.id && String(e.id).startsWith("offline_");
+                  const isEditing = editingId === e.id;
+                  const ef = isEditing ? editForm : e;
+                  const metrics = METRICS.map(m => ({ label: m.label, p: pct(ef[`${m.id}_num`], ef[`${m.id}_den`]), num: ef[`${m.id}_num`], den: ef[`${m.id}_den`] }));
+                  const inpStyle = { background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, width: "100%", outline: "none" };
                   return (
-                    <div key={e.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+                    <div key={e.id} style={{ background: C.surface, border: `1px solid ${isEditing ? C.primary : C.border}`, borderRadius: 12, padding: "18px 20px", transition: "border-color 0.2s" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                        <div>
-                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700 }}>{e.date}</div>
-                          {e.created_at && (
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 5, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px" }}>
-                              <span style={{ fontSize: 9, color: C.inkLight }}>🕐</span>
-                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkMid, letterSpacing: "0.03em" }}>
-                                {new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                                {" · "}
-                                {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                              </span>
+                        <div style={{ flex: 1, marginRight: 16 }}>
+                          {isEditing ? (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>DATE</label>
+                                <input type="date" value={ef.date || ""} onChange={ev => setEditForm(f => ({ ...f, date: ev.target.value }))} style={inpStyle} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>HOSPITAL</label>
+                                <input type="text" value={ef.hospital || ""} onChange={ev => setEditForm(f => ({ ...f, hospital: ev.target.value }))} style={inpStyle} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>LOCATION</label>
+                                <input type="text" value={ef.location || ""} onChange={ev => setEditForm(f => ({ ...f, location: ev.target.value }))} style={inpStyle} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PROTOCOL</label>
+                                <input type="text" value={ef.protocol_for_use || ""} onChange={ev => setEditForm(f => ({ ...f, protocol_for_use: ev.target.value }))} style={inpStyle} />
+                              </div>
+                              <div style={{ gridColumn: "span 2" }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>NOTES</label>
+                                <input type="text" value={ef.notes || ""} onChange={ev => setEditForm(f => ({ ...f, notes: ev.target.value }))} style={inpStyle} />
+                              </div>
                             </div>
+                          ) : (
+                            <>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700 }}>{e.date}</div>
+                            {isOfflinePending && <span style={{ background: "#fdf6e8", border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, letterSpacing: "0.05em" }}>PENDING SYNC</span>}
+                          </div>
+                              {e.created_at && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 5, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px" }}>
+                                  <span style={{ fontSize: 9, color: C.inkLight }}>🕐</span>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkMid, letterSpacing: "0.03em" }}>
+                                    {new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                    {" · "}
+                                    {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                </div>
+                              )}
+                              {e.hospital && <div style={{ fontSize: 13, color: C.primary, marginTop: 4, fontWeight: 500 }}>{e.hospital}</div>}
+                              {e.location && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>{e.location}</div>}
+                              {e.protocol_for_use && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, fontStyle: "italic" }}>Protocol: {e.protocol_for_use}</div>}
+                              {e.logged_by && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "2px 10px" }}>
+                                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: C.primary, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "white", fontWeight: 700 }}>{e.logged_by.charAt(0).toUpperCase()}</div>
+                                  <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary }}>{e.logged_by}</span>
+                                </div>
+                              )}
+                            </>
                           )}
-                          {e.hospital && <div style={{ fontSize: 13, color: C.primary, marginTop: 4, fontWeight: 500 }}>{e.hospital}</div>}
-                          {e.location && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>{e.location}</div>}
-                          {e.protocol_for_use && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, fontStyle: "italic" }}>Protocol: {e.protocol_for_use}</div>}
-                          {e.logged_by && (
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "2px 10px" }}>
-                              <div style={{ width: 14, height: 14, borderRadius: "50%", background: C.primary, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "white", fontWeight: 700 }}>{e.logged_by.charAt(0).toUpperCase()}</div>
-                              <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary }}>{e.logged_by}</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }}>{e.notes}</div>}
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {isEditing ? (
+                              <>
+                                <button onClick={saveEdit} disabled={editSaving}
+                                  style={{ background: C.primary, border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>
+                                  {editSaving ? "SAVING..." : "SAVE"}
+                                </button>
+                                <button onClick={cancelEdit}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                                  CANCEL
+                                </button>
+                              </>
+                            ) : (
+                              <button onClick={() => startEdit(e)}
+                                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                EDIT
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {isEditing ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                          {METRICS.map(m => (
+                            <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
+                              <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
+                              <input type="number" min="0" placeholder="num" value={editForm[`${m.id}_num`] ?? ""} onChange={ev => setEditForm(f => ({ ...f, [`${m.id}_num`]: ev.target.value }))}
+                                style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 6px", fontSize: 12, color: C.ink, marginBottom: 4, outline: "none" }} />
+                              <input type="number" min="0" placeholder="den" value={editForm[`${m.id}_den`] ?? ""} onChange={ev => setEditForm(f => ({ ...f, [`${m.id}_den`]: ev.target.value }))}
+                                style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 6px", fontSize: 12, color: C.ink, outline: "none" }} />
+                              <div style={{ fontSize: 11, fontWeight: 700, color: pctColor(pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`])), textAlign: "center", marginTop: 4 }}>
+                                {pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`]) !== null ? `${pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`])}%` : "—"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                          {metrics.map(m => (
+                            <div key={m.label} style={{ background: pctBg(m.p), border: `1px solid ${m.p !== null ? pctColor(m.p) + "33" : C.border}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                              <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
+                              <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: m.p !== null ? pctColor(m.p) : C.inkFaint }}>{m.p !== null ? `${m.p}%` : "—"}</div>
+                              <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginTop: 2 }}>{m.num}/{m.den}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Photo section — edit mode upload + view mode thumbnails */}
+                      {isEditing && (
+                        <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 8 }}>PHOTOS ({((e.photos || []).length + editPhotos.length)}/3)</div>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                            {(e.photos || []).map((url, i) => (
+                              <div key={i} style={{ position: "relative" }}>
+                                <img src={url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
+                              </div>
+                            ))}
+                            {editPhotos.map((f, i) => (
+                              <div key={`new-${i}`} style={{ position: "relative" }}>
+                                <img src={URL.createObjectURL(f)} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: `2px solid ${C.primary}` }} />
+                                <button onClick={() => setEditPhotos(prev => prev.filter((_, j) => j !== i))}
+                                  style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: C.red, border: "none", color: "white", fontSize: 10, cursor: "pointer" }}>✕</button>
+                              </div>
+                            ))}
+                            {((e.photos || []).length + editPhotos.length) < 3 && (
+                              <label style={{ width: 72, height: 72, border: `2px dashed ${C.border}`, borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.inkLight, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", gap: 4 }}>
+                                <span style={{ fontSize: 20 }}>+</span>
+                                <span>PHOTO</span>
+                                <input type="file" accept="image/*" style={{ display: "none" }} onChange={ev => { const f = ev.target.files[0]; if (f) setEditPhotos(prev => [...prev, f]); ev.target.value = ""; }} />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* View mode: photo badge + expandable thumbnails */}
+                      {!isEditing && e.photos && e.photos.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <button onClick={() => setExpandedPhotos(prev => ({ ...prev, [e.id]: !prev[e.id] }))}
+                            style={{ background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "3px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            📷 {e.photos.length} PHOTO{e.photos.length !== 1 ? "S" : ""} {expandedPhotos[e.id] ? "▲" : "▼"}
+                          </button>
+                          {expandedPhotos[e.id] && (
+                            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                              {e.photos.map((url, i) => (
+                                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                  <img src={url} alt={`Photo ${i + 1}`} style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, cursor: "pointer", transition: "transform 0.15s" }}
+                                    onMouseEnter={el => el.target.style.transform = "scale(1.04)"}
+                                    onMouseLeave={el => el.target.style.transform = "scale(1)"} />
+                                </a>
+                              ))}
                             </div>
                           )}
                         </div>
-                        {e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 360, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }}>{e.notes}</div>}
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
-                        {metrics.map(m => (
-                          <div key={m.label} style={{ background: pctBg(m.p), border: `1px solid ${m.p !== null ? pctColor(m.p) + "33" : C.border}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                            <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
-                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: m.p !== null ? pctColor(m.p) : C.inkFaint }}>{m.p !== null ? `${m.p}%` : "—"}</div>
-                            <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginTop: 2 }}>{m.num}/{m.den}</div>
-                          </div>
-                        ))}
-                      </div>
+                      )}
                     </div>
                   );
                 })}
@@ -703,19 +1187,166 @@ export default function App() {
         )}
 
         {/* ── ADMIN ── */}
-        {tab === "admin" && isAdmin && (
+        {tab === "performers" && (
           <div>
             <div style={{ marginBottom: 28 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Admin Dashboard</h1>
-              <p style={{ color: C.inkMid, fontSize: 13 }}>Full visibility across all users, sessions, and hospitals.</p>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Performers</h1>
+              <p style={{ color: C.inkMid, fontSize: 13 }}>Ranked by overall average compliance across all metrics.</p>
             </div>
 
-            {/* Stats row */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
+            {(() => {
+              // Build hospital rankings
+              const hospitalMap = {};
+              entries.forEach(e => {
+                if (!e.hospital) return;
+                if (!hospitalMap[e.hospital]) hospitalMap[e.hospital] = [];
+                hospitalMap[e.hospital].push(e);
+              });
+              const hospitalRankings = Object.entries(hospitalMap).map(([hospital, sessions]) => {
+                const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                // Trend: compare last 3 sessions vs previous 3
+                const sorted = [...sessions].sort((a, b) => (a.created_at || a.date) > (b.created_at || b.date) ? 1 : -1);
+                const recent = sorted.slice(-3);
+                const previous = sorted.slice(-6, -3);
+                const recentAvg = recent.length ? Math.round(METRICS.flatMap(m => recent.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)).reduce((a, b) => a + b, 0) / METRICS.flatMap(m => recent.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)).length) : null;
+                const prevAvg = previous.length ? Math.round(METRICS.flatMap(m => previous.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)).reduce((a, b) => a + b, 0) / METRICS.flatMap(m => previous.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)).length) : null;
+                const trend = (recentAvg !== null && prevAvg !== null) ? recentAvg - prevAvg : null;
+                return { name: hospital, avg, sessions: sessions.length, trend };
+              }).filter(h => h.avg !== null).sort((a, b) => b.avg - a.avg);
+
+              // Build location rankings
+              const locationMap = {};
+              entries.forEach(e => {
+                if (!e.location) return;
+                const key = e.hospital ? `${e.location} · ${e.hospital}` : e.location;
+                if (!locationMap[key]) locationMap[key] = [];
+                locationMap[key].push(e);
+              });
+              const locationRankings = Object.entries(locationMap).map(([location, sessions]) => {
+                const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                const sorted = [...sessions].sort((a, b) => (a.created_at || a.date) > (b.created_at || b.date) ? 1 : -1);
+                const recent = sorted.slice(-3);
+                const previous = sorted.slice(-6, -3);
+                const recentVals = METRICS.flatMap(m => recent.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                const prevVals = METRICS.flatMap(m => previous.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                const recentAvg = recentVals.length ? Math.round(recentVals.reduce((a,b) => a+b,0) / recentVals.length) : null;
+                const prevAvg = prevVals.length ? Math.round(prevVals.reduce((a,b) => a+b,0) / prevVals.length) : null;
+                const trend = (recentAvg !== null && prevAvg !== null) ? recentAvg - prevAvg : null;
+                return { name: location, avg, sessions: sessions.length, trend };
+              }).filter(l => l.avg !== null).sort((a, b) => b.avg - a.avg);
+
+              const RankingTable = ({ title, icon, rankings }) => {
+                if (rankings.length === 0) return (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8 }}>{icon} {title}</div>
+                    <div style={{ fontSize: 13, color: C.inkLight }}>No data yet — log sessions with {title.toLowerCase()} to see rankings.</div>
+                  </div>
+                );
+                const top = rankings.slice(0, 3);
+                const bottom = rankings.length > 3 ? rankings.slice(-3).reverse() : [];
+                const medals = ["🥇", "🥈", "🥉"];
+
+                const Row = ({ item, rank, showMedal }) => {
+                  const trendColor = item.trend === null ? C.inkFaint : item.trend > 0 ? C.green : item.trend < 0 ? C.red : C.inkLight;
+                  const trendIcon = item.trend === null ? "" : item.trend > 0 ? "▲" : item.trend < 0 ? "▼" : "–";
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: C.bg, borderRadius: 8, marginBottom: 6 }}>
+                      <div style={{ fontSize: 18, width: 28, textAlign: "center", flexShrink: 0 }}>{showMedal ? medals[rank] : <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint }}>#{rankings.length - rank}</span>}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                        <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginTop: 2 }}>{item.sessions} session{item.sessions !== 1 ? "s" : ""}</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {item.trend !== null && (
+                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: trendColor, fontWeight: 600 }}>
+                            {trendIcon} {Math.abs(item.trend)}%
+                          </div>
+                        )}
+                        <div style={{ width: 80, height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${item.avg}%`, background: pctColor(item.avg), borderRadius: 3, transition: "width 0.6s ease" }} />
+                        </div>
+                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(item.avg), minWidth: 44, textAlign: "right" }}>{item.avg}%</div>
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>{icon} {title} · {rankings.length} TOTAL</div>
+                    <div style={{ display: "grid", gridTemplateColumns: bottom.length > 0 ? "1fr 1fr" : "1fr", gap: 24 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.green, letterSpacing: "0.08em", marginBottom: 10 }}>TOP PERFORMERS</div>
+                        {top.map((item, i) => <Row key={item.name} item={item} rank={i} showMedal={true} />)}
+                      </div>
+                      {bottom.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, letterSpacing: "0.08em", marginBottom: 10 }}>NEEDS ATTENTION</div>
+                          {bottom.map((item, i) => <Row key={item.name} item={item} rank={i} showMedal={false} />)}
+                        </div>
+                      )}
+                    </div>
+                    {rankings.length > 1 && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 16 }}>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>SPREAD</div>
+                        <div style={{ flex: 1, height: 6, background: C.surfaceAlt, borderRadius: 3, position: "relative" }}>
+                          <div style={{ position: "absolute", left: `${rankings[rankings.length-1].avg}%`, right: `${100 - rankings[0].avg}%`, top: 0, height: "100%", background: `linear-gradient(90deg, ${C.red}, ${C.green})`, borderRadius: 3 }} />
+                        </div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>
+                          <span style={{ color: C.red }}>{rankings[rankings.length-1].avg}%</span>
+                          <span style={{ margin: "0 6px" }}>→</span>
+                          <span style={{ color: C.green }}>{rankings[0].avg}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {/* Legend */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "10px 16px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>TREND (vs previous 3 sessions):</span>
+                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.green }}>▲ Improving</span>
+                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red }}>▼ Declining</span>
+                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>– Insufficient data</span>
+                  </div>
+                  <RankingTable title="HOSPITALS" icon="🏥" rankings={hospitalRankings} />
+                  <RankingTable title="LOCATIONS / UNITS" icon="📍" rankings={locationRankings} />
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {tab === "admin" && isAdmin && (
+          <div>
+            <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Admin Dashboard</h1>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>Full visibility across all users, sessions, and hospitals.</p>
+              </div>
+            </div>
+
+            {/* Admin sub-nav */}
+            <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0 }}>
+              {[["sessions","ALL SESSIONS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => (
+                <button key={id} onClick={() => setAdminSection(id)}
+                  style={{ padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.08em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Stats row - always visible */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
               {[
                 { label: "Total Sessions", value: allEntriesFull.length },
                 { label: "Hospitals", value: [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length },
-                { label: "Active Users", value: [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].length },
+                { label: "Active Users", value: userProfiles.filter(u => u.is_active !== false).length },
                 { label: "Avg Overall", value: (() => { const vals = METRICS.flatMap(m => allEntriesFull.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)); return vals.length ? `${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "—"; })() },
               ].map(s => (
                 <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
@@ -725,79 +1356,175 @@ export default function App() {
               ))}
             </div>
 
-            {/* Per-user breakdown */}
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>SESSIONS BY USER</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {users.map(u => {
-                  const userEntries = allEntriesFull.filter(e => e.logged_by === u);
-                  const overallVals = METRICS.flatMap(m => userEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-                  const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
-                  const lastSession = userEntries[userEntries.length - 1];
-                  return (
-                    <div key={u} style={{ display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", background: C.bg, borderRadius: 8 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.primaryLight, border: `1px solid ${C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, color: C.primary, flexShrink: 0 }}>{u.charAt(0).toUpperCase()}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{u}</div>
-                        <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
-                          {userEntries.length} session{userEntries.length !== 1 ? "s" : ""}
-                          {lastSession && ` · Last: ${formatTimestamp(lastSession.created_at, lastSession.date)}`}
+            {/* ── SESSIONS SECTION ── */}
+            {adminSection === "sessions" && (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>ALL SESSIONS ({allEntriesFull.length})</div>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ALL ${allEntriesFull.length} sessions? This cannot be undone.`)) return;
+                      const ids = allEntriesFull.map(e => e.id);
+                      const { error } = await supabase.from("sessions").delete().in("id", ids);
+                      if (error) { alert("Failed: " + error.message); return; }
+                      await logAudit("ALL_SESSIONS_DELETED", { count: ids.length });
+                      setAllEntriesFull([]); setEntries([]);
+                    }}
+                    style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                    DELETE ALL SESSIONS
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[...allEntriesFull].reverse().map(e => {
+                    const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                    const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
+                    return (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{e.date} {e.hospital && <span style={{ color: C.primary }}>· {e.hospital}</span>}</div>
+                          <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
+                            {e.location && `${e.location} · `}
+                            {formatTimestamp(e.created_at)}
+                            {e.logged_by && <span style={{ marginLeft: 6, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: "1px 8px", fontSize: 10 }}>{e.logged_by}</span>}
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
                         <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
-                        <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
+                        <button onClick={() => handleDelete(e.id)}
+                          style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}
+                          onMouseEnter={el => { el.target.style.background = C.redLight; el.target.style.borderColor = C.red; }}
+                          onMouseLeave={el => { el.target.style.background = "none"; el.target.style.borderColor = C.border; }}>
+                          DELETE
+                        </button>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Per-hospital breakdown */}
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 0 }}>ALL SESSIONS (ADMIN VIEW)</div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, marginTop: 8 }}>
-                <div style={{ fontSize: 12, color: C.inkLight }}>{allEntriesFull.length} total sessions</div>
-                <button
-                  onClick={async () => {
-                    if (!window.confirm(`Delete ALL ${allEntriesFull.length} sessions? This cannot be undone.`)) return;
-                    const ids = allEntriesFull.map(e => e.id);
-                    const { error } = await supabase.from("sessions").delete().in("id", ids);
-                    if (error) { alert("Failed: " + error.message); return; }
-                    setAllEntriesFull([]); setEntries([]);
-                  }}
-                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
-                  DELETE ALL SESSIONS
-                </button>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[...allEntriesFull].reverse().map(e => {
-                  const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-                  const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
-                  return (
-                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{e.date} {e.hospital && <span style={{ color: C.primary }}>· {e.hospital}</span>}</div>
-                        <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
-                          {e.location && `${e.location} · `}
-                          {formatTimestamp(e.created_at)}
-                          {e.logged_by && <span style={{ marginLeft: 6, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: "1px 8px", fontSize: 10 }}>{e.logged_by}</span>}
+            {/* ── USER MANAGEMENT SECTION ── */}
+            {adminSection === "users" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Per-user breakdown */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {userProfiles.map(profile => {
+                      const userSessions = allEntriesFull.filter(e => e.logged_by === profile.full_name || e.logged_by === profile.email);
+                      const overallVals = METRICS.flatMap(m => userSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                      const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
+                      const lastSession = userSessions[userSessions.length - 1];
+                      const isActive = profile.is_active !== false;
+                      const isAdminUser = ADMIN_EMAILS.includes(profile.email);
+                      return (
+                        <div key={profile.id} style={{ background: isActive ? C.bg : C.redLight, borderRadius: 10, padding: "14px 16px", border: `1px solid ${isActive ? C.border : "#f0c8c8"}`, opacity: isActive ? 1 : 0.7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: "50%", background: isAdminUser ? C.accentLight : C.primaryLight, border: `1px solid ${isAdminUser ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isAdminUser ? C.accent : C.primary, flexShrink: 0 }}>
+                              {(profile.full_name || profile.email).charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
+                                {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
+                                {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
+                                {profile.email} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}
+                                {lastSession && ` · Last: ${formatTimestamp(lastSession.created_at, lastSession.date)}`}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right", marginRight: 8 }}>
+                              <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
+                              <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
+                            </div>
+                            {!isAdminUser && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <button onClick={async () => {
+                                    const newStatus = !isActive;
+                                    const { error } = await supabase.from("user_profiles").update({ is_active: newStatus, deactivated_at: newStatus ? null : new Date().toISOString(), deactivated_by: newStatus ? null : (user?.user_metadata?.full_name || user?.email) }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, is_active: newStatus } : p));
+                                    await logAudit(newStatus ? "USER_REACTIVATED" : "USER_DEACTIVATED", { email: profile.email, name: profile.full_name }, profile.email);
+                                    const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+                                    if (freshAudit) setAuditLog(freshAudit);
+                                  }}
+                                  style={{ background: isActive ? C.redLight : C.greenLight, border: `1px solid ${isActive ? C.red : C.green}44`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: isActive ? C.red : C.green, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  {isActive ? "DEACTIVATE" : "REACTIVATE"}
+                                </button>
+                                <button onClick={async () => {
+                                    if (!window.confirm(`Send password reset email to ${profile.email}?`)) return;
+                                    const { error } = await supabase.auth.resetPasswordForEmail(profile.email);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    await logAudit("PASSWORD_RESET_SENT", { email: profile.email }, profile.email);
+                                    alert(`Password reset email sent to ${profile.email}`);
+                                  }}
+                                  style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  RESET PASSWORD
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
-                      <button
-                        onClick={() => handleDelete(e.id)}
-                        style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
-                        onMouseEnter={el => { el.target.style.background = C.redLight; el.target.style.borderColor = C.red; }}
-                        onMouseLeave={el => { el.target.style.background = "none"; el.target.style.borderColor = C.border; }}>
-                        DELETE
-                      </button>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                    {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* ── AUDIT LOG SECTION ── */}
+            {adminSection === "audit" && (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>AUDIT LOG · {auditLog.length} EVENTS</div>
+                {auditLog.length === 0 ? (
+                  <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No audit events recorded yet.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {auditLog.map(log => {
+                      const actionColors = {
+                        SESSION_CREATED: C.green, SESSION_EDITED: C.amber, SESSION_DELETED: C.red,
+                        USER_DEACTIVATED: C.red, USER_REACTIVATED: C.green, PASSWORD_RESET_SENT: C.primary,
+                        ALL_SESSIONS_DELETED: C.red,
+                      };
+                      const actionLabels = {
+                        SESSION_CREATED: "Session Created", SESSION_EDITED: "Session Edited",
+                        SESSION_DELETED: "Session Deleted", USER_DEACTIVATED: "User Deactivated",
+                        USER_REACTIVATED: "User Reactivated", PASSWORD_RESET_SENT: "Password Reset Sent",
+                        ALL_SESSIONS_DELETED: "All Sessions Deleted",
+                      };
+                      const color = actionColors[log.action] || C.inkLight;
+                      const label = actionLabels[log.action] || log.action;
+                      const details = log.details || {};
+                      return (
+                        <div key={log.id} style={{ display: "flex", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8, borderLeft: `3px solid ${color}` }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color }}>{label}</span>
+                              {details.hospital && <span style={{ fontSize: 11, color: C.inkMid }}>· {details.hospital}</span>}
+                              {details.date && <span style={{ fontSize: 11, color: C.inkLight }}>· {details.date}</span>}
+                              {log.target_user && <span style={{ fontSize: 11, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: "1px 8px" }}>{log.target_user}</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 3, fontFamily: "'IBM Plex Mono', monospace" }}>
+                              by {log.performed_by} · {formatTimestamp(log.created_at)}
+                            </div>
+                            {log.action === "SESSION_EDITED" && details.changed && Object.keys(details.changed).length > 0 && (
+                              <div style={{ marginTop: 6, fontSize: 11, color: C.inkLight }}>
+                                Changed: {Object.entries(details.changed).map(([k, v]) => (
+                                  <span key={k} style={{ marginRight: 8, background: C.amberLight, borderRadius: 4, padding: "1px 6px", color: C.amber }}>
+                                    {k}: "{String(v.from)}" → "{String(v.to)}"
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

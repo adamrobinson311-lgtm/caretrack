@@ -68,7 +68,7 @@ const addHeader = (doc, pageNum, totalPages) => {
   doc.text(`Generated ${today} · HoverTech CareTrack`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false) {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "") {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
   const avgMetrics = METRICS.map(m => {
@@ -216,16 +216,17 @@ export async function generatePdf(entries, summary = "", returnBase64 = false) {
     METRICS.slice(0, 4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
     METRICS.slice(4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
     e.logged_by || "—",
+    e.notes || "",
   ]);
 
   autoTable(doc, {
     startY: 40,
-    head: [["Timestamp", "Hospital", "Location", "MATT/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By"]],
+    head: [["Timestamp", "Hospital", "Location", "MATT/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
     body: tableRows,
     styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
     headStyles: { fillColor: BRAND.primary, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
-    columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 35 }, 2: { cellWidth: 28 }, 3: { cellWidth: 45 }, 4: { cellWidth: 28 }, 5: { cellWidth: 28 } },
+    columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 38 }, 4: { cellWidth: 24 }, 5: { cellWidth: 24 }, 6: { cellWidth: 22 } },
     margin: { left: 14, right: 14 },
     theme: "plain",
   });
@@ -360,5 +361,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false) {
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  doc.save(`CareTrack_Report_${dateStr}.pdf`);
+  const hospitalSlug = hospitalFilter && hospitalFilter !== "All" ? "_" + hospitalFilter.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_") : "";
+  doc.save(`CareTrack_Report${hospitalSlug}_${dateStr}.pdf`);
 }
