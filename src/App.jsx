@@ -328,20 +328,35 @@ export default function App() {
   const handleEmailSend = async (to) => {
     setEmailSending(true);
     try {
-      const pdfBase64 = await generatePdf(filteredDashboard, summary, true);
-      const res = await fetch("/api/send-report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to, pdfBase64, sessionCount: filteredDashboard.length,
-          hospitalFilter, senderName: user?.user_metadata?.full_name || user?.email,
-        }),
+      // Dynamically load EmailJS
+      await new Promise((resolve, reject) => {
+        if (window.emailjs) { resolve(); return; }
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+        script.onload = () => { window.emailjs.init("FcMXGUNqWT6UfP0Jj"); resolve(); };
+        script.onerror = reject;
+        document.head.appendChild(script);
       });
-      if (!res.ok) throw new Error("Send failed");
+
+      const pdfBase64 = await generatePdf(filteredDashboard, summary, true);
+      const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+      await window.emailjs.send("service_rw3zlj8", "template_1x3vxbi", {
+        to_email: to,
+        date: today,
+        session_count: filteredDashboard.length,
+        hospital_filter: hospitalFilter !== "All" ? hospitalFilter : "All Hospitals",
+        sender_name: user?.user_metadata?.full_name || user?.email || "CareTrack User",
+        pdf_attachment: pdfBase64,
+      });
+
       setShowEmailModal(false);
       setEmailSuccess(`Report sent to ${to}`);
       setTimeout(() => setEmailSuccess(""), 4000);
-    } catch (e) { alert("Failed to send email: " + e.message); }
+    } catch (e) {
+      console.error("EmailJS error:", e);
+      alert("Failed to send email: " + (e?.text || e.message || "Unknown error"));
+    }
     setEmailSending(false);
   };
 
