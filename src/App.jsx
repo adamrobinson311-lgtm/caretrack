@@ -725,6 +725,7 @@ export default function App() {
   const userName = user?.user_metadata?.full_name || user?.email;
 
   return (
+    <>
     <div style={{ background: C.bg, minHeight: "100vh", color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
@@ -1592,7 +1593,6 @@ export default function App() {
           </div>
         )}
       </div>
-    </div>
 
       {/* ── ONBOARDING MODAL ───────────────────────────────────────────────── */}
       {showOnboarding && user && (
@@ -1756,5 +1756,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </>
   );
 }
