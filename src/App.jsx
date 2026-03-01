@@ -4,6 +4,7 @@ import { supabase } from "./supabaseClient";
 import { generatePptx } from "./generatePptx";
 import { generatePdf } from "./generatePdf";
 import { generateXlsx } from "./generateXlsx";
+import { MetricIcon } from "./MetricIcons";
 
 const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
@@ -17,10 +18,10 @@ const C = {
 };
 
 const METRICS = [
-  { id: "matt_applied",     label: "MATT Applied",           desc: "Qualifying patients that had MATT applied" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had MATT applied" },
   { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
-  { id: "matt_proper",      label: "MATT Applied Properly",  desc: "Patients that had MATT applied properly" },
+  { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had MATT applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
@@ -898,7 +899,10 @@ export default function App() {
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
                     <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
-                      <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, marginBottom: 10 }}>{m.label}</div>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, flex: 1, paddingRight: 8 }}>{m.label}</div>
+                        <MetricIcon id={m.id} size={22} color={m.avg !== null ? pctColor(m.avg) : C.inkFaint} />
+                      </div>
                       <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>{m.avg !== null ? `${m.avg}%` : "—"}</div>
                       <div style={{ marginTop: 8, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden", position: "relative" }}>
                         <div style={{ height: "100%", width: `${m.avg ?? 0}%`, background: m.avg !== null ? pctColor(m.avg) : C.inkFaint, borderRadius: 2, transition: "width 0.6s ease" }} />

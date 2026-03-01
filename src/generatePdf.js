@@ -16,10 +16,10 @@ const BRAND = {
 };
 
 const METRICS = [
-  { id: "matt_applied",     label: "MATT Applied" },
+  { id: "matt_applied",     label: "Matt Applied" },
   { id: "wedges_applied",   label: "Wedges Applied" },
   { id: "turning_criteria", label: "Turning & Repositioning" },
-  { id: "matt_proper",      label: "MATT Applied Properly" },
+  { id: "matt_proper",      label: "Matt Applied Properly" },
   { id: "wedges_in_room",   label: "Wedges in Room" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading" },
   { id: "air_supply",       label: "Air Supply in Room" },
@@ -74,6 +74,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const avgMetrics = METRICS.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
+  }).sort((a, b) => {
+    const rank = (v) => v === null ? 3 : v >= 90 ? 0 : v >= 70 ? 1 : 2;
+    return rank(a.avg) - rank(b.avg);
   });
 
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
@@ -143,8 +146,86 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
+  // Icon drawing helper — draws each metric icon using jsPDF primitives
+  const drawMetricIcon = (doc, id, cx, cy, size, color) => {
+    const s = size / 24; // scale factor (icons designed at 24x24)
+    const x = cx - size / 2; // top-left x
+    const y = cy - size / 2; // top-left y
+    const sc = (v) => v * s; // scale value
+    const px = (v) => x + sc(v); // absolute x
+    const py = (v) => y + sc(v); // absolute y
+    doc.setDrawColor(...color);
+    doc.setFillColor(...color);
+    const lw = sc(1.4);
+
+    if (id === "matt_applied") {
+      doc.setLineWidth(lw);
+      doc.roundedRect(px(2), py(7), sc(20), sc(10), sc(2.5), sc(2.5), "S");
+      doc.setLineWidth(sc(1)); doc.line(px(8), py(7), px(8), py(17)); doc.line(px(16), py(7), px(16), py(17)); doc.line(px(2), py(12), px(22), py(12));
+      doc.setLineWidth(0); doc.circle(px(18.5), py(6.5), sc(4), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.4));
+      doc.lines([[sc(1.8), sc(1.7)], [sc(3), sc(-3.2)]], px(16.2), py(6.5));
+    } else if (id === "wedges_applied") {
+      doc.setLineWidth(lw);
+      doc.lines([[sc(5), sc(-9)], [sc(5), sc(9)]], px(2), py(19), [[1,1]], "S");
+      doc.lines([[sc(5), sc(-9)], [sc(5), sc(9)]], px(12), py(19), [[1,1]], "S");
+      doc.line(px(2), py(19), px(22), py(19));
+      doc.setLineWidth(0); doc.circle(px(19), py(7), sc(4), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.lines([[sc(1.7), sc(1.8)], [sc(3), sc(-3.6)]], px(16.8), py(7));
+    } else if (id === "turning_criteria") {
+      doc.setLineWidth(lw); doc.circle(px(12), py(10), sc(8.5), "S");
+      doc.line(px(12), py(10), px(12), py(5.5)); doc.line(px(12), py(10), px(15.5), py(12));
+      doc.setLineWidth(0); doc.circle(px(12), py(10), sc(1), "F");
+      doc.setFillColor(...BRAND.white); doc.circle(px(12), py(17), sc(3), "FD");
+      doc.setDrawColor(...color); doc.setLineWidth(lw);
+      doc.lines([[sc(-5), sc(4)]], px(12), py(21), [[1,1]], "S");
+      doc.lines([[sc(5), sc(4)]], px(12), py(21), [[1,1]], "S");
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.5));
+      doc.line(px(8.5), py(20.2), px(15.5), py(20.2));
+    } else if (id === "matt_proper") {
+      doc.setLineWidth(lw); doc.roundedRect(px(1), py(5), sc(17), sc(14), sc(2), sc(2), "S");
+      doc.setLineWidth(sc(1.2)); doc.line(px(9.5), py(9), px(9.5), py(15)); doc.line(px(6.5), py(12), px(12.5), py(12));
+      doc.setLineWidth(sc(1.1));
+      doc.lines([[sc(-1.3), sc(1.2)], [sc(1.3), sc(-1.2)]], px(8.2), py(10.2)); // up arrow
+      doc.lines([[sc(-1.3), sc(-1.2)], [sc(1.3), sc(1.2)]], px(8.2), py(13.8)); // down arrow
+      doc.lines([[sc(1.3), sc(-1.3)], [sc(-1.3), sc(1.3)]], px(7.8), py(10.7)); // left arrow
+      doc.lines([[sc(-1.3), sc(-1.3)], [sc(1.3), sc(1.3)]], px(11.2), py(10.7)); // right arrow
+      doc.setFillColor(...BRAND.white);
+      doc.lines([[sc(4), sc(2)], [sc(0), sc(4)], [sc(-4), sc(2)], [sc(-4), sc(-3)], [sc(4), sc(-3)]], px(19), py(2), [[1,1]], "FD");
+      doc.setDrawColor(...color); doc.setLineWidth(sc(1.3));
+      doc.lines([[sc(1.6), sc(1.7)], [sc(2.4), sc(-3.4)]], px(17.2), py(7.5));
+    } else if (id === "wedges_in_room") {
+      doc.setLineWidth(lw);
+      doc.lines([[sc(-6), sc(6)], [sc(0), sc(12)], [sc(6), sc(-6)], [sc(0), sc(-12)]], px(12), py(2), [[1,1]], "S");
+      doc.setLineWidth(0);
+      doc.lines([[sc(-3.5), sc(4.5)], [sc(3.5), sc(0)], [sc(3.5), sc(-4.5)], [sc(-3.5), sc(0)]], px(8.5), py(5.5), [[1,1]], "F");
+      doc.setDrawColor(...color); doc.setLineWidth(sc(1.2));
+      doc.line(px(8.5), py(10), px(15.5), py(10));
+    } else if (id === "wedge_offload") {
+      doc.setLineWidth(lw); doc.circle(px(3.5), py(5), sc(2.2), "S");
+      doc.roundedRect(px(7), py(3), sc(14), sc(4), sc(2), sc(2), "S");
+      doc.setLineWidth(sc(1.3));
+      doc.lines([[sc(7), sc(4)], [sc(-7), sc(0)], [sc(-7), sc(-4)]], px(1), py(15), [[1,1]], "S");
+      doc.setLineWidth(sc(0.9)); doc.line(px(10), py(16.5), px(10), py(14)); doc.line(px(11.2), py(16.5), px(11.2), py(13.5)); doc.line(px(12.4), py(16.5), px(12.4), py(14)); doc.line(px(13.6), py(16.5), px(13.6), py(14.5));
+      doc.setLineWidth(sc(1)); doc.lines([[sc(0), sc(2)], [sc(3.6), sc(0)], [sc(0), sc(-2)]], px(10), py(16.5), [[1,1]], "S");
+      doc.setLineWidth(sc(1.3));
+      doc.lines([[sc(7), sc(-4)], [sc(0), sc(4)], [sc(-7), sc(0)], [sc(0), sc(-4)]], px(15), py(13), [[1,1]], "S");
+    } else if (id === "air_supply") {
+      doc.setLineWidth(lw);
+      doc.line(px(3), py(20), px(3), py(4)); doc.line(px(3), py(4), px(21), py(4)); doc.line(px(21), py(4), px(21), py(20));
+      doc.line(px(2), py(20), px(22), py(20));
+      doc.setLineWidth(sc(1.5));
+      doc.lines([[sc(2.5), sc(-2.5)], [sc(2.5), sc(2.5)], [sc(2.5), sc(-2.5)], [sc(1.5), sc(2.5)]], px(6), py(10), [[1,1]], "S");
+      doc.lines([[sc(2.5), sc(-2.5)], [sc(2.5), sc(2.5)], [sc(2.5), sc(-2.5)], [sc(1.5), sc(2.5)]], px(6), py(15), [[1,1]], "S");
+      doc.setLineWidth(0); doc.circle(px(19), py(4), sc(4), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.lines([[sc(1.7), sc(1.8)], [sc(3), sc(-3.6)]], px(16.8), py(4));
+    }
+  };
+
   // Metric cards — 2 rows of 4 + 3
-  const cardW = 44, cardH = 38, startY = 48, gap = 2;
+  const cardW = 44, cardH = 44, startY = 48, gap = 2;
   avgMetrics.forEach((m, i) => {
     const col = i % 4;
     const row = Math.floor(i / 4);
@@ -157,34 +238,37 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setFillColor(...color);
     doc.rect(cx, cy, cardW, 2, "F");
 
+    // Icon
+    drawMetricIcon(doc, m.id, cx + cardW / 2, cy + 10, 10, color);
+
     doc.setTextColor(...BRAND.inkLight);
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     const lines = doc.splitTextToSize(m.label, cardW - 4);
-    doc.text(lines, cx + cardW / 2, cy + 8, { align: "center" });
+    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
 
     doc.setTextColor(...color);
     doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
-    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 22, { align: "center" });
+    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
 
     // Progress bar
     doc.setFillColor(...BRAND.light);
-    doc.rect(cx + 4, cy + 27, cardW - 8, 3, "F");
+    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
     if (m.avg !== null) {
       doc.setFillColor(...color);
-      doc.rect(cx + 4, cy + 27, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
+      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
     }
 
     const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
     doc.setFontSize(6);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...color);
-    doc.text(status, cx + cardW / 2, cy + 35, { align: "center" });
+    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
   });
 
   // Legend
-  const legendY = 180;
+  const legendY = 210;
   [[BRAND.green, "≥ 90% — On Target"], [BRAND.amber, "70–89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
@@ -223,7 +307,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   autoTable(doc, {
     startY: 40,
-    head: [["Timestamp", "Hospital", "Location", "MATT/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
+    head: [["Timestamp", "Hospital", "Location", "Matt/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
     body: tableRows,
     styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
     headStyles: { fillColor: BRAND.primary, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },

@@ -22,10 +22,10 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   };
 
   const METRICS = [
-    { id: "matt_applied",     label: "MATT Applied" },
+    { id: "matt_applied",     label: "Matt Applied" },
     { id: "wedges_applied",   label: "Wedges Applied" },
     { id: "turning_criteria", label: "Turning & Repositioning" },
-    { id: "matt_proper",      label: "MATT Applied Properly" },
+    { id: "matt_proper",      label: "Matt Applied Properly" },
     { id: "wedges_in_room",   label: "Wedges in Room" },
     { id: "wedge_offload",    label: "Proper Wedge Offloading" },
     { id: "air_supply",       label: "Air Supply in Room" },
@@ -47,6 +47,9 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   const avgMetrics = METRICS.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
+  }).sort((a, b) => {
+    const rank = (v) => v === null ? 3 : v >= 90 ? 0 : v >= 70 ? 1 : 2;
+    return rank(a.avg) - rank(b.avg);
   });
 
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
@@ -81,20 +84,39 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s2.addText(`Across all ${entries.length} logged sessions`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
 
   const cardW = 1.26, cardH = 2.8, cardY = 1.62, cardGap = 0.08;
+
+  // SVG icon data URIs for each metric — rendered as images on cards
+  const ICON_SVGS = {
+    matt_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    wedges_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M2 19 L7 10 L12 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${col}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="10" r="8.5" stroke="${col}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${col}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${col}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
+    matt_proper: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${col}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${col}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    wedges_in_room: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${col}" stroke-width="1.2" stroke-linejoin="round" fill="${col}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+    wedge_offload: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="3.5" cy="5" r="2.2" stroke="${col}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${col}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 L12.4 14 M13.6 16.5 L13.6 14.5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${col}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+    air_supply: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="4" r="4" fill="${col}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  };
+
+  const svgToDataUri = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
+
   avgMetrics.forEach((m, i) => {
     const cx = 0.38 + i * (cardW + cardGap);
     const col = pctColor(m.avg);
+    const hexCol = `#${col}`;
     s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.08 } });
     s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: 0.12, fill: { color: col }, line: { color: col } });
-    s2.addText(m.label, { x: cx + 0.1, y: cardY + 0.2, w: cardW - 0.2, h: 0.7, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
-    s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 0.9, w: cardW - 0.1, h: 0.75, fontSize: 28, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.82, w: cardW - 0.3, h: 0.14, fill: { color: BRAND.light }, line: { color: BRAND.light } });
+    // Icon
+    if (ICON_SVGS[m.id]) {
+      s2.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + (cardW - 0.45) / 2, y: cardY + 0.16, w: 0.45, h: 0.45 });
+    }
+    s2.addText(m.label, { x: cx + 0.1, y: cardY + 0.68, w: cardW - 0.2, h: 0.56, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
+    s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 1.22, w: cardW - 0.1, h: 0.65, fontSize: 26, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
+    s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: cardW - 0.3, h: 0.14, fill: { color: BRAND.light }, line: { color: BRAND.light } });
     if (m.avg !== null) {
       const barW = Math.max(0.04, ((cardW - 0.3) * m.avg) / 100);
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.82, w: barW, h: 0.14, fill: { color: col }, line: { color: col } });
+      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: barW, h: 0.14, fill: { color: col }, line: { color: col } });
     }
     const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-    s2.addText(status, { x: cx + 0.05, y: cardY + 2.12, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
+    s2.addText(status, { x: cx + 0.05, y: cardY + 2.25, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
   });
   [["≥ 90%", BRAND.green, "On Target"], ["70–89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
     const lx = 0.38 + i * 3.1;
@@ -158,7 +180,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const recentSessions = [...entries].reverse().slice(0, 12);
   const hdrOpts = (text) => ({ text, options: { fill: { color: BRAND.primary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
-  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("MATT"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("MATT Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
+  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
 
   const tableRows = recentSessions.map((e, idx) => {
     const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
