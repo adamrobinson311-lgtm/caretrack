@@ -146,82 +146,25 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Icon drawing helper — draws each metric icon using jsPDF primitives
-  const drawMetricIcon = (doc, id, cx, cy, size, color) => {
-    const s = size / 24; // scale factor (icons designed at 24x24)
-    const x = cx - size / 2; // top-left x
-    const y = cy - size / 2; // top-left y
-    const sc = (v) => v * s; // scale value
-    const px = (v) => x + sc(v); // absolute x
-    const py = (v) => y + sc(v); // absolute y
-    doc.setDrawColor(...color);
-    doc.setFillColor(...color);
-    const lw = sc(1.4);
+  // Icon drawing helper — renders icons as SVG data URIs (reliable cross-browser)
+  const ICON_SVGS = {
+    matt_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    wedges_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M2 19 L7 10 L12 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${col}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="10" r="8.5" stroke="${col}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${col}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${col}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
+    matt_proper: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${col}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${col}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    wedges_in_room: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${col}" stroke-width="1.2" stroke-linejoin="round" fill="${col}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+    wedge_offload: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="3.5" cy="5" r="2.2" stroke="${col}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${col}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 L12.4 14 M13.6 16.5 L13.6 14.5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${col}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+    air_supply: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="4" r="4" fill="${col}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  };
 
-    if (id === "matt_applied") {
-      doc.setLineWidth(lw);
-      doc.roundedRect(px(2), py(7), sc(20), sc(10), sc(2.5), sc(2.5), "S");
-      doc.setLineWidth(sc(1)); doc.line(px(8), py(7), px(8), py(17)); doc.line(px(16), py(7), px(16), py(17)); doc.line(px(2), py(12), px(22), py(12));
-      doc.setLineWidth(0); doc.circle(px(18.5), py(6.5), sc(4), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.4));
-      doc.lines([[sc(1.8), sc(1.7)], [sc(3), sc(-3.2)]], px(16.2), py(6.5));
-    } else if (id === "wedges_applied") {
-      doc.setLineWidth(lw);
-      doc.lines([[sc(5), sc(-9)], [sc(5), sc(9)]], px(2), py(19), [[1,1]], "S");
-      doc.lines([[sc(5), sc(-9)], [sc(5), sc(9)]], px(12), py(19), [[1,1]], "S");
-      doc.line(px(2), py(19), px(22), py(19));
-      doc.setLineWidth(0); doc.circle(px(19), py(7), sc(4), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.lines([[sc(1.7), sc(1.8)], [sc(3), sc(-3.6)]], px(16.8), py(7));
-    } else if (id === "turning_criteria") {
-      doc.setLineWidth(lw); doc.circle(px(12), py(10), sc(8.5), "S");
-      doc.line(px(12), py(10), px(12), py(5.5)); doc.line(px(12), py(10), px(15.5), py(12));
-      doc.setLineWidth(0); doc.circle(px(12), py(10), sc(1), "F");
-      doc.setFillColor(...BRAND.white); doc.circle(px(12), py(17), sc(3), "FD");
-      doc.setDrawColor(...color); doc.setLineWidth(lw);
-      doc.lines([[sc(-5), sc(4)]], px(12), py(21), [[1,1]], "S");
-      doc.lines([[sc(5), sc(4)]], px(12), py(21), [[1,1]], "S");
-      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.5));
-      doc.line(px(8.5), py(20.2), px(15.5), py(20.2));
-    } else if (id === "matt_proper") {
-      doc.setLineWidth(lw); doc.roundedRect(px(1), py(5), sc(17), sc(14), sc(2), sc(2), "S");
-      doc.setLineWidth(sc(1.2)); doc.line(px(9.5), py(9), px(9.5), py(15)); doc.line(px(6.5), py(12), px(12.5), py(12));
-      doc.setLineWidth(sc(1.1));
-      doc.lines([[sc(-1.3), sc(1.2)], [sc(1.3), sc(-1.2)]], px(8.2), py(10.2)); // up arrow
-      doc.lines([[sc(-1.3), sc(-1.2)], [sc(1.3), sc(1.2)]], px(8.2), py(13.8)); // down arrow
-      doc.lines([[sc(1.3), sc(-1.3)], [sc(-1.3), sc(1.3)]], px(7.8), py(10.7)); // left arrow
-      doc.lines([[sc(-1.3), sc(-1.3)], [sc(1.3), sc(1.3)]], px(11.2), py(10.7)); // right arrow
-      doc.setFillColor(...BRAND.white);
-      doc.lines([[sc(4), sc(2)], [sc(0), sc(4)], [sc(-4), sc(2)], [sc(-4), sc(-3)], [sc(4), sc(-3)]], px(19), py(2), [[1,1]], "FD");
-      doc.setDrawColor(...color); doc.setLineWidth(sc(1.3));
-      doc.lines([[sc(1.6), sc(1.7)], [sc(2.4), sc(-3.4)]], px(17.2), py(7.5));
-    } else if (id === "wedges_in_room") {
-      doc.setLineWidth(lw);
-      doc.lines([[sc(-6), sc(6)], [sc(0), sc(12)], [sc(6), sc(-6)], [sc(0), sc(-12)]], px(12), py(2), [[1,1]], "S");
-      doc.setLineWidth(0);
-      doc.lines([[sc(-3.5), sc(4.5)], [sc(3.5), sc(0)], [sc(3.5), sc(-4.5)], [sc(-3.5), sc(0)]], px(8.5), py(5.5), [[1,1]], "F");
-      doc.setDrawColor(...color); doc.setLineWidth(sc(1.2));
-      doc.line(px(8.5), py(10), px(15.5), py(10));
-    } else if (id === "wedge_offload") {
-      doc.setLineWidth(lw); doc.circle(px(3.5), py(5), sc(2.2), "S");
-      doc.roundedRect(px(7), py(3), sc(14), sc(4), sc(2), sc(2), "S");
-      doc.setLineWidth(sc(1.3));
-      doc.lines([[sc(7), sc(4)], [sc(-7), sc(0)], [sc(-7), sc(-4)]], px(1), py(15), [[1,1]], "S");
-      doc.setLineWidth(sc(0.9)); doc.line(px(10), py(16.5), px(10), py(14)); doc.line(px(11.2), py(16.5), px(11.2), py(13.5)); doc.line(px(12.4), py(16.5), px(12.4), py(14)); doc.line(px(13.6), py(16.5), px(13.6), py(14.5));
-      doc.setLineWidth(sc(1)); doc.lines([[sc(0), sc(2)], [sc(3.6), sc(0)], [sc(0), sc(-2)]], px(10), py(16.5), [[1,1]], "S");
-      doc.setLineWidth(sc(1.3));
-      doc.lines([[sc(7), sc(-4)], [sc(0), sc(4)], [sc(-7), sc(0)], [sc(0), sc(-4)]], px(15), py(13), [[1,1]], "S");
-    } else if (id === "air_supply") {
-      doc.setLineWidth(lw);
-      doc.line(px(3), py(20), px(3), py(4)); doc.line(px(3), py(4), px(21), py(4)); doc.line(px(21), py(4), px(21), py(20));
-      doc.line(px(2), py(20), px(22), py(20));
-      doc.setLineWidth(sc(1.5));
-      doc.lines([[sc(2.5), sc(-2.5)], [sc(2.5), sc(2.5)], [sc(2.5), sc(-2.5)], [sc(1.5), sc(2.5)]], px(6), py(10), [[1,1]], "S");
-      doc.lines([[sc(2.5), sc(-2.5)], [sc(2.5), sc(2.5)], [sc(2.5), sc(-2.5)], [sc(1.5), sc(2.5)]], px(6), py(15), [[1,1]], "S");
-      doc.setLineWidth(0); doc.circle(px(19), py(4), sc(4), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.lines([[sc(1.7), sc(1.8)], [sc(3), sc(-3.6)]], px(16.8), py(4));
-    }
+  const drawMetricIcon = (doc, id, cx, cy, sizeMm, colorArr) => {
+    try {
+      const hex = "#" + colorArr.map(v => v.toString(16).padStart(2, "0")).join("");
+      const svg = ICON_SVGS[id] ? ICON_SVGS[id](hex) : null;
+      if (!svg) return;
+      const dataUri = "data:image/svg+xml;base64," + btoa(svg);
+      doc.addImage(dataUri, "SVG", cx - sizeMm / 2, cy - sizeMm / 2, sizeMm, sizeMm);
+    } catch (e) { /* silently skip icon if rendering fails */ }
   };
 
   // Metric cards — 2 rows of 4 + 3
