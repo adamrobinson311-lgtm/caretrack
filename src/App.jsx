@@ -124,33 +124,46 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 const MetricInput = ({ metric, num, den, onChange }) => {
-  const p = pct(num, den);
+  const isNA = num === "na" && den === "na";
+  const p = isNA ? null : pct(num, den);
   return (
-    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, fontFamily: "'Libre Baskerville', serif" }}>{metric.label}</div>
-        <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{metric.desc}</div>
+    <div style={{ background: isNA ? C.surfaceAlt : C.surface, border: `1px solid ${isNA ? C.border : C.border}`, borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10, opacity: isNA ? 0.6 : 1, transition: "opacity 0.2s" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, fontFamily: "'Libre Baskerville', serif" }}>{metric.label}</div>
+          <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{metric.desc}</div>
+        </div>
+        <button
+          onClick={() => { isNA ? (onChange("num", ""), onChange("den", "")) : (onChange("num", "na"), onChange("den", "na")); }}
+          style={{ flexShrink: 0, marginLeft: 12, padding: "3px 10px", borderRadius: 20, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${isNA ? C.primary : C.border}`, background: isNA ? C.primary : "none", color: isNA ? "white" : C.inkLight }}>
+          N/A
+        </button>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>QUALIFYING</label>
-          <input type="number" min="0" value={den} onChange={e => onChange("den", e.target.value)} placeholder="0"
-            style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, outline: "none" }}
-            onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-        </div>
-        <div style={{ paddingTop: 18, color: C.inkFaint, fontSize: 18 }}>÷</div>
-        <div style={{ flex: 1 }}>
-          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>HAD APPLIED</label>
-          <input type="number" min="0" value={num} onChange={e => onChange("num", e.target.value)} placeholder="0"
-            style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, outline: "none" }}
-            onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-        </div>
-        <div style={{ paddingTop: 18 }}>
-          <div style={{ background: pctBg(p), border: `1px solid ${p !== null ? pctColor(p) + "44" : C.border}`, borderRadius: 8, padding: "8px 12px", minWidth: 60, textAlign: "center" }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: p !== null ? pctColor(p) : C.inkFaint }}>{p !== null ? `${p}%` : "—"}</div>
+      {!isNA && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>QUALIFYING</label>
+            <input type="number" min="0" value={den} onChange={e => onChange("den", e.target.value)} placeholder="0"
+              style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, outline: "none" }}
+              onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+          </div>
+          <div style={{ paddingTop: 18, color: C.inkFaint, fontSize: 18 }}>÷</div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>HAD APPLIED</label>
+            <input type="number" min="0" value={num} onChange={e => onChange("num", e.target.value)} placeholder="0"
+              style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, outline: "none" }}
+              onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+          </div>
+          <div style={{ paddingTop: 18 }}>
+            <div style={{ background: pctBg(p), border: `1px solid ${p !== null ? pctColor(p) + "44" : C.border}`, borderRadius: 8, padding: "8px 12px", minWidth: 60, textAlign: "center" }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: p !== null ? pctColor(p) : C.inkFaint }}>{p !== null ? `${p}%` : "—"}</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+      {isNA && (
+        <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em" }}>NOT APPLICABLE — excluded from calculations</div>
+      )}
     </div>
   );
 };
@@ -508,7 +521,7 @@ export default function App() {
     if (!form.date) { setSaveError("Date is required."); return; }
     if (!form.hospital.trim()) { setSaveError("Hospital name is required."); return; }
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
-    const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_den`] !== "");
+    const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
     if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
 
     // Duplicate check
@@ -523,7 +536,7 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
-      ...Object.fromEntries(METRICS.flatMap(m => [[`${m.id}_num`, parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, parseInt(form[`${m.id}_den`]) || null]])),
+      ...Object.fromEntries(METRICS.flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
     };
     // If offline, queue the session locally
     if (!isOnline) {
@@ -894,21 +907,15 @@ export default function App() {
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
             </div>
             <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE</label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink }}
+                onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
               <HospitalInput value={form.hospital} onChange={val => setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" }))} hospitals={hospitals} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PROTOCOL FOR USE</label>
-              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this session..."
-                rows={3} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, resize: "vertical", lineHeight: 1.6 }}
-                onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE</label>
-                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink }}
-                  onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-              </div>
               <UnitInput
                 value={form.location}
                 hospital={form.hospital}
@@ -917,6 +924,12 @@ export default function App() {
                   setForm(f => ({ ...f, location: val, ...(savedProtocol ? { protocol_for_use: savedProtocol } : {}) }));
                 }}
               />
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PROTOCOL FOR USE</label>
+              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this session..."
+                rows={3} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, resize: "vertical", lineHeight: 1.6 }}
+                onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               {METRICS.map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
