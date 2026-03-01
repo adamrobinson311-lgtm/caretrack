@@ -146,25 +146,99 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Icon drawing helper — renders icons as SVG data URIs (reliable cross-browser)
-  const ICON_SVGS = {
-    matt_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    wedges_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M2 19 L7 10 L12 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${col}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="10" r="8.5" stroke="${col}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${col}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${col}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
-    matt_proper: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${col}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${col}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    wedges_in_room: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${col}" stroke-width="1.2" stroke-linejoin="round" fill="${col}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
-    wedge_offload: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="3.5" cy="5" r="2.2" stroke="${col}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${col}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 L12.4 14 M13.6 16.5 L13.6 14.5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${col}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
-    air_supply: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="4" r="4" fill="${col}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  };
+  // Draw icons using jsPDF primitives only (no canvas, no SVG import)
+  const drawIcon = (id, cx, cy, sz, rgb) => {
+    const s = sz / 24;
+    const x = (v) => cx - sz / 2 + v * s;
+    const y = (v) => cy - sz / 2 + v * s;
+    const sc = (v) => v * s;
+    doc.setDrawColor(...rgb);
+    doc.setFillColor(...rgb);
 
-  const drawMetricIcon = (doc, id, cx, cy, sizeMm, colorArr) => {
-    try {
-      const hex = "#" + colorArr.map(v => v.toString(16).padStart(2, "0")).join("");
-      const svg = ICON_SVGS[id] ? ICON_SVGS[id](hex) : null;
-      if (!svg) return;
-      const dataUri = "data:image/svg+xml;base64," + btoa(svg);
-      doc.addImage(dataUri, "SVG", cx - sizeMm / 2, cy - sizeMm / 2, sizeMm, sizeMm);
-    } catch (e) { /* silently skip icon if rendering fails */ }
+    if (id === "matt_applied") {
+      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(2), y(7), sc(20), sc(10), sc(2), sc(2), "S");
+      doc.setLineWidth(sc(0.8));
+      doc.line(x(8), y(7), x(8), y(17));
+      doc.line(x(16), y(7), x(16), y(17));
+      doc.line(x(2), y(12), x(22), y(12));
+      doc.setLineWidth(0); doc.circle(x(18.5), y(6.5), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(16.5), y(6.5), x(18), y(8)); doc.line(x(18), y(8), x(20.5), y(5.2));
+
+    } else if (id === "wedges_applied") {
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(2), y(19), x(7), y(10)); doc.line(x(7), y(10), x(12), y(19)); doc.line(x(2), y(19), x(12), y(19));
+      doc.line(x(12), y(19), x(17), y(10)); doc.line(x(17), y(10), x(22), y(19)); doc.line(x(12), y(19), x(22), y(19));
+      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(17), y(7), x(18.5), y(8.8)); doc.line(x(18.5), y(8.8), x(21), y(5.2));
+
+    } else if (id === "turning_criteria") {
+      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(10), sc(8), "S");
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(10), x(12), y(5.5));
+      doc.line(x(12), y(10), x(15.5), y(12));
+      doc.setLineWidth(0); doc.circle(x(12), y(10), sc(1), "F");
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.4));
+      doc.circle(x(12), y(17), sc(3), "FD");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.5));
+      doc.line(x(8.5), y(20.5), x(15.5), y(20.5));
+
+    } else if (id === "matt_proper") {
+      doc.setLineWidth(sc(1.4)); doc.roundedRect(x(1), y(5), sc(17), sc(14), sc(1.5), sc(1.5), "S");
+      doc.setLineWidth(sc(1.2));
+      doc.line(x(9.5), y(9), x(9.5), y(15));
+      doc.line(x(6.5), y(12), x(12.5), y(12));
+      doc.setLineWidth(sc(1.1));
+      doc.line(x(8.2), y(10.2), x(9.5), y(9)); doc.line(x(9.5), y(9), x(10.8), y(10.2));
+      doc.line(x(8.2), y(13.8), x(9.5), y(15)); doc.line(x(9.5), y(15), x(10.8), y(13.8));
+      doc.line(x(7.8), y(10.7), x(6.5), y(12)); doc.line(x(6.5), y(12), x(7.8), y(13.3));
+      doc.line(x(11.2), y(10.7), x(12.5), y(12)); doc.line(x(12.5), y(12), x(11.2), y(13.3));
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(15), y(4), x(23), y(4)); doc.line(x(23), y(4), x(19), y(13)); doc.line(x(19), y(13), x(15), y(4));
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.3));
+      doc.line(x(17.2), y(7.5), x(18.8), y(9.2)); doc.line(x(18.8), y(9.2), x(21.2), y(5.8));
+
+    } else if (id === "wedges_in_room") {
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(2), x(6), y(8)); doc.line(x(6), y(8), x(6), y(12));
+      doc.line(x(6), y(12), x(12), y(20)); doc.line(x(12), y(20), x(18), y(12));
+      doc.line(x(18), y(12), x(18), y(8)); doc.line(x(18), y(8), x(12), y(2));
+      doc.setLineWidth(0); doc.setFillColor(...rgb);
+      doc.line(x(8.5), y(10), x(12), y(5.5)); doc.line(x(12), y(5.5), x(15.5), y(10)); doc.line(x(15.5), y(10), x(8.5), y(10));
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.2));
+      doc.line(x(8.5), y(10), x(15.5), y(10));
+
+    } else if (id === "wedge_offload") {
+      doc.setLineWidth(sc(1.3)); doc.circle(x(3.5), y(5), sc(2.2), "S");
+      doc.roundedRect(x(7), y(3), sc(14), sc(4), sc(1.5), sc(1.5), "S");
+      doc.line(x(1), y(13), x(1), y(17)); doc.line(x(1), y(17), x(8), y(17));
+      doc.line(x(8), y(17), x(8), y(13)); doc.line(x(8), y(13), x(1), y(13));
+      doc.setLineWidth(sc(0.9));
+      doc.line(x(10), y(14), x(10), y(16.5));
+      doc.line(x(11.5), y(13.5), x(11.5), y(16.5));
+      doc.line(x(13), y(14), x(13), y(16.5));
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(15), y(13), x(15), y(17)); doc.line(x(15), y(17), x(22), y(17));
+      doc.line(x(22), y(17), x(22), y(15)); doc.line(x(22), y(15), x(15), y(13));
+
+    } else if (id === "air_supply") {
+      doc.setLineWidth(sc(1.6));
+      doc.line(x(3), y(20), x(3), y(4));
+      doc.line(x(3), y(4), x(21), y(4));
+      doc.line(x(21), y(4), x(21), y(20));
+      doc.line(x(2), y(20), x(22), y(20));
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(6), y(10), x(8.5), y(7.5)); doc.line(x(8.5), y(7.5), x(11), y(10));
+      doc.line(x(11), y(10), x(13.5), y(12.5)); doc.line(x(13.5), y(12.5), x(16), y(10));
+      doc.line(x(16), y(10), x(18.5), y(7.5)); doc.line(x(18.5), y(7.5), x(20), y(10));
+      doc.line(x(6), y(15), x(8.5), y(12.5)); doc.line(x(8.5), y(12.5), x(11), y(15));
+      doc.line(x(11), y(15), x(13.5), y(17.5)); doc.line(x(13.5), y(17.5), x(16), y(15));
+      doc.line(x(16), y(15), x(18.5), y(12.5)); doc.line(x(18.5), y(12.5), x(20), y(15));
+      doc.setLineWidth(0); doc.setFillColor(...rgb); doc.circle(x(19), y(4), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(17), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21), y(2.2));
+    }
   };
 
   // Metric cards — 2 rows of 4 + 3
@@ -182,7 +256,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.rect(cx, cy, cardW, 2, "F");
 
     // Icon
-    drawMetricIcon(doc, m.id, cx + cardW / 2, cy + 10, 10, color);
+    drawIcon(m.id, cx + cardW / 2, cy + 12, 10, color);
 
     doc.setTextColor(...BRAND.inkLight);
     doc.setFontSize(7);
