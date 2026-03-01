@@ -18,10 +18,10 @@ const C = {
 };
 
 const METRICS = [
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had MATT applied" },
+  { id: "matt_applied",     label: "MATT Applied",           desc: "Qualifying patients that had MATT applied" },
   { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
-  { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had MATT applied properly" },
+  { id: "matt_proper",      label: "MATT Applied Properly",  desc: "Patients that had MATT applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
@@ -192,6 +192,78 @@ const HospitalInput = ({ value, onChange, hospitals }) => {
               style={{ padding: "10px 14px", fontSize: 14, color: C.ink, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
               onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
               onMouseLeave={e => e.currentTarget.style.background = "none"}>{h}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Hospital/Unit localStorage helpers ────────────────────────────────────────
+const getHospitalData = () => {
+  try { return JSON.parse(localStorage.getItem("caretrack_hospital_data") || "{}"); } catch { return {}; }
+};
+const saveHospitalData = (data) => {
+  localStorage.setItem("caretrack_hospital_data", JSON.stringify(data));
+};
+const getUnitsForHospital = (hospital) => {
+  if (!hospital) return [];
+  const data = getHospitalData();
+  return data[hospital]?.units || [];
+};
+const getProtocolForUnit = (hospital, unit) => {
+  if (!hospital || !unit) return "";
+  const data = getHospitalData();
+  return data[hospital]?.protocols?.[unit] || "";
+};
+const saveHospitalUnit = (hospital, unit, protocol) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].units.includes(unit)) data[hospital].units.push(unit);
+  if (protocol) data[hospital].protocols[unit] = protocol;
+  saveHospitalData(data);
+};
+
+// ── Unit Input (picklist from saved units for selected hospital) ──────────────
+const UnitInput = ({ value, onChange, hospital }) => {
+  const [open, setOpen] = useState(false);
+  const [units, setUnits] = useState([]);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    setUnits(getUnitsForHospital(hospital));
+  }, [hospital]);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const filtered = units.filter(u => u.toLowerCase().includes(value.toLowerCase()) && u !== value);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>LOCATION / UNIT</label>
+      <div style={{ position: "relative" }}>
+        <input type="text" value={value}
+          onChange={e => { onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(units.length > 0)}
+          placeholder="e.g. 3 North, ICU, 4 South"
+          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 36px 10px 12px", fontSize: 14, color: C.ink, outline: "none" }}
+          onFocus={e => { e.target.style.borderColor = C.primary; setOpen(units.length > 0); }}
+          onBlur={e => e.target.style.borderColor = C.border}
+        />
+        {units.length > 0 && <button onClick={() => setOpen(o => !o)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.inkLight, fontSize: 12 }}>▾</button>}
+      </div>
+      {open && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.08)", zIndex: 100, marginTop: 4, overflow: "hidden" }}>
+          {filtered.map(u => (
+            <div key={u} onClick={() => { onChange(u); setOpen(false); }}
+              style={{ padding: "10px 14px", fontSize: 14, color: C.ink, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}>{u}</div>
           ))}
         </div>
       )}
@@ -398,6 +470,11 @@ export default function App() {
 
       setEntries(allHospitalData);
 
+      // Seed localStorage hospital/unit data from existing entries (so picklist works immediately)
+      allHospitalData.forEach(e => {
+        if (e.hospital && e.location) saveHospitalUnit(e.hospital, e.location, e.protocol_for_use || "");
+      });
+
       // Fetch all sessions for national average (metric values only, no PII)
       const { data: allData } = await supabase.from("sessions")
         .select("matt_applied_num,matt_applied_den,wedges_applied_num,wedges_applied_den,turning_criteria_num,turning_criteria_den,matt_proper_num,matt_proper_den,wedges_in_room_num,wedges_in_room_den,wedge_offload_num,wedge_offload_den,air_supply_num,air_supply_den")
@@ -456,6 +533,7 @@ export default function App() {
       setOfflineQueue(newQueue);
       localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
       setEntries(prev => [...prev, offlineSession]);
+      saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
       setForm(defaultForm()); setSaving(false); setSaved(true);
       setSavedAt(new Date().toISOString());
       setTimeout(() => setSaved(false), 4000);
@@ -477,6 +555,7 @@ export default function App() {
       setPhotos([]);
     }
     setEntries(prev => [...prev, finalData]);
+    saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
     setForm(defaultForm()); setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
     setTimeout(() => setSaved(false), 4000);
@@ -815,7 +894,7 @@ export default function App() {
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => setForm(f => ({ ...f, hospital: val }))} hospitals={hospitals} />
+              <HospitalInput value={form.hospital} onChange={val => setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" }))} hospitals={hospitals} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PROTOCOL FOR USE</label>
@@ -830,12 +909,14 @@ export default function App() {
                   style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink }}
                   onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
               </div>
-              <div>
-                <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>LOCATION / UNIT</label>
-                <input type="text" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. 3 North, ICU, 4 South"
-                  style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink }}
-                  onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-              </div>
+              <UnitInput
+                value={form.location}
+                hospital={form.hospital}
+                onChange={val => {
+                  const savedProtocol = getProtocolForUnit(form.hospital, val);
+                  setForm(f => ({ ...f, location: val, ...(savedProtocol ? { protocol_for_use: savedProtocol } : {}) }));
+                }}
+              />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               {METRICS.map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
@@ -901,7 +982,7 @@ export default function App() {
                     <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
                       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, flex: 1, paddingRight: 8 }}>{m.label}</div>
-                        <MetricIcon id={m.id} size={22} color={m.avg !== null ? pctColor(m.avg) : C.inkFaint} />
+                        <MetricIcon id={m.id} size={52} color={m.avg !== null ? pctColor(m.avg) : C.inkFaint} />
                       </div>
                       <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>{m.avg !== null ? `${m.avg}%` : "—"}</div>
                       <div style={{ marginTop: 8, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden", position: "relative" }}>
