@@ -8,7 +8,7 @@ import { MetricIcon } from "./MetricIcons";
 
 const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
-const C = {
+const LIGHT = {
   bg: "#f5f3f1", surface: "#ffffff", surfaceAlt: "#DEDAD9", border: "#cec9c7", borderDark: "#b8b2af",
   ink: "#2a2624", inkMid: "#4F6E77", inkLight: "#7C7270", inkFaint: "#c0bbb9",
   primary: "#4F6E77", primaryLight: "#e8eff1", secondary: "#678093", secondaryLight: "#edf0f3",
@@ -16,6 +16,17 @@ const C = {
   green: "#3a7d5c", greenLight: "#e8f4ee", red: "#9e3a3a", redLight: "#fdf0f0",
   amber: "#8a6a2a", amberLight: "#fdf6e8",
 };
+const DARK = {
+  bg: "#1a1e1f", surface: "#242a2b", surfaceAlt: "#2e3536", border: "#3a4244", borderDark: "#4a5558",
+  ink: "#e8e4e2", inkMid: "#8ab0b8", inkLight: "#6a8e96", inkFaint: "#3a4a4e",
+  primary: "#6a9aaa", primaryLight: "#1e3035", secondary: "#7a96a8", secondaryLight: "#1e2a30",
+  accent: "#a07388", accentLight: "#2a1e24",
+  green: "#4fa87a", greenLight: "#0e2a1c", red: "#c85858", redLight: "#2a0e0e",
+  amber: "#b8903a", amberLight: "#2a1e08",
+};
+
+// C is set at runtime — components read from this object
+let C = { ...LIGHT };
 
 const METRICS = [
   { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
@@ -397,11 +408,16 @@ export default function App() {
   const [onboardingStep, setOnboardingStep] = useState(0);
 
   // Changelog
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("caretrack_dark") === "true");
+
+  // Sync global C palette every render so all inline styles pick it up
+  Object.assign(C, darkMode ? DARK : LIGHT);
+
   const [showChangelog, setShowChangelog] = useState(false);
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.2";
+  const CURRENT_VERSION = "2.3";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -426,7 +442,19 @@ export default function App() {
   const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
-  const [selectedMetrics, setSelectedMetrics] = useState(METRICS.slice(0, 3).map(m => m.id));
+  const [selectedMetrics, setSelectedMetrics] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("caretrack_chart_metrics")); return s || METRICS.slice(0, 3).map(m => m.id); } catch { return METRICS.slice(0, 3).map(m => m.id); }
+  });
+  const [hiddenMetrics, setHiddenMetrics] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("caretrack_hidden_metrics")) || []; } catch { return []; }
+  });
+  const toggleHideMetric = (id) => {
+    setHiddenMetrics(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      localStorage.setItem("caretrack_hidden_metrics", JSON.stringify(next));
+      return next;
+    });
+  };
   const [hospitalFilter, setHospitalFilter] = useState("All");
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
   const [exporting, setExporting] = useState(false);
@@ -440,6 +468,29 @@ export default function App() {
   const isAdmin = user && ADMIN_EMAILS.includes(user.email);
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
+
+  // Session streak — count consecutive weeks with at least one session logged by this user
+  const streak = (() => {
+    const userName2 = user?.user_metadata?.full_name || user?.email || "";
+    const myEntries = entries.filter(e => e.logged_by === userName2 || !userName2);
+    if (myEntries.length === 0) return 0;
+    const getWeekKey = (dateStr) => {
+      const d = new Date(dateStr);
+      const jan1 = new Date(d.getFullYear(), 0, 1);
+      return `${d.getFullYear()}-${Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7)}`;
+    };
+    const weekSet = new Set(myEntries.map(e => getWeekKey(e.date)));
+    let count = 0;
+    const now = new Date();
+    let check = new Date(now);
+    while (true) {
+      const key = getWeekKey(check.toISOString().slice(0, 10));
+      if (!weekSet.has(key)) break;
+      count++;
+      check.setDate(check.getDate() - 7);
+    }
+    return count;
+  })();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
@@ -597,6 +648,17 @@ export default function App() {
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
     const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
     if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
+
+    // Duplicate detection
+    const duplicate = entries.find(e =>
+      e.date === form.date &&
+      e.hospital?.toLowerCase().trim() === form.hospital.toLowerCase().trim() &&
+      e.location?.toLowerCase().trim() === form.location.toLowerCase().trim()
+    );
+    if (duplicate) {
+      const proceed = window.confirm(`⚠️ A session for ${form.hospital} — ${form.location} on ${form.date} already exists. Save anyway?`);
+      if (!proceed) return;
+    }
 
     // Duplicate check
     const duplicate = entries.find(e => e.date === form.date && e.hospital === form.hospital && e.location === form.location);
@@ -904,6 +966,8 @@ export default function App() {
         .summarize:hover { background: ${C.primaryLight} !important; }
         .export-btn:hover { opacity: 0.85 !important; }
         .signout:hover { color: ${C.accent} !important; }
+        .metric-card-hover:hover .hide-metric-btn { opacity: 1 !important; }
+        .metric-card-hover:hover .hide-metric-btn:hover { background: ${C.surfaceAlt} !important; color: ${C.inkMid} !important; }
         /* Mobile optimisation */
         @media (max-width: 640px) {
           .mobile-pad { padding: 16px !important; }
@@ -960,7 +1024,16 @@ export default function App() {
                 style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
                 WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
               </button>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
+                {streak > 0 && (
+                  <div title={`${streak} consecutive week${streak !== 1 ? "s" : ""} with sessions logged`}
+                    style={{ display: "flex", alignItems: "center", gap: 4, background: streak >= 4 ? C.amberLight : C.surfaceAlt, border: `1px solid ${streak >= 4 ? C.amber : C.border}`, borderRadius: 12, padding: "2px 8px" }}>
+                    <span style={{ fontSize: 12 }}>{streak >= 8 ? "🔥" : streak >= 4 ? "⚡" : "✦"}</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight, letterSpacing: "0.05em" }}>{streak}W STREAK</span>
+                  </div>
+                )}
+              </div>
               <div style={{ width: 1, height: 20, background: C.border }} />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
@@ -970,6 +1043,11 @@ export default function App() {
                   <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
                   {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
                 </div>
+                <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem("caretrack_dark", next); }}
+                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 20, cursor: "pointer", fontSize: 14, padding: "3px 10px", color: C.inkLight, transition: "all 0.2s", lineHeight: 1 }}
+                  title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
+                  {darkMode ? "☀️" : "🌙"}
+                </button>
                 <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>
               </div>
             </div>
@@ -1095,12 +1173,13 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }} className="metric-grid">
-                  {avgByMetric.map(m => {
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: hiddenMetrics.length > 0 ? 8 : 28 }} className="metric-grid">
+                  {avgByMetric.filter(m => !hiddenMetrics.includes(m.id)).map(m => {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
-                    <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
+                    <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", position: "relative" }} className="metric-card-hover">
+                      <button onClick={() => toggleHideMetric(m.id)} title="Hide this metric" style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", cursor: "pointer", fontSize: 10, color: C.inkFaint, opacity: 0, transition: "opacity 0.15s", padding: "2px 4px", borderRadius: 4, lineHeight: 1 }} className="hide-metric-btn">✕</button>
                       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, flex: 1, paddingRight: 8 }}>{m.label}</div>
                         <MetricIcon id={m.id} size={52} color={m.avg !== null ? pctColor(m.avg) : C.inkFaint} />
@@ -1130,6 +1209,25 @@ export default function App() {
                     </div>
                   )})}
                 </div>
+                {/* Hidden metrics restore bar */}
+                {hiddenMetrics.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, padding: "8px 14px", background: C.surfaceAlt, borderRadius: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>HIDDEN:</span>
+                    {hiddenMetrics.map(id => {
+                      const m = METRICS.find(x => x.id === id);
+                      return m ? (
+                        <button key={id} onClick={() => toggleHideMetric(id)}
+                          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                          + {m.label}
+                        </button>
+                      ) : null;
+                    })}
+                    <button onClick={() => { setHiddenMetrics([]); localStorage.removeItem("caretrack_hidden_metrics"); }}
+                      style={{ background: "none", border: "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginLeft: "auto" }}>
+                      RESTORE ALL
+                    </button>
+                  </div>
+                )}
                 {/* Month-over-month card */}
                 {momData.hasData && (
                   <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
@@ -1202,7 +1300,7 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {METRICS.map((m, i) => { const active = selectedMetrics.includes(m.id); return (
-                        <button key={m.id} className="metric-toggle" onClick={() => setSelectedMetrics(prev => active ? prev.filter(x => x !== m.id) : [...prev, m.id])}
+                        <button key={m.id} className="metric-toggle" onClick={() => setSelectedMetrics(prev => { const next = active ? prev.filter(x => x !== m.id) : [...prev, m.id]; localStorage.setItem("caretrack_chart_metrics", JSON.stringify(next)); return next; })}
                           style={{ padding: "4px 10px", borderRadius: 20, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? LINE_COLORS[i] : C.border}`, background: active ? LINE_COLORS[i] + "22" : "none", color: active ? LINE_COLORS[i] : C.inkLight }}>
                           {m.label}
                         </button>
@@ -1583,6 +1681,49 @@ export default function App() {
 
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+                  {/* Territory Overview card */}
+                  {hospitalRankings.length > 0 && (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>🗺  TERRITORY OVERVIEW</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }} className="metric-grid">
+                        {[
+                          { label: "Hospitals", value: hospitalRankings.length, color: C.primary },
+                          { label: "Total Sessions", value: entries.length, color: C.primary },
+                          { label: "Territory Avg", value: (() => { const all = hospitalRankings.map(h => h.avg); return all.length ? Math.round(all.reduce((a,b) => a+b,0)/all.length) : null; })(), suffix: "%", color: (() => { const all = hospitalRankings.map(h => h.avg); const avg = all.length ? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : null; return pctColor(avg); })() },
+                          { label: "On Target", value: hospitalRankings.filter(h => h.avg >= 90).length, suffix: ` of ${hospitalRankings.length}`, color: C.green },
+                        ].map(({ label, value, suffix = "", color }) => (
+                          <div key={label} style={{ background: C.bg, borderRadius: 8, padding: "14px 16px", textAlign: "center" }}>
+                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 6, letterSpacing: "0.06em" }}>{label.toUpperCase()}</div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color }}>{value !== null ? `${value}${suffix}` : "—"}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Full hospital list sorted by compliance */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {hospitalRankings.map((h, i) => (
+                          <div key={h.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8, cursor: "pointer" }}
+                            onClick={() => { setHospitalFilter(h.name); setTab("dashboard"); }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkFaint, width: 20, flexShrink: 0 }}>#{i+1}</div>
+                            <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: C.ink }}>{h.name}</div>
+                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>{h.sessions} session{h.sessions !== 1 ? "s" : ""}</div>
+                            {h.trend !== null && (
+                              <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: h.trend > 0 ? C.green : h.trend < 0 ? C.red : C.inkLight, fontWeight: 600, minWidth: 40, textAlign: "right" }}>
+                                {h.trend > 0 ? "▲" : h.trend < 0 ? "▼" : "–"} {Math.abs(h.trend)}%
+                              </div>
+                            )}
+                            <div style={{ width: 80, height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+                              <div style={{ height: "100%", width: `${h.avg}%`, background: pctColor(h.avg), borderRadius: 3 }} />
+                            </div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: pctColor(h.avg), minWidth: 48, textAlign: "right" }}>{h.avg}%</div>
+                            <div style={{ fontSize: 10, color: C.inkFaint }}>→</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>Tap any hospital to open its dashboard</div>
+                    </div>
+                  )}
+
                   {/* Legend */}
                   <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "10px 16px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8 }}>
                     <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>TREND (vs previous 3 sessions):</span>
@@ -1873,7 +2014,14 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.2", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.3", date: "March 2026", badge: "LATEST", items: [
+                "Dark mode — toggle with the 🌙 button in the top-right corner",
+                "Territory overview in Performers tab — all hospitals ranked with a single tap to drill in",
+                "Duplicate session detection — warns before saving a session that already exists",
+                "Customisable dashboard — hover any metric card and tap ✕ to hide it; restore from the bar below",
+                "Session streak indicator — tracks consecutive weeks with logged sessions",
+              ]},
+              { version: "2.2", date: "March 2026", badge: null, items: [
                 "Required field indicators (asterisks) on Date, Hospital, and Unit",
                 "Session count badge on the History tab",
                 "Manage Units — rename or delete saved units per hospital",
