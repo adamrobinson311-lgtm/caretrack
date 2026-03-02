@@ -38,10 +38,17 @@ const METRICS = [
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
 ];
 
+const MAYO_METRICS = [
+  { id: "air_reposition",   label: "Air Used to Reposition Patient", desc: "Patients where air was used to assist repositioning" },
+];
+
+const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
 const defaultForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   hospital: "", protocol_for_use: "", location: "", notes: "",
-  ...Object.fromEntries(METRICS.flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
+  ...Object.fromEntries([...METRICS, ...MAYO_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
 });
 
 const pct = (n, d) => { const nv = parseFloat(n), dv = parseFloat(d); if (!dv || isNaN(nv) || isNaN(dv)) return null; return Math.round((nv / dv) * 100); };
@@ -432,7 +439,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.4";
+  const CURRENT_VERSION = "2.5";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -680,7 +687,7 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
-      ...Object.fromEntries(METRICS.flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...Object.fromEntries([...METRICS, ...MAYO_METRICS].flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
     };
     // If offline, queue the session locally
     if (!isOnline) {
@@ -1009,8 +1016,10 @@ export default function App() {
         }
         /* Print styles */
         @media print {
-          body > * { display: none !important; }
-          .print-modal { display: block !important; position: static !important; background: white !important; }
+          body * { visibility: hidden; }
+          .print-modal-overlay { visibility: visible !important; position: fixed !important; inset: 0 !important; background: white !important; display: flex !important; align-items: flex-start !important; justify-content: center !important; padding: 32px !important; z-index: 9999 !important; }
+          .print-modal-overlay * { visibility: visible !important; }
+          .print-modal-content { box-shadow: none !important; border-radius: 0 !important; max-height: none !important; overflow: visible !important; width: 100% !important; max-width: 700px !important; }
           .no-print { display: none !important; }
         }
       `}</style>
@@ -1135,7 +1144,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-              {METRICS.map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
+              {getMetrics(form.hospital).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
             </div>
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NOTES (OPTIONAL)</label>
@@ -1417,7 +1426,7 @@ export default function App() {
                   const isOfflinePending = e.id && String(e.id).startsWith("offline_");
                   const isEditing = editingId === e.id;
                   const ef = isEditing ? editForm : e;
-                  const metrics = METRICS.map(m => ({ label: m.label, p: pct(ef[`${m.id}_num`], ef[`${m.id}_den`]), num: ef[`${m.id}_num`], den: ef[`${m.id}_den`] }));
+                  const metrics = getMetrics(ef.hospital).map(m => ({ label: m.label, p: pct(ef[`${m.id}_num`], ef[`${m.id}_den`]), num: ef[`${m.id}_num`], den: ef[`${m.id}_den`] }));
                   const inpStyle = { background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, width: "100%", outline: "none" };
                   return (
                     <div key={e.id} style={{ background: C.surface, border: `1px solid ${isEditing ? C.primary : C.border}`, borderRadius: 12, padding: "18px 20px", transition: "border-color 0.2s" }}>
@@ -1505,7 +1514,7 @@ export default function App() {
                       </div>
                       {isEditing ? (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid">
-                          {METRICS.map(m => (
+                          {getMetrics(e.hospital).map(m => (
                             <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
                               <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
                               <input type="number" min="0" placeholder="num" value={editForm[`${m.id}_num`] ?? ""} onChange={ev => setEditForm(f => ({ ...f, [`${m.id}_num`]: ev.target.value }))}
@@ -2048,7 +2057,11 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.4", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.5", date: "March 2026", badge: "LATEST", items: [
+                "Mayo Clinic support — hospitals with 'Mayo' in the name automatically show an additional metric: Air Used to Reposition Patient",
+                "Fixed session print — printout now renders correctly instead of a blank page",
+              ]},
+              { version: "2.4", date: "March 2026", badge: null, items: [
                 "Mobile layout overhaul — dashboard, performers, and admin sections fully optimised for phones",
                 "Performers tab: hospital rows now use two-line cards so names and scores never get cut off",
                 "Performers tab: Top Performers and Needs Attention stack vertically instead of side by side",
@@ -2191,8 +2204,8 @@ export default function App() {
 
       {/* ── PRINT SESSION MODAL ─────────────────────────────────────────────── */}
       {printSession && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setPrintSession(null)}>
-          <div style={{ background: "white", borderRadius: 16, maxWidth: 600, width: "100%", padding: "40px 44px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div className="print-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setPrintSession(null)}>
+          <div className="print-modal-content" style={{ background: "white", borderRadius: 16, maxWidth: 600, width: "100%", padding: "40px 44px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
               <div>
                 <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>CARETRACK · WOUND CARE COMPLIANCE</div>
@@ -2220,7 +2233,7 @@ export default function App() {
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 12 }}>COMPLIANCE METRICS</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {METRICS.map(m => {
+                {getMetrics(printSession.hospital).map(m => {
                   const p = pct(printSession[`${m.id}_num`], printSession[`${m.id}_den`]);
                   const num = printSession[`${m.id}_num`];
                   const den = printSession[`${m.id}_den`];

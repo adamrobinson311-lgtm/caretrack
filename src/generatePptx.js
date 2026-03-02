@@ -34,6 +34,12 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     { id: "air_supply",       label: "Air Supply in Room" },
   ];
 
+  const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+  const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+  const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const hasMayo = entries.some(e => isMayo(e.hospital));
+  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
   const pct = (n, d) => {
     const nv = parseFloat(n), dv = parseFloat(d);
     if (!dv || isNaN(nv) || isNaN(dv)) return null;
@@ -47,7 +53,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     return BRAND.red;
   };
 
-  const avgMetrics = METRICS.map(m => {
+  const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
   }).sort((a, b) => {
@@ -158,7 +164,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s4.addText("Performance by Hospital", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
     const hospitalAvgs = hospitals.map(h => {
       const hEntries = entries.filter(e => e.hospital === h);
-      const overallVals = METRICS.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+      const overallVals = getMetrics(h).flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
       const overall = overallVals.length ? Math.round(overallVals.reduce((a, b) => a + b, 0) / overallVals.length) : null;
       return { hospital: h, sessions: hEntries.length, overall };
     });

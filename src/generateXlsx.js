@@ -10,6 +10,13 @@ const METRICS = [
   { id: "air_supply", label: "Air Supply in Room" },
 ];
 
+const MAYO_METRICS = [
+  { id: "air_reposition", label: "Air Used to Reposition Patient" },
+];
+
+const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
   if (!dv || isNaN(nv) || isNaN(dv)) return null;
@@ -26,6 +33,10 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
     CreatedDate: new Date(),
   };
 
+  // Determine if any entries are from Mayo hospitals — include Mayo metric in summary if so
+  const hasMayo = entries.some(e => isMayo(e.hospital));
+  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
   // ── SHEET 1: SUMMARY ──────────────────────────────────────────────────────
   const summaryData = [];
 
@@ -37,14 +48,14 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   summaryData.push([]);
 
   // Overall average
-  const allVals = METRICS.flatMap(m => entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+  const allVals = summaryMetrics.flatMap(m => entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
   const overallAvg = allVals.length ? Math.round(allVals.reduce((a, b) => a + b, 0) / allVals.length) : null;
   summaryData.push(["OVERALL AVERAGE COMPLIANCE", overallAvg !== null ? `${overallAvg}%` : "—"]);
   summaryData.push([]);
 
   // Per-metric summary
   summaryData.push(["METRIC", "AVERAGE", "SESSIONS WITH DATA", "NUMERATOR TOTAL", "DENOMINATOR TOTAL"]);
-  METRICS.forEach(m => {
+  summaryMetrics.forEach(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
     const numTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_num`]) || 0), 0);
@@ -58,12 +69,13 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
   if (hospitals.length > 1) {
     summaryData.push(["HOSPITAL BREAKDOWN"]);
-    summaryData.push(["HOSPITAL", "SESSIONS", "OVERALL AVG", ...METRICS.map(m => m.label)]);
+    summaryData.push(["HOSPITAL", "SESSIONS", "OVERALL AVG", ...summaryMetrics.map(m => m.label)]);
     hospitals.forEach(h => {
       const hEntries = entries.filter(e => e.hospital === h);
-      const hVals = METRICS.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+      const hMetrics = getMetrics(h);
+      const hVals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
       const hAvg = hVals.length ? Math.round(hVals.reduce((a, b) => a + b, 0) / hVals.length) : null;
-      const metricAvgs = METRICS.map(m => {
+      const metricAvgs = summaryMetrics.map(m => {
         const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
         return vals.length ? `${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%` : "—";
       });
@@ -83,36 +95,27 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
 
   // ── SHEET 2: RAW SESSIONS ─────────────────────────────────────────────────
   const headers = [
-    "Date",
-    "Submitted At",
-    "Hospital",
-    "Location",
-    "Protocol",
-    "Logged By",
-    "Notes",
-    ...METRICS.flatMap(m => [`${m.label} (Num)`, `${m.label} (Den)`, `${m.label} (%)`]),
+    "Date", "Submitted At", "Hospital", "Location", "Protocol", "Logged By", "Notes",
+    ...summaryMetrics.flatMap(m => [`${m.label} (Num)`, `${m.label} (Den)`, `${m.label} (%)`]),
     "Overall %",
   ];
 
   const rows = entries.map(e => {
-    const metricCols = METRICS.flatMap(m => {
+    const entryMetrics = getMetrics(e.hospital);
+    const metricCols = summaryMetrics.flatMap(m => {
+      // Only show values for metrics relevant to this entry's hospital
+      if (!entryMetrics.find(x => x.id === m.id)) return ["—", "—", "—"];
       const num = e[`${m.id}_num`] ?? "";
       const den = e[`${m.id}_den`] ?? "";
       const p = pct(num, den);
       return [num, den, p !== null ? `${p}%` : "—"];
     });
-    const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+    const overallVals = entryMetrics.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     const overall = overallVals.length ? Math.round(overallVals.reduce((a, b) => a + b, 0) / overallVals.length) : null;
     return [
-      e.date || "",
-      e.created_at ? new Date(e.created_at).toLocaleString("en-US") : "",
-      e.hospital || "",
-      e.location || "",
-      e.protocol_for_use || "",
-      e.logged_by || "",
-      e.notes || "",
-      ...metricCols,
-      overall !== null ? `${overall}%` : "—",
+      e.date || "", e.created_at ? new Date(e.created_at).toLocaleString("en-US") : "",
+      e.hospital || "", e.location || "", e.protocol_for_use || "", e.logged_by || "", e.notes || "",
+      ...metricCols, overall !== null ? `${overall}%` : "—",
     ];
   });
 

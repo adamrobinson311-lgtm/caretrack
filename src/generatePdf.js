@@ -25,6 +25,10 @@ const METRICS = [
   { id: "air_supply",       label: "Air Supply in Room" },
 ];
 
+const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
   if (!dv || isNaN(nv) || isNaN(dv)) return null;
@@ -77,7 +81,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     : BRAND.primary;
   const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
-  const avgMetrics = METRICS.map(m => {
+  const hasMayo = entries.some(e => isMayo(e.hospital));
+  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+
+  const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
   }).sort((a, b) => {
@@ -368,15 +375,17 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     const hospitalData = hospitals.map(h => {
       const hEntries = entries.filter(e => e.hospital === h);
+      const hMetrics = getMetrics(h);
       return {
         hospital: h,
         sessions: hEntries.length,
-        metrics: METRICS.map(m => {
+        metrics: summaryMetrics.map(m => {
+          if (!hMetrics.find(x => x.id === m.id)) return null;
           const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
           return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
         }),
         overall: (() => {
-          const vals = METRICS.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+          const vals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
           return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
         })()
       };
@@ -408,9 +417,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     });
 
     // Detailed comparison table
-    const compRows = METRICS.map(m => [
+    const compRows = summaryMetrics.map(m => [
       m.label,
-      ...hospitalData.map(h => h.metrics[METRICS.indexOf(m)] !== null ? `${h.metrics[METRICS.indexOf(m)]}%` : "—")
+      ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
     ]);
 
     autoTable(doc, {
