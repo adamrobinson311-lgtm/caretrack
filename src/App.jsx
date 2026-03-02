@@ -189,7 +189,7 @@ const HospitalInput = ({ value, onChange, hospitals }) => {
   }, []);
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>HOSPITAL NAME</label>
+      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>HOSPITAL NAME <span style={{ color: C.red }}>*</span></label>
       <div style={{ position: "relative" }}>
         <input type="text" value={value}
           onChange={e => { onChange(e.target.value); setFiltered(hospitals.filter(h => h.toLowerCase().includes(e.target.value.toLowerCase()) && h !== e.target.value)); setOpen(true); }}
@@ -258,7 +258,7 @@ const UnitInput = ({ value, onChange, hospital }) => {
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>LOCATION / UNIT</label>
+      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>LOCATION / UNIT <span style={{ color: C.red }}>*</span></label>
       <div style={{ position: "relative" }}>
         <input type="text" value={value}
           onChange={e => { onChange(e.target.value); setOpen(true); }}
@@ -280,6 +280,78 @@ const UnitInput = ({ value, onChange, hospital }) => {
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// ── Unit Manager ─────────────────────────────────────────────────────────────
+const UnitManagerBody = ({ onClose }) => {
+  const [data, setData] = useState(getHospitalData());
+  const [editKey, setEditKey] = useState(null); // "hospital::unit"
+  const [editVal, setEditVal] = useState("");
+
+  const hospitals = Object.keys(data).sort();
+
+  const renameUnit = (hospital, oldUnit, newUnit) => {
+    if (!newUnit.trim() || newUnit === oldUnit) { setEditKey(null); return; }
+    const d = { ...data };
+    d[hospital].units = d[hospital].units.map(u => u === oldUnit ? newUnit.trim() : u);
+    if (d[hospital].protocols[oldUnit]) {
+      d[hospital].protocols[newUnit.trim()] = d[hospital].protocols[oldUnit];
+      delete d[hospital].protocols[oldUnit];
+    }
+    saveHospitalData(d);
+    setData(d);
+    setEditKey(null);
+  };
+
+  const deleteUnit = (hospital, unit) => {
+    if (!window.confirm(`Delete "${unit}" from ${hospital}? This only removes it from the picklist.`)) return;
+    const d = { ...data };
+    d[hospital].units = d[hospital].units.filter(u => u !== unit);
+    delete d[hospital].protocols[unit];
+    if (d[hospital].units.length === 0) delete d[hospital];
+    saveHospitalData(d);
+    setData(d);
+  };
+
+  if (hospitals.length === 0) return (
+    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>No saved units yet. Units are saved automatically when you log sessions.</div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {hospitals.map(hospital => (
+        <div key={hospital}>
+          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.08em", marginBottom: 8, fontWeight: 600 }}>{hospital}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(data[hospital]?.units || []).map(unit => {
+              const key = `${hospital}::${unit}`;
+              const isEditing = editKey === key;
+              return (
+                <div key={unit} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: C.bg, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  {isEditing ? (
+                    <>
+                      <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") renameUnit(hospital, unit, editVal); if (e.key === "Escape") setEditKey(null); }}
+                        style={{ flex: 1, background: C.surface, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, outline: "none" }} />
+                      <button onClick={() => renameUnit(hospital, unit, editVal)} style={{ background: C.primary, border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer" }}>SAVE</button>
+                      <button onClick={() => setEditKey(null)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>CANCEL</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: 13, color: C.ink }}>{unit}</span>
+                      <button onClick={() => { setEditKey(key); setEditVal(unit); }} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer" }}>RENAME</button>
+                      <button onClick={() => deleteUnit(hospital, unit)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}>DELETE</button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <button onClick={onClose} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.06em", marginTop: 8 }}>DONE</button>
     </div>
   );
 };
@@ -326,8 +398,10 @@ export default function App() {
 
   // Changelog
   const [showChangelog, setShowChangelog] = useState(false);
+  const [showUnitManager, setShowUnitManager] = useState(false);
+  const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.1";
+  const CURRENT_VERSION = "2.2";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -793,7 +867,7 @@ export default function App() {
   const Tab = ({ id, label, badge }) => (
     <button onClick={() => setTab(id)} style={{ padding: "10px 22px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.08em", color: tab === id ? C.primary : C.inkLight, borderBottom: tab === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", position: "relative" }}>
       {label}
-      {badge && <span style={{ marginLeft: 6, background: C.accent, color: "white", fontSize: 8, padding: "2px 6px", borderRadius: 10 }}>{badge}</span>}
+      {badge != null && <span style={{ marginLeft: 6, background: tab === id ? C.primary : C.surfaceAlt, color: tab === id ? "white" : C.inkMid, fontSize: 9, padding: "1px 6px", borderRadius: 10, fontFamily: "'IBM Plex Mono', monospace" }}>{badge}</span>}
     </button>
   );
 
@@ -830,6 +904,22 @@ export default function App() {
         .summarize:hover { background: ${C.primaryLight} !important; }
         .export-btn:hover { opacity: 0.85 !important; }
         .signout:hover { color: ${C.accent} !important; }
+        /* Mobile optimisation */
+        @media (max-width: 640px) {
+          .mobile-pad { padding: 16px !important; }
+          .mobile-full { max-width: 100% !important; padding: 16px !important; }
+          .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .nav-tabs { padding: 0 8px !important; overflow-x: auto; white-space: nowrap; }
+          .nav-tabs button { padding: 10px 14px !important; font-size: 10px !important; }
+          input, textarea, select { font-size: 16px !important; min-height: 44px; }
+          .savebtn { width: 100% !important; padding: 16px !important; font-size: 13px !important; }
+        }
+        /* Print styles */
+        @media print {
+          body > * { display: none !important; }
+          .print-modal { display: block !important; position: static !important; background: white !important; }
+          .no-print { display: none !important; }
+        }
       `}</style>
 
 
@@ -875,10 +965,10 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", marginTop: 4 }}>
+          <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
             <Tab id="log" label="LOG SESSION" />
             <Tab id="dashboard" label="DASHBOARD" />
-            <Tab id="history" label="HISTORY" />
+            <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
@@ -897,17 +987,17 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 64px" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 64px" }} className="mobile-pad">
 
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 720 }} className="mobile-full">
             <div style={{ marginBottom: 28 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Session</h1>
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE</label>
+              <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE <span style={{ color: C.red }}>*</span></label>
               <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                 style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink }}
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
@@ -1166,7 +1256,10 @@ export default function App() {
         {tab === "history" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Session History</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Session History</h1>
+                <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
                 {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={setHistoryHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
                 <DateRangeFilter />
@@ -1257,6 +1350,10 @@ export default function App() {
                               <button onClick={() => startEdit(e)}
                                 style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
                                 EDIT
+                              </button>
+                              <button onClick={() => setPrintSession(e)}
+                                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                PRINT
                               </button>
                             )}
                           </div>
@@ -1756,7 +1853,14 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.1", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.2", date: "March 2026", badge: "LATEST", items: [
+                "Required field indicators (asterisks) on Date, Hospital, and Unit",
+                "Session count badge on the History tab",
+                "Manage Units — rename or delete saved units per hospital",
+                "Print session summary — one-page printout from History tab",
+                "Mobile optimisation — larger tap targets and responsive layout",
+              ]},
+              { version: "2.1", date: "March 2026", badge: null, items: [
                 "Metric icons on dashboard cards — color-coded by compliance status",
                 "Metric icons in PDF and PowerPoint exports",
                 "Compliance cards sorted by status: On Target → Monitor → Needs Attention",
@@ -1859,6 +1963,77 @@ export default function App() {
             }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
               SAVE BRANDING
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── UNIT MANAGER MODAL ──────────────────────────────────────────────── */}
+      {showUnitManager && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setShowUnitManager(false)}>
+          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Manage Units</h2>
+              <button onClick={() => setShowUnitManager(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
+            </div>
+            <UnitManagerBody onClose={() => setShowUnitManager(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* ── PRINT SESSION MODAL ─────────────────────────────────────────────── */}
+      {printSession && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setPrintSession(null)}>
+          <div style={{ background: "white", borderRadius: 16, maxWidth: 600, width: "100%", padding: "40px 44px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+              <div>
+                <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700 }}>Session Summary</h2>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => window.print()} style={{ background: C.primary, border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.06em" }}>PRINT</button>
+                <button onClick={() => setPrintSession(null)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>✕</button>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24, padding: "16px 20px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border}` }}>
+              {[["Date", printSession.date], ["Hospital", printSession.hospital], ["Unit", printSession.location], ["Logged By", printSession.logged_by]].map(([label, val]) => val ? (
+                <div key={label}>
+                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 2 }}>{label.toUpperCase()}</div>
+                  <div style={{ fontSize: 14, color: C.ink, fontWeight: 500 }}>{val}</div>
+                </div>
+              ) : null)}
+              {printSession.protocol_for_use && (
+                <div style={{ gridColumn: "span 2" }}>
+                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 2 }}>PROTOCOL FOR USE</div>
+                  <div style={{ fontSize: 13, color: C.inkMid, fontStyle: "italic" }}>{printSession.protocol_for_use}</div>
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 12 }}>COMPLIANCE METRICS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {METRICS.map(m => {
+                  const p = pct(printSession[`${m.id}_num`], printSession[`${m.id}_den`]);
+                  const num = printSession[`${m.id}_num`];
+                  const den = printSession[`${m.id}_den`];
+                  return (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: p !== null ? pctBg(p) : C.surfaceAlt, borderRadius: 8, border: `1px solid ${p !== null ? pctColor(p) + "33" : C.border}` }}>
+                      <div style={{ flex: 1, fontSize: 13, color: C.ink }}>{m.label}</div>
+                      <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>{num ?? "—"}/{den ?? "—"}</div>
+                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: p !== null ? pctColor(p) : C.inkFaint, minWidth: 48, textAlign: "right" }}>{p !== null ? `${p}%` : "N/A"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {printSession.notes && (
+              <div style={{ padding: "14px 16px", background: C.bg, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NOTES</div>
+                <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>{printSession.notes}</div>
+              </div>
+            )}
+            <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}`, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint, textAlign: "center" }}>
+              Printed from CareTrack · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </div>
           </div>
         </div>
       )}
