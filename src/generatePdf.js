@@ -38,9 +38,9 @@ const pctColor = (v) => {
   return BRAND.red;
 };
 
-const addHeader = (doc, pageNum, totalPages, preparedBy = "") => {
+const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAND.primary) => {
   // Top bar
-  doc.setFillColor(...brandHeader);
+  doc.setFillColor(...headerColor);
   doc.rect(0, 0, 210, 14, "F");
   doc.setFillColor(...BRAND.accent);
   doc.rect(0, 0, 4, 14, "F");
@@ -134,7 +134,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // ── PAGE 2: COMPLIANCE SUMMARY ────────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, 2, totalPages, preparedBy);
+  addHeader(doc, 2, totalPages, preparedBy, brandHeader);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -303,7 +303,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, 3, totalPages, preparedBy);
+  addHeader(doc, 3, totalPages, preparedBy, brandHeader);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -351,7 +351,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   let pageNum = 4;
   if (hospitals.length > 1) {
     doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy);
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
     pageNum++;
 
     doc.setFillColor(...BRAND.bg);
@@ -428,7 +428,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   // ── PAGE: AI SUMMARY ──────────────────────────────────────────────────────
   if (summary && summary.length > 10) {
     doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy);
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");

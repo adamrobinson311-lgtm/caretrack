@@ -1,8 +1,6 @@
 import pptxgen from "pptxgenjs";
 
 export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null) {
-  // Apply branding accent if provided — convert hex to 6-char string for pptxgenjs
-  const brandPrimary = branding?.accentColor ? branding.accentColor.replace("#","") : BRAND.primary;
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "HoverTech CareTrack";
@@ -22,6 +20,9 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     amber:     "8A6A2A",
     red:       "9E3A3A",
   };
+
+  // Apply branding accent if provided — convert hex to 6-char string for pptxgenjs
+  const brandPrimary = branding?.accentColor ? branding.accentColor.replace("#","") : BRAND.primary;
 
   const METRICS = [
     { id: "matt_applied",     label: "Matt Applied" },

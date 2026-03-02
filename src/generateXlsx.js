@@ -1,10 +1,10 @@
 import * as XLSX from "xlsx";
 
 const METRICS = [
-  { id: "matt_applied", label: "MATT Applied" },
+  { id: "matt_applied", label: "Matt Applied" },
   { id: "wedges_applied", label: "Wedges Applied" },
   { id: "turning_criteria", label: "Turning & Repositioning" },
-  { id: "matt_proper", label: "MATT Applied Properly" },
+  { id: "matt_proper", label: "Matt Applied Properly" },
   { id: "wedges_in_room", label: "Wedges in Room" },
   { id: "wedge_offload", label: "Proper Wedge Offloading" },
   { id: "air_supply", label: "Air Supply in Room" },
@@ -127,7 +127,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   ];
 
   // Freeze top row
-  sessionsSheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  sessionsSheet["!freeze"] = { xSplit: "0", ySplit: "1", topLeftCell: "A2", activePane: "bottomLeft" };
 
   XLSX.utils.book_append_sheet(wb, sessionsSheet, "Raw Sessions");
 
