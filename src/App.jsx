@@ -1698,52 +1698,58 @@ export default function App() {
 
                   {/* Territory Overview card */}
                   {hospitalRankings.length > 0 && (
-                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
                       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>🗺  TERRITORY OVERVIEW</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }} className="metric-grid">
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
                         {[
                           { label: "Hospitals", value: hospitalRankings.length, color: C.primary },
                           { label: "Total Sessions", value: entries.length, color: C.primary },
                           { label: "Territory Avg", value: (() => { const all = hospitalRankings.map(h => h.avg); return all.length ? Math.round(all.reduce((a,b) => a+b,0)/all.length) : null; })(), suffix: "%", color: (() => { const all = hospitalRankings.map(h => h.avg); const avg = all.length ? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : null; return pctColor(avg); })() },
                           { label: "On Target", value: hospitalRankings.filter(h => h.avg >= 90).length, suffix: ` of ${hospitalRankings.length}`, color: C.green },
                         ].map(({ label, value, suffix = "", color }) => (
-                          <div key={label} style={{ background: C.bg, borderRadius: 8, padding: "14px 16px", textAlign: "center" }}>
-                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 6, letterSpacing: "0.06em" }}>{label.toUpperCase()}</div>
-                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color }}>{value !== null ? `${value}${suffix}` : "—"}</div>
+                          <div key={label} style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
+                            <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 6, letterSpacing: "0.06em" }}>{label.toUpperCase()}</div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color }}>{value !== null ? `${value}${suffix}` : "—"}</div>
                           </div>
                         ))}
                       </div>
-                      {/* Full hospital list sorted by compliance */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {/* Hospital rows — compact card style */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {hospitalRankings.map((h, i) => (
-                          <div key={h.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8, cursor: "pointer" }}
-                            onClick={() => { setHospitalFilter(h.name); setTab("dashboard"); }}>
-                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkFaint, width: 20, flexShrink: 0 }}>#{i+1}</div>
-                            <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: C.ink }}>{h.name}</div>
-                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>{h.sessions} session{h.sessions !== 1 ? "s" : ""}</div>
-                            {h.trend !== null && (
-                              <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: h.trend > 0 ? C.green : h.trend < 0 ? C.red : C.inkLight, fontWeight: 600, minWidth: 40, textAlign: "right" }}>
-                                {h.trend > 0 ? "▲" : h.trend < 0 ? "▼" : "–"} {Math.abs(h.trend)}%
-                              </div>
-                            )}
-                            <div style={{ width: 80, height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
-                              <div style={{ height: "100%", width: `${h.avg}%`, background: pctColor(h.avg), borderRadius: 3 }} />
+                          <div key={h.name} onClick={() => { setHospitalFilter(h.name); setTab("dashboard"); }}
+                            style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}>
+                            {/* Top row: rank + name + score */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkFaint, flexShrink: 0, width: 22 }}>#{i+1}</div>
+                              <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
+                              <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(h.avg), flexShrink: 0 }}>{h.avg}%</div>
                             </div>
-                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: pctColor(h.avg), minWidth: 48, textAlign: "right" }}>{h.avg}%</div>
-                            <div style={{ fontSize: 10, color: C.inkFaint }}>→</div>
+                            {/* Bottom row: sessions + trend + bar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, flexShrink: 0 }}>{h.sessions} session{h.sessions !== 1 ? "s" : ""}</div>
+                              {h.trend !== null && (
+                                <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: h.trend > 0 ? C.green : h.trend < 0 ? C.red : C.inkLight, fontWeight: 600, flexShrink: 0 }}>
+                                  {h.trend > 0 ? "▲" : h.trend < 0 ? "▼" : "–"} {Math.abs(h.trend)}%
+                                </div>
+                              )}
+                              <div style={{ flex: 1, height: 5, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${h.avg}%`, background: pctColor(h.avg), borderRadius: 3 }} />
+                              </div>
+                              <div style={{ fontSize: 10, color: C.inkFaint, flexShrink: 0 }}>→</div>
+                            </div>
                           </div>
                         ))}
                       </div>
-                      <div style={{ marginTop: 10, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>Tap any hospital to open its dashboard</div>
+                      <div style={{ marginTop: 12, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>Tap any hospital to open its dashboard</div>
                     </div>
                   )}
 
                   {/* Legend */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "10px 16px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>TREND (vs previous 3 sessions):</span>
-                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.green }}>▲ Improving</span>
-                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red }}>▼ Declining</span>
-                    <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>– Insufficient data</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, flexShrink: 0 }}>TREND:</span>
+                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.green }}>▲ Improving</span>
+                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red }}>▼ Declining</span>
+                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>– Insufficient data</span>
                   </div>
                   <RankingTable title="HOSPITALS" icon="🏥" rankings={hospitalRankings} />
                   <RankingTable title="LOCATIONS / UNITS" icon="📍" rankings={locationRankings} />
