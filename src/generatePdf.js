@@ -286,7 +286,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // Legend
   const legendY = 210;
-  [[BRAND.green, "≥ 90% — On Target"], [BRAND.amber, "70–89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
+  [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
     doc.setTextColor(...BRAND.inkLight);
