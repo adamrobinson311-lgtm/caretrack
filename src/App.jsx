@@ -833,13 +833,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || ""); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || ""); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -1063,9 +1063,18 @@ export default function App() {
         {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
           <div>
+            {/* Hospital branding banner */}
+            {activeBranding && (
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: "14px 20px", background: activeBranding.accentColor ? activeBranding.accentColor + "18" : C.primaryLight, border: `1px solid ${activeBranding.accentColor || C.primary}33`, borderRadius: 10 }}>
+                {activeBranding.logoUrl && (
+                  <img src={activeBranding.logoUrl} alt={hospitalFilter} style={{ height: 40, maxWidth: 140, objectFit: "contain" }} onError={e => e.target.style.display = "none"} />
+                )}
+                <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700, color: activeBranding.accentColor || C.primary }}>{hospitalFilter}</div>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
               <div>
-                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Compliance Dashboard</h1>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }}>Compliance Dashboard</h1>
                 <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>

@@ -40,7 +40,7 @@ const pctColor = (v) => {
 
 const addHeader = (doc, pageNum, totalPages, preparedBy = "") => {
   // Top bar
-  doc.setFillColor(...BRAND.primary);
+  doc.setFillColor(...brandHeader);
   doc.rect(0, 0, 210, 14, "F");
   doc.setFillColor(...BRAND.accent);
   doc.rect(0, 0, 4, 14, "F");
@@ -68,8 +68,14 @@ const addHeader = (doc, pageNum, totalPages, preparedBy = "") => {
   doc.text(`Generated ${today} · HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "") {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+  // Apply branding accent colour if provided
+  const brandAccent = branding?.accentColor
+    ? branding.accentColor.replace("#","").match(/.{2}/g).map(v => parseInt(v,16))
+    : BRAND.primary;
+  const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
   const avgMetrics = METRICS.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
@@ -88,7 +94,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   if (summary && summary.length > 10) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
-  doc.setFillColor(...BRAND.primary);
+  doc.setFillColor(...brandHeader);
   doc.rect(0, 0, 210, 297, "F");
   doc.setFillColor(...BRAND.accent);
   doc.rect(0, 0, 8, 297, "F");
@@ -133,7 +139,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
 
-  doc.setTextColor(...BRAND.primary);
+  doc.setTextColor(...brandHeader);
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.text("COMPLIANCE SUMMARY", 14, 24);
@@ -302,7 +308,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
 
-  doc.setTextColor(...BRAND.primary);
+  doc.setTextColor(...brandHeader);
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.text("SESSION HISTORY", 14, 24);
@@ -327,7 +333,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     head: [["Timestamp", "Hospital", "Location", "Matt/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
     body: tableRows,
     styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: BRAND.primary, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
+    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 38 }, 4: { cellWidth: 24 }, 5: { cellWidth: 24 }, 6: { cellWidth: 22 } },
     margin: { left: 14, right: 14 },
@@ -351,7 +357,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
 
-    doc.setTextColor(...BRAND.primary);
+    doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.text("HOSPITAL COMPARISON", 14, 24);
@@ -412,7 +418,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       head: [["Metric", ...hospitalData.map(h => h.hospital)]],
       body: compRows,
       styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: BRAND.primary, textColor: BRAND.white, fontStyle: "bold" },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [240, 237, 234] },
       margin: { left: 14, right: 14 },
       theme: "plain",
@@ -427,7 +433,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
 
-    doc.setTextColor(...BRAND.primary);
+    doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.text("AI CLINICAL ANALYSIS", 14, 24);
@@ -439,10 +445,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     // Summary card
     doc.setFillColor(...BRAND.white);
     doc.roundedRect(14, 42, 182, 220, 3, 3, "F");
-    doc.setFillColor(...BRAND.primary);
+    doc.setFillColor(...brandHeader);
     doc.rect(14, 42, 4, 220, "F");
 
-    doc.setTextColor(...BRAND.primary);
+    doc.setTextColor(...brandHeader);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.text("✦  AI CLINICAL ANALYSIS", 22, 52);

@@ -1,6 +1,8 @@
 import pptxgen from "pptxgenjs";
 
-export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "") {
+export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null) {
+  // Apply branding accent if provided — convert hex to 6-char string for pptxgenjs
+  const brandPrimary = branding?.accentColor ? branding.accentColor.replace("#","") : BRAND.primary;
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "HoverTech CareTrack";
@@ -56,13 +58,13 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   const addSectionLabel = (slide, text) => {
-    slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.22, h: 5.625, fill: { color: BRAND.primary }, line: { color: BRAND.primary } });
-    slide.addText(text, { x: 0.38, y: 0.28, w: 9.3, h: 0.35, fontSize: 9, fontFace: "Calibri", color: BRAND.primary, charSpacing: 3, bold: true, margin: 0 });
+    slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.22, h: 5.625, fill: { color: brandPrimary }, line: { color: brandPrimary } });
+    slide.addText(text, { x: 0.38, y: 0.28, w: 9.3, h: 0.35, fontSize: 9, fontFace: "Calibri", color: brandPrimary, charSpacing: 3, bold: true, margin: 0 });
   };
 
   // ── SLIDE 1: TITLE ────────────────────────────────────────────────────────
   const s1 = pres.addSlide();
-  s1.background = { color: BRAND.primary };
+  s1.background = { color: brandPrimary };
   s1.addShape(pres.shapes.RECTANGLE, { x: 6.8, y: 0, w: 3.2, h: 5.625, fill: { color: "416069" }, line: { color: "416069" } });
   s1.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: 0, w: 0.4, h: 5.625, fill: { color: BRAND.accent }, line: { color: BRAND.accent } });
   s1.addText("Wound Care", { x: 0.55, y: 1.3, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.white, bold: true, margin: 0 });
@@ -118,7 +120,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
     s2.addText(status, { x: cx + 0.05, y: cardY + 2.25, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
   });
-  [["≥ 90%", BRAND.green, "On Target"], ["70–89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
+  [["90%+", BRAND.green, "On Target"], ["70-89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
     const lx = 0.38 + i * 3.1;
     s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.1, w: 0.18, h: 0.18, fill: { color }, line: { color } });
     s2.addText(`${range} — ${label}`, { x: lx + 0.25, y: 5.08, w: 2.6, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
@@ -142,7 +144,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     showValue: true, dataLabelColor: BRAND.ink, dataLabelFontSize: 10, dataLabelFontBold: true,
     showLegend: false,
   });
-  [["≥90% Target", BRAND.green, 0.38], ["70-89% Monitor", BRAND.amber, 2.7], ["<70% Needs Attention", BRAND.red, 5.1]].forEach(([label, color, lx]) => {
+  [["90%+ Target", BRAND.green, 0.38], ["70-89% Monitor", BRAND.amber, 2.7], ["<70% Needs Attention", BRAND.red, 5.1]].forEach(([label, color, lx]) => {
     s3.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.3, w: 0.14, h: 0.14, fill: { color }, line: { color } });
     s3.addText(label, { x: lx + 0.2, y: 5.28, w: 2.2, h: 0.18, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
   });
@@ -179,7 +181,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s5.addText("Session Log", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
 
   const recentSessions = [...entries].reverse().slice(0, 12);
-  const hdrOpts = (text) => ({ text, options: { fill: { color: BRAND.primary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
+  const hdrOpts = (text) => ({ text, options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
   const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
 
   const tableRows = recentSessions.map((e, idx) => {
@@ -190,7 +192,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     };
     return [
       { text: e.date || "—", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 9, fontFace: "Calibri", align: "center" } },
-      { text: e.hospital || "—", options: { fill: { color: rowBg }, color: BRAND.primary, fontSize: 9, fontFace: "Calibri", bold: true } },
+      { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 9, fontFace: "Calibri", bold: true } },
       { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
       metricCell("matt_applied"), metricCell("wedges_applied"), metricCell("turning_criteria"),
       metricCell("matt_proper"), metricCell("wedges_in_room"), metricCell("wedge_offload"), metricCell("air_supply"),
@@ -214,15 +216,15 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     addSectionLabel(s6, "AI CLINICAL ANALYSIS");
     s6.addText("Clinical Insights", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
     s6.addShape(pres.shapes.RECTANGLE, { x: 0.38, y: 1.28, w: 9.3, h: 3.8, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.06 } });
-    s6.addShape(pres.shapes.RECTANGLE, { x: 0.38, y: 1.28, w: 0.22, h: 3.8, fill: { color: BRAND.primary }, line: { color: BRAND.primary } });
-    s6.addText("✦  AI CLINICAL ANALYSIS", { x: 0.75, y: 1.42, w: 8.7, h: 0.28, fontSize: 9, fontFace: "Calibri", color: BRAND.primary, bold: true, charSpacing: 2, margin: 0 });
+    s6.addShape(pres.shapes.RECTANGLE, { x: 0.38, y: 1.28, w: 0.22, h: 3.8, fill: { color: brandPrimary }, line: { color: brandPrimary } });
+    s6.addText("✦  AI CLINICAL ANALYSIS", { x: 0.75, y: 1.42, w: 8.7, h: 0.28, fontSize: 9, fontFace: "Calibri", color: brandPrimary, bold: true, charSpacing: 2, margin: 0 });
     s6.addText(summary.slice(0, 900), { x: 0.75, y: 1.82, w: 8.7, h: 3.0, fontSize: 11, fontFace: "Calibri", color: BRAND.inkLight, lineSpacingMultiple: 1.4, valign: "top", margin: 0 });
     s6.addText(`Generated by HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, { x: 0.38, y: 5.28, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, align: "right", margin: 0 });
   }
 
   // ── CLOSING SLIDE ─────────────────────────────────────────────────────────
   const sEnd = pres.addSlide();
-  sEnd.background = { color: BRAND.primary };
+  sEnd.background = { color: brandPrimary };
   sEnd.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: 0, w: 0.4, h: 5.625, fill: { color: BRAND.accent }, line: { color: BRAND.accent } });
   sEnd.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.22, h: 5.625, fill: { color: "3d5a62" }, line: { color: "3d5a62" } });
   sEnd.addText("HOVERTECH", { x: 0.55, y: 1.8, w: 9.0, h: 0.7, fontSize: 38, fontFace: "Georgia", color: BRAND.white, bold: true, align: "center", margin: 0 });
