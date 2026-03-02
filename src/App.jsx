@@ -660,13 +660,6 @@ export default function App() {
       if (!proceed) return;
     }
 
-    // Duplicate check
-    const duplicate = entries.find(e => e.date === form.date && e.hospital === form.hospital && e.location === form.location);
-    if (duplicate) {
-      const proceed = window.confirm(`A session for ${form.hospital} · ${form.location} on ${form.date} already exists. Save anyway?`);
-      if (!proceed) return;
-    }
-
     setSaving(true); setSaveError(null);
     const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
     const payload = {
