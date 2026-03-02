@@ -1347,14 +1347,16 @@ export default function App() {
                                 </button>
                               </>
                             ) : (
-                              <button onClick={() => startEdit(e)}
-                                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
-                                EDIT
-                              </button>
-                              <button onClick={() => setPrintSession(e)}
-                                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
-                                PRINT
-                              </button>
+                              <>
+                                <button onClick={() => startEdit(e)}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                  EDIT
+                                </button>
+                                <button onClick={() => setPrintSession(e)}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                  PRINT
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
