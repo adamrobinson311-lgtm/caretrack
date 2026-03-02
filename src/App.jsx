@@ -18,10 +18,10 @@ const C = {
 };
 
 const METRICS = [
-  { id: "matt_applied",     label: "MATT Applied",           desc: "Qualifying patients that had MATT applied" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
   { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
-  { id: "matt_proper",      label: "MATT Applied Properly",  desc: "Patients that had MATT applied properly" },
+  { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had Matt applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
