@@ -432,7 +432,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.3";
+  const CURRENT_VERSION = "2.4";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -976,6 +976,14 @@ export default function App() {
         .signout:hover { color: ${C.accent} !important; }
         .metric-card-hover:hover .hide-metric-btn { opacity: 1 !important; }
         .metric-card-hover:hover .hide-metric-btn:hover { background: ${C.surfaceAlt} !important; color: ${C.inkMid} !important; }
+        @media (max-width: 640px) {
+          .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+          .admin-user-card { flex-direction: column !important; }
+          .admin-user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
+          .admin-user-actions button { flex: 1 !important; }
+          .admin-sub-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+          .admin-sub-nav button { white-space: nowrap !important; flex-shrink: 0 !important; }
+        }
         /* Mobile optimisation */
         @media (max-width: 640px) {
           .mobile-pad { padding: 16px !important; }
@@ -994,6 +1002,10 @@ export default function App() {
           .mom-grid { grid-template-columns: 1fr !important; }
           .dashboard-title { font-size: 22px !important; }
           .chart-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+          .user-card-row { flex-wrap: wrap !important; }
+          .user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
+          .user-actions button { flex: 1; }
         }
         /* Print styles */
         @media print {
@@ -1775,17 +1787,17 @@ export default function App() {
             </div>
 
             {/* Admin sub-nav */}
-            <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0 }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {[["sessions","ALL SESSIONS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => (
                 <button key={id} onClick={() => setAdminSection(id)}
-                  style={{ padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.08em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s" }}>
+                  style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0 }}>
                   {label}
                 </button>
               ))}
             </div>
 
             {/* Stats row - always visible */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }} className="admin-stats-grid">
               {[
                 { label: "Total Sessions", value: allEntriesFull.length },
                 { label: "Hospitals", value: [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length },
@@ -1860,28 +1872,28 @@ export default function App() {
                       const isActive = profile.is_active !== false;
                       const isAdminUser = ADMIN_EMAILS.includes(profile.email);
                       return (
-                        <div key={profile.id} style={{ background: isActive ? C.bg : C.redLight, borderRadius: 10, padding: "14px 16px", border: `1px solid ${isActive ? C.border : "#f0c8c8"}`, opacity: isActive ? 1 : 0.7 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div key={profile.id} style={{ background: isActive ? C.bg : C.redLight, borderRadius: 10, padding: "14px 16px", border: `1px solid ${isActive ? C.border : "#f0c8c8"}`, opacity: isActive ? 1 : 0.7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }} className="user-card-row">
                             <div style={{ width: 36, height: 36, borderRadius: "50%", background: isAdminUser ? C.accentLight : C.primaryLight, border: `1px solid ${isAdminUser ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isAdminUser ? C.accent : C.primary, flexShrink: 0 }}>
                               {(profile.full_name || profile.email).charAt(0).toUpperCase()}
                             </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
                                 {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
                                 {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
                               </div>
-                              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
+                              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {profile.email} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}
                                 {lastSession && ` · Last: ${formatTimestamp(lastSession.created_at, lastSession.date)}`}
                               </div>
                             </div>
-                            <div style={{ textAlign: "right", marginRight: 8 }}>
+                            <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
                               <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
                               <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
                             </div>
                             {!isAdminUser && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }} className="user-actions">
                                 <button onClick={async () => {
                                     const newStatus = !isActive;
                                     const { error } = await supabase.from("user_profiles").update({ is_active: newStatus, deactivated_at: newStatus ? null : new Date().toISOString(), deactivated_by: newStatus ? null : (user?.user_metadata?.full_name || user?.email) }).eq("id", profile.id);
@@ -2036,7 +2048,14 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.3", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.4", date: "March 2026", badge: "LATEST", items: [
+                "Mobile layout overhaul — dashboard, performers, and admin sections fully optimised for phones",
+                "Performers tab: hospital rows now use two-line cards so names and scores never get cut off",
+                "Performers tab: Top Performers and Needs Attention stack vertically instead of side by side",
+                "Admin dashboard: stats grid is now 2×2, sub-nav tabs scroll horizontally, user cards stack with full-width action buttons",
+                "Dark mode now follows your device system setting automatically — no manual toggle needed on first use",
+              ]},
+              { version: "2.3", date: "March 2026", badge: null, items: [
                 "Dark mode — toggle with the 🌙 button in the top-right corner",
                 "Territory overview in Performers tab — all hospitals ranked with a single tap to drill in",
                 "Duplicate session detection — warns before saving a session that already exists",
