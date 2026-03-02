@@ -1640,22 +1640,24 @@ export default function App() {
                   const trendColor = item.trend === null ? C.inkFaint : item.trend > 0 ? C.green : item.trend < 0 ? C.red : C.inkLight;
                   const trendIcon = item.trend === null ? "" : item.trend > 0 ? "▲" : item.trend < 0 ? "▼" : "–";
                   return (
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: C.bg, borderRadius: 8, marginBottom: 6 }}>
-                      <div style={{ fontSize: 18, width: 28, textAlign: "center", flexShrink: 0 }}>{showMedal ? medals[rank] : <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint }}>#{rankings.length - rank}</span>}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-                        <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginTop: 2 }}>{item.sessions} session{item.sessions !== 1 ? "s" : ""}</div>
-                      </div>
+                    <div style={{ background: C.bg, borderRadius: 8, marginBottom: 6, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 7 }}>
+                      {/* Top row: medal + name + score */}
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ fontSize: 18, width: 28, textAlign: "center", flexShrink: 0 }}>{showMedal ? medals[rank] : <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint }}>#{rankings.length - rank}</span>}</div>
+                        <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{item.name}</div>
+                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(item.avg), flexShrink: 0 }}>{item.avg}%</div>
+                      </div>
+                      {/* Bottom row: sessions + trend + bar */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 38 }}>
+                        <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, flexShrink: 0 }}>{item.sessions} session{item.sessions !== 1 ? "s" : ""}</div>
                         {item.trend !== null && (
-                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: trendColor, fontWeight: 600 }}>
+                          <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: trendColor, fontWeight: 600, flexShrink: 0 }}>
                             {trendIcon} {Math.abs(item.trend)}%
                           </div>
                         )}
-                        <div style={{ width: 80, height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ flex: 1, height: 5, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
                           <div style={{ height: "100%", width: `${item.avg}%`, background: pctColor(item.avg), borderRadius: 3, transition: "width 0.6s ease" }} />
                         </div>
-                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(item.avg), minWidth: 44, textAlign: "right" }}>{item.avg}%</div>
                       </div>
                     </div>
                   );
