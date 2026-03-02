@@ -357,11 +357,11 @@ const UnitManagerBody = ({ onClose }) => {
 };
 
 const FilterBar = ({ value, onChange, label, hospitals }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} className="filter-bar">
     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>{label}</span>
     {["All", ...hospitals].map(h => (
       <button key={h} onClick={() => onChange(h)}
-        style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${value === h ? C.primary : C.border}`, background: value === h ? C.primary : "none", color: value === h ? "white" : C.inkMid }}>
+        style={{ padding: "6px 14px", borderRadius: 20, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${value === h ? C.primary : C.border}`, background: value === h ? C.primary : "none", color: value === h ? "white" : C.inkMid, minHeight: 36 }}>
         {h}
       </button>
     ))}
@@ -907,12 +907,21 @@ export default function App() {
         /* Mobile optimisation */
         @media (max-width: 640px) {
           .mobile-pad { padding: 16px !important; }
-          .mobile-full { max-width: 100% !important; padding: 16px !important; }
+          .mobile-full { max-width: 100% !important; padding: 0 !important; }
           .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
-          .nav-tabs { padding: 0 8px !important; overflow-x: auto; white-space: nowrap; }
+          .history-metric-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+          .nav-tabs { padding: 0 8px !important; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
           .nav-tabs button { padding: 10px 14px !important; font-size: 10px !important; }
           input, textarea, select { font-size: 16px !important; min-height: 44px; }
           .savebtn { width: 100% !important; padding: 16px !important; font-size: 13px !important; }
+          .dashboard-header { flex-direction: column !important; align-items: flex-start !important; }
+          .dashboard-filters { align-items: flex-start !important; width: 100% !important; }
+          .filter-bar { flex-wrap: wrap !important; }
+          .export-row { flex-direction: column !important; gap: 8px !important; }
+          .export-row button { width: 100% !important; }
+          .mom-grid { grid-template-columns: 1fr !important; }
+          .dashboard-title { font-size: 22px !important; }
+          .chart-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         }
         /* Print styles */
         @media print {
@@ -1072,13 +1081,13 @@ export default function App() {
                 <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700, color: activeBranding.accentColor || C.primary }}>{hospitalFilter}</div>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }} className="dashboard-header">
               <div>
-                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }}>Compliance Dashboard</h1>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }} className="dashboard-title">Compliance Dashboard</h1>
                 <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
+                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}}
                 <DateRangeFilter />
               </div>
             </div>
@@ -1086,7 +1095,7 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }} className="metric-grid">
                   {avgByMetric.map(m => {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
@@ -1142,7 +1151,7 @@ export default function App() {
                     </div>
 
                     {/* This month vs last month summary row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }} className="mom-grid">
                       {[
                         { label: momData.thisMonth, avg: momData.thisAvg, sessions: momData.thisSessions, isCurrent: true },
                         { label: momData.lastMonth, avg: momData.lastAvg, sessions: momData.lastSessions, isCurrent: false },
@@ -1203,7 +1212,7 @@ export default function App() {
                   {filteredDashboard.length === 0 ? (
                     <div style={{ padding: "40px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions for this filter.</div>
                   ) : (
-                    <div>
+                    <div className="chart-container">
                       <ResponsiveContainer width="100%" height={260}>
                         <LineChart data={chartDataWithNational} margin={{ top: 5, right: 20, bottom: 5, left: -15 }}>
                           <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
@@ -1230,7 +1239,7 @@ export default function App() {
                   )}
                 </div>
                 {/* Action buttons */}
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }} className="export-row">
                   <button className="export-btn" onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
                     style={{ display: "flex", alignItems: "center", gap: 8, background: C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
                     ↓ {exporting ? "GENERATING..." : "EXPORT PPTX"}
@@ -1371,7 +1380,7 @@ export default function App() {
                         </div>
                       </div>
                       {isEditing ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid">
                           {METRICS.map(m => (
                             <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
                               <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
@@ -1386,7 +1395,7 @@ export default function App() {
                           ))}
                         </div>
                       ) : (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid">
                           {metrics.map(m => (
                             <div key={m.label} style={{ background: pctBg(m.p), border: `1px solid ${m.p !== null ? pctColor(m.p) + "33" : C.border}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
                               <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
