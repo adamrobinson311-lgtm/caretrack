@@ -1666,7 +1666,7 @@ export default function App() {
                 return (
                   <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>{icon} {title} · {rankings.length} TOTAL</div>
-                    <div style={{ display: "grid", gridTemplateColumns: bottom.length > 0 ? "1fr 1fr" : "1fr", gap: 24 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                       <div>
                         <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.green, letterSpacing: "0.08em", marginBottom: 10 }}>TOP PERFORMERS</div>
                         {top.map((item, i) => <Row key={item.name} item={item} rank={i} showMedal={true} />)}
