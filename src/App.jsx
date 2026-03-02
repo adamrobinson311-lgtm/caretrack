@@ -408,7 +408,22 @@ export default function App() {
   const [onboardingStep, setOnboardingStep] = useState(0);
 
   // Changelog
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("caretrack_dark") === "true");
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem("caretrack_dark");
+    if (saved !== null) return saved === "true";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
+
+  // Follow system preference changes unless user has manually overridden
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const handler = (e) => {
+      if (localStorage.getItem("caretrack_dark") === null) setDarkMode(e.matches);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   // Sync global C palette every render so all inline styles pick it up
   Object.assign(C, darkMode ? DARK : LIGHT);
@@ -1036,7 +1051,13 @@ export default function App() {
                   <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
                   {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
                 </div>
-                <button onClick={() => { const next = !darkMode; setDarkMode(next); localStorage.setItem("caretrack_dark", next); }}
+                <button onClick={() => {
+                    const next = !darkMode;
+                    setDarkMode(next);
+                    const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+                    if (next === systemDark) localStorage.removeItem("caretrack_dark");
+                    else localStorage.setItem("caretrack_dark", next);
+                  }}
                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 20, cursor: "pointer", fontSize: 14, padding: "3px 10px", color: C.inkLight, transition: "all 0.2s", lineHeight: 1 }}
                   title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
                   {darkMode ? "☀️" : "🌙"}
