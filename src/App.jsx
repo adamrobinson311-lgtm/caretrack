@@ -327,7 +327,7 @@ export default function App() {
   // Changelog
   const [showChangelog, setShowChangelog] = useState(false);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.0";
+  const CURRENT_VERSION = "2.1";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -1756,7 +1756,16 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.0", date: "February 2026", badge: "LATEST", items: [
+              { version: "2.1", date: "March 2026", badge: "LATEST", items: [
+                "Metric icons on dashboard cards — color-coded by compliance status",
+                "Metric icons in PDF and PowerPoint exports",
+                "Compliance cards sorted by status: On Target → Monitor → Needs Attention",
+                "Log session form reordered: Date → Hospital → Unit → Protocol for Use",
+                "Unit/location field now shows a saved picklist per hospital",
+                "Protocol for Use auto-fills when a previously logged unit is selected",
+                "N/A toggle on each metric — hides inputs and excludes from all calculations",
+              ]},
+              { version: "2.0", date: "February 2026", badge: null, items: [
                 "Excel export with Summary and Raw Sessions sheets",
                 "White-label branding per hospital (logo + color theme)",
                 "Onboarding flow for new users",
