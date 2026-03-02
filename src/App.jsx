@@ -1087,7 +1087,7 @@ export default function App() {
                 <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
-                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}}
+                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
                 <DateRangeFilter />
               </div>
             </div>
