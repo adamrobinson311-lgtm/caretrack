@@ -439,7 +439,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.5";
+  const CURRENT_VERSION = "2.4";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -687,7 +687,7 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
-      ...Object.fromEntries([...METRICS, ...MAYO_METRICS].flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
     };
     // If offline, queue the session locally
     if (!isOnline) {
@@ -2057,11 +2057,7 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.5", date: "March 2026", badge: "LATEST", items: [
-                "Mayo Clinic support — hospitals with 'Mayo' in the name automatically show an additional metric: Air Used to Reposition Patient",
-                "Fixed session print — printout now renders correctly instead of a blank page",
-              ]},
-              { version: "2.4", date: "March 2026", badge: null, items: [
+              { version: "2.4", date: "March 2026", badge: "LATEST", items: [
                 "Mobile layout overhaul — dashboard, performers, and admin sections fully optimised for phones",
                 "Performers tab: hospital rows now use two-line cards so names and scores never get cut off",
                 "Performers tab: Top Performers and Needs Attention stack vertically instead of side by side",
