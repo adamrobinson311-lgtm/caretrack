@@ -29,11 +29,11 @@ const DARK = {
 let C = { ...LIGHT };
 
 const METRICS = [
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
-  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
   { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had Matt applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
+  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
 ];
@@ -41,6 +41,17 @@ const METRICS = [
 const MAYO_METRICS = [
   { id: "air_reposition",   label: "Air Used to Reposition Patient", desc: "Patients where air was used to assist repositioning" },
 ];
+
+const METRIC_BUCKETS = [
+  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
+  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+  { label: "Air Supply", ids: ["air_supply"] },
+];
+const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
+const getBuckets = (hospital) => isMayo(hospital)
+  ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b)
+  : METRIC_BUCKETS;
 
 const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
@@ -203,8 +214,8 @@ const METRIC_SHORT = {
   air_supply: "Air Supply", air_reposition: "Air Repo",
 };
 
-const createEmptyBed = (metrics) => ({
-  room: "",
+const createEmptyBed = (metrics, roomNum = "") => ({
+  room: roomNum !== "" ? String(roomNum) : "",
   ...Object.fromEntries(metrics.flatMap(m => [[`${m.id}_q`, ""], [`${m.id}_a`, ""]]))
 });
 
@@ -811,7 +822,7 @@ export default function App() {
         // Preserve existing data if same size; resize if different
         if (prev.length === savedCount) return prev;
         const newGrid = Array.from({ length: savedCount }, (_, i) =>
-          prev[i] || createEmptyBed(activeMetrics)
+          prev[i] || createEmptyBed(activeMetrics, i + 1)
         );
         return newGrid;
       });
@@ -847,7 +858,7 @@ export default function App() {
     const activeMetrics = getMetrics(form.hospital);
     setBedGrid(prev => {
       if (n === 0) return [];
-      return Array.from({ length: n }, (_, i) => prev[i] || createEmptyBed(activeMetrics));
+      return Array.from({ length: n }, (_, i) => prev[i] || createEmptyBed(activeMetrics, i + 1));
     });
   };
 
@@ -1380,7 +1391,7 @@ export default function App() {
                             const newCount = bedCount + 1;
                             setBedCount(newCount);
                             saveBedCount(form.hospital, form.location, newCount);
-                            setBedGrid(prev => [...prev, createEmptyBed(activeMetrics)]);
+                            setBedGrid(prev => [...prev, createEmptyBed(activeMetrics, newCount)]);
                           }}
                           onRemoveBed={(idx) => {
                             const newCount = Math.max(1, bedCount - 1);
@@ -1461,8 +1472,14 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: hiddenMetrics.length > 0 ? 8 : 28 }} className="metric-grid">
-                  {avgByMetric.filter(m => !hiddenMetrics.includes(m.id)).map(m => {
+                {METRIC_BUCKETS.map(bucket => {
+                  const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
+                  if (bucketMetrics.length === 0) return null;
+                  return (
+                    <div key={bucket.label} style={{ marginBottom: 20 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8, paddingLeft: 2 }}>{bucket.label.toUpperCase()}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 12 }} className="metric-grid">
+                        {bucketMetrics.map(m => {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
@@ -1496,7 +1513,10 @@ export default function App() {
                       )}
                     </div>
                   )})}
-                </div>
+                      </div>
+                    </div>
+                  );
+                })}
                 {/* Hidden metrics restore bar */}
                 {hiddenMetrics.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, padding: "8px 14px", background: C.surfaceAlt, borderRadius: 8, flexWrap: "wrap" }}>
@@ -2311,10 +2331,11 @@ export default function App() {
             </div>
             {[
               { version: "2.5", date: "March 2026", badge: "LATEST", items: [
+                "Metric bucket grouping — metrics organized into Patient Met Criteria, Matt Compliance, Wedge Compliance, and Air Supply across dashboard, PDF, PowerPoint, and Excel exports",
+                "Reordered metrics: Turning & Repositioning first, then Matt, Wedge, and Air Supply groups",
                 "Bed-level grid input — enter compliance data per bed/room with auto-summed totals",
                 "Toggle between Simple mode (aggregate entry) and Bed Grid mode on the Log Session form",
                 "Number of beds saved per hospital/unit — auto-populates on return visits",
-                "Horizontally scrollable grid with sticky room number column for mobile",
                 "Mayo Clinic extra metric (Air Used to Reposition Patient)",
                 "Fixed session save error for non-Mayo hospitals sending Mayo-only fields",
               ]},
