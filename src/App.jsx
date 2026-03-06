@@ -225,6 +225,15 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     onChange(updated);
   };
 
+  // On mount or when beds change, ensure all beds have room numbers
+  useEffect(() => {
+    const needsFix = beds.some((b, i) => !b.room);
+    if (needsFix) {
+      const fixed = beds.map((b, i) => b.room ? b : { ...b, room: String(i + 1) });
+      onChange(fixed);
+    }
+  }, [beds.length]);
+
   // Compute totals
   const totals = {};
   metrics.forEach(m => {
@@ -264,7 +273,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
             {beds.map((bed, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
                 <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
-                  <input type="text" value={bed.room} placeholder={`${i + 1}`}
+                  <input type="text" value={bed.room || String(i + 1)}
                     onChange={e => updateCell(i, "room", e.target.value)}
                     style={roomStyle}
                     onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
