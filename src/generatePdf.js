@@ -16,24 +16,16 @@ const BRAND = {
 };
 
 const METRICS = [
-  { id: "turning_criteria", label: "Turning & Repositioning" },
   { id: "matt_applied",     label: "Matt Applied" },
+  { id: "wedges_applied",   label: "Wedges Applied" },
+  { id: "turning_criteria", label: "Turning & Repositioning" },
   { id: "matt_proper",      label: "Matt Applied Properly" },
   { id: "wedges_in_room",   label: "Wedges in Room" },
-  { id: "wedges_applied",   label: "Wedges Applied" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading" },
   { id: "air_supply",       label: "Air Supply in Room" },
 ];
 
 const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-
-const METRIC_BUCKETS = [
-  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
-  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
-  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-  { label: "Air Supply", ids: ["air_supply"] },
-];
-const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
 const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
 
@@ -167,161 +159,101 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Draw icons using jsPDF primitives only (no canvas, no SVG import)
-  const drawIcon = (id, cx, cy, sz, rgb) => {
-    const s = sz / 24;
-    const x = (v) => cx - sz / 2 + v * s;
-    const y = (v) => cy - sz / 2 + v * s;
-    const sc = (v) => v * s;
-    doc.setDrawColor(...rgb);
-    doc.setFillColor(...rgb);
-
-    if (id === "matt_applied") {
-      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(2), y(7), sc(20), sc(10), sc(2), sc(2), "S");
-      doc.setLineWidth(sc(0.8));
-      doc.line(x(8), y(7), x(8), y(17));
-      doc.line(x(16), y(7), x(16), y(17));
-      doc.line(x(2), y(12), x(22), y(12));
-      doc.setLineWidth(0); doc.circle(x(18.5), y(6.5), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(16.5), y(6.5), x(18), y(8)); doc.line(x(18), y(8), x(20.5), y(5.2));
-
-    } else if (id === "wedges_applied") {
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(2), y(19), x(7), y(10)); doc.line(x(7), y(10), x(12), y(19)); doc.line(x(2), y(19), x(12), y(19));
-      doc.line(x(12), y(19), x(17), y(10)); doc.line(x(17), y(10), x(22), y(19)); doc.line(x(12), y(19), x(22), y(19));
-      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(17), y(7), x(18.5), y(8.8)); doc.line(x(18.5), y(8.8), x(21), y(5.2));
-
-    } else if (id === "turning_criteria") {
-      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(10), sc(8), "S");
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(12), y(10), x(12), y(5.5));
-      doc.line(x(12), y(10), x(15.5), y(12));
-      doc.setLineWidth(0); doc.circle(x(12), y(10), sc(1), "F");
-      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.4));
-      doc.circle(x(12), y(17), sc(3), "FD");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.5));
-      doc.line(x(8.5), y(20.5), x(15.5), y(20.5));
-
-    } else if (id === "matt_proper") {
-      doc.setLineWidth(sc(1.4)); doc.roundedRect(x(1), y(5), sc(17), sc(14), sc(1.5), sc(1.5), "S");
-      doc.setLineWidth(sc(1.2));
-      doc.line(x(9.5), y(9), x(9.5), y(15));
-      doc.line(x(6.5), y(12), x(12.5), y(12));
-      doc.setLineWidth(sc(1.1));
-      doc.line(x(8.2), y(10.2), x(9.5), y(9)); doc.line(x(9.5), y(9), x(10.8), y(10.2));
-      doc.line(x(8.2), y(13.8), x(9.5), y(15)); doc.line(x(9.5), y(15), x(10.8), y(13.8));
-      doc.line(x(7.8), y(10.7), x(6.5), y(12)); doc.line(x(6.5), y(12), x(7.8), y(13.3));
-      doc.line(x(11.2), y(10.7), x(12.5), y(12)); doc.line(x(12.5), y(12), x(11.2), y(13.3));
-      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(15), y(4), x(23), y(4)); doc.line(x(23), y(4), x(19), y(13)); doc.line(x(19), y(13), x(15), y(4));
-      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.3));
-      doc.line(x(17.2), y(7.5), x(18.8), y(9.2)); doc.line(x(18.8), y(9.2), x(21.2), y(5.8));
-
-    } else if (id === "wedges_in_room") {
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(12), y(2), x(6), y(8)); doc.line(x(6), y(8), x(6), y(12));
-      doc.line(x(6), y(12), x(12), y(20)); doc.line(x(12), y(20), x(18), y(12));
-      doc.line(x(18), y(12), x(18), y(8)); doc.line(x(18), y(8), x(12), y(2));
-      doc.setLineWidth(0); doc.setFillColor(...rgb);
-      doc.line(x(8.5), y(10), x(12), y(5.5)); doc.line(x(12), y(5.5), x(15.5), y(10)); doc.line(x(15.5), y(10), x(8.5), y(10));
-      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.2));
-      doc.line(x(8.5), y(10), x(15.5), y(10));
-
-    } else if (id === "wedge_offload") {
-      doc.setLineWidth(sc(1.3)); doc.circle(x(3.5), y(5), sc(2.2), "S");
-      doc.roundedRect(x(7), y(3), sc(14), sc(4), sc(1.5), sc(1.5), "S");
-      doc.line(x(1), y(13), x(1), y(17)); doc.line(x(1), y(17), x(8), y(17));
-      doc.line(x(8), y(17), x(8), y(13)); doc.line(x(8), y(13), x(1), y(13));
-      doc.setLineWidth(sc(0.9));
-      doc.line(x(10), y(14), x(10), y(16.5));
-      doc.line(x(11.5), y(13.5), x(11.5), y(16.5));
-      doc.line(x(13), y(14), x(13), y(16.5));
-      doc.setLineWidth(sc(1.3));
-      doc.line(x(15), y(13), x(15), y(17)); doc.line(x(15), y(17), x(22), y(17));
-      doc.line(x(22), y(17), x(22), y(15)); doc.line(x(22), y(15), x(15), y(13));
-
-    } else if (id === "air_supply") {
-      doc.setLineWidth(sc(1.6));
-      doc.line(x(3), y(20), x(3), y(4));
-      doc.line(x(3), y(4), x(21), y(4));
-      doc.line(x(21), y(4), x(21), y(20));
-      doc.line(x(2), y(20), x(22), y(20));
-      doc.setLineWidth(sc(1.5));
-      doc.line(x(6), y(10), x(8.5), y(7.5)); doc.line(x(8.5), y(7.5), x(11), y(10));
-      doc.line(x(11), y(10), x(13.5), y(12.5)); doc.line(x(13.5), y(12.5), x(16), y(10));
-      doc.line(x(16), y(10), x(18.5), y(7.5)); doc.line(x(18.5), y(7.5), x(20), y(10));
-      doc.line(x(6), y(15), x(8.5), y(12.5)); doc.line(x(8.5), y(12.5), x(11), y(15));
-      doc.line(x(11), y(15), x(13.5), y(17.5)); doc.line(x(13.5), y(17.5), x(16), y(15));
-      doc.line(x(16), y(15), x(18.5), y(12.5)); doc.line(x(18.5), y(12.5), x(20), y(15));
-      doc.setLineWidth(0); doc.setFillColor(...rgb); doc.circle(x(19), y(4), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(17), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21), y(2.2));
-    }
+  // Render SVG icons to PNG data URLs via canvas — exact match with dashboard MetricIcons.jsx
+  const ICON_SVG = (id, col) => {
+    const c = col;
+    const icons = {
+      matt_applied: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${c}" stroke-width="1.6" fill="none"/><line x1="8" y1="7" x2="8" y2="17" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${c}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+      wedges_applied: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 19 L7 10 L12 19 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${c}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      turning_criteria: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="10" r="8.5" stroke="${c}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${c}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${c}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${c}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
+      matt_proper: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${c}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${c}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${c}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      wedges_in_room: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${c}" stroke-width="1.2" stroke-linejoin="round" fill="${c}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+      wedge_offload: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="3.5" cy="5" r="2.2" stroke="${c}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${c}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${c}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${c}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 M12.4 14 M13.6 16.5 L13.6 14.5" stroke="${c}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${c}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${c}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+      air_supply: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${c}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="4" r="4" fill="${c}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      air_reposition: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${c}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 12 Q8.5 9.5 11 12 Q13.5 14.5 16 12 Q18.5 9.5 20 12" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><path d="M9 8 L12 5 L15 8" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="5" x2="12" y2="10" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+    };
+    return icons[id] || icons.air_supply;
   };
 
-  // Metric cards — grouped by bucket
-  const buckets = hasMayo ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b) : METRIC_BUCKETS;
-  const cardW = 44, cardH = 44, gap = 2;
-  let curY = 48;
-
-  buckets.forEach(bucket => {
-    const bucketMetrics = avgMetrics.filter(m => bucket.ids.includes(m.id));
-    if (bucketMetrics.length === 0) return;
-
-    // Bucket header
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.text(bucket.label.toUpperCase(), 14, curY + 2);
-    curY += 6;
-
-    // Metric cards in this bucket
-    bucketMetrics.forEach((m, i) => {
-      const cx = 14 + i * (cardW + gap);
-      const color = pctColor(m.avg);
-
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, curY, cardW, cardH, 2, 2, "F");
-      doc.setFillColor(...color);
-      doc.rect(cx, curY, cardW, 2, "F");
-
-      // Icon
-      drawIcon(m.id, cx + cardW / 2, curY + 12, 10, color);
-
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(m.label, cardW - 4);
-      doc.text(lines, cx + cardW / 2, curY + 18, { align: "center" });
-
-      doc.setTextColor(...color);
-      doc.setFontSize(22);
-      doc.setFont("helvetica", "bold");
-      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, curY + 29, { align: "center" });
-
-      // Progress bar
-      doc.setFillColor(...BRAND.light);
-      doc.rect(cx + 4, curY + 33, cardW - 8, 3, "F");
-      if (m.avg !== null) {
-        doc.setFillColor(...color);
-        doc.rect(cx + 4, curY + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
-      }
-
-      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...color);
-      doc.text(status, cx + cardW / 2, curY + 41, { align: "center" });
-    });
-
-    curY += cardH + 6;
+  const svgToPngDataUrl = (svgStr, size = 48) => new Promise((resolve) => {
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size; canvas.height = size;
+      canvas.getContext("2d").drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
   });
 
-  // Legend — positioned below the last bucket
-  const legendY = curY + 4;
+  // Pre-render all icons at each needed colour
+  const iconCache = {};
+  const getIconPng = async (id, rgbArr, size = 48) => {
+    const hex = "#" + rgbArr.map(v => v.toString(16).padStart(2,"0")).join("");
+    const key = `${id}_${hex}`;
+    if (!iconCache[key]) iconCache[key] = await svgToPngDataUrl(ICON_SVG(id, hex), size);
+    return iconCache[key];
+  };
+
+  // Metric cards — 2 rows of 4 + 3
+  const cardW = 44, cardH = 44, startY = 48, gap = 2;
+  // Pre-render all icons before drawing cards
+  const iconPngs = {};
+  await Promise.all(avgMetrics.map(async (m) => {
+    const color = pctColor(m.avg);
+    iconPngs[m.id] = await getIconPng(m.id, color, 96);
+  }));
+
+  avgMetrics.forEach((m, i) => {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const cx = 14 + col * (cardW + gap);
+    const cy = startY + row * (cardH + gap + 2);
+    const color = pctColor(m.avg);
+
+    doc.setFillColor(...BRAND.white);
+    doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
+    doc.setFillColor(...color);
+    doc.rect(cx, cy, cardW, 2, "F");
+
+    // Icon — embedded PNG from SVG, exact match with dashboard
+    const iconSize = 10;
+    if (iconPngs[m.id]) {
+      doc.addImage(iconPngs[m.id], "PNG", cx + cardW / 2 - iconSize / 2, cy + 4, iconSize, iconSize);
+    }
+
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(m.label, cardW - 4);
+    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
+
+    doc.setTextColor(...color);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
+
+    // Progress bar
+    doc.setFillColor(...BRAND.light);
+    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
+    if (m.avg !== null) {
+      doc.setFillColor(...color);
+      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
+    }
+
+    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...color);
+    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
+  });
+
+  // Legend
+  const legendY = 210;
   [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
@@ -439,17 +371,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
     });
 
-    // Detailed comparison table with bucket grouping
-    const compRows = [];
-    buckets.forEach(bucket => {
-      compRows.push([{ content: bucket.label.toUpperCase(), colSpan: hospitalData.length + 1, styles: { fontStyle: "bold", fillColor: [232, 239, 241], textColor: brandHeader, fontSize: 7 } }]);
-      summaryMetrics.filter(m => bucket.ids.includes(m.id)).forEach(m => {
-        compRows.push([
-          m.label,
-          ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
-        ]);
-      });
-    });
+    // Detailed comparison table
+    const compRows = summaryMetrics.map(m => [
+      m.label,
+      ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
+    ]);
 
     autoTable(doc, {
       startY: 80,
