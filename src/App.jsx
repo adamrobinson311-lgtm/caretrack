@@ -226,20 +226,27 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     onChange(updated);
   };
 
-  // Compute totals
+  const isChecked = (val) => val === "1" || val === 1 || val === true;
+
+  // Compute totals — each checkbox counts as 1
   const totals = {};
   metrics.forEach(m => {
-    totals[`${m.id}_q`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
-    totals[`${m.id}_a`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+    totals[`${m.id}_q`] = beds.reduce((sum, b) => sum + (isChecked(b[`${m.id}_q`]) ? 1 : 0), 0);
+    totals[`${m.id}_a`] = beds.reduce((sum, b) => sum + (isChecked(b[`${m.id}_a`]) ? 1 : 0), 0);
   });
 
-  const cellStyle = { width: 52, minWidth: 52, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 4px", fontSize: 14, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center", outline: "none" };
-  const roomStyle = { ...cellStyle, width: 72, minWidth: 72, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "left", padding: "6px 8px" };
+  const checkboxCellStyle = { display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 2px" };
+  const roomStyle = { width: 72, minWidth: 72, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.primary, padding: "6px 8px", outline: "none", fontWeight: 600 };
   const thStyle = { padding: "4px 2px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", color: C.inkLight, textAlign: "center", whiteSpace: "nowrap", fontWeight: 400 };
   const metricThStyle = { ...thStyle, fontSize: 10, color: C.inkMid, fontWeight: 600, padding: "8px 2px", borderBottom: `2px solid ${C.border}` };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <style>{`
+        .bed-checkbox { width: 20px; height: 20px; cursor: pointer; accent-color: ${C.primary}; border-radius: 4px; }
+        .bed-checkbox-q { accent-color: ${C.secondary}; }
+        .bed-checkbox-a { accent-color: ${C.primary}; }
+      `}</style>
       <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface }}>
         <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%" }}>
           <thead>
@@ -273,16 +280,20 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                 {metrics.map(m => (
                   <Fragment key={m.id}>
                     <td style={{ padding: "4px 2px" }}>
-                      <input type="number" min="0" value={bed[`${m.id}_q`]}
-                        onChange={e => updateCell(i, `${m.id}_q`, e.target.value)}
-                        placeholder="0" style={cellStyle}
-                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                      <div style={checkboxCellStyle}>
+                        <input type="checkbox"
+                          className="bed-checkbox bed-checkbox-q"
+                          checked={isChecked(bed[`${m.id}_q`])}
+                          onChange={e => updateCell(i, `${m.id}_q`, e.target.checked ? "1" : "0")} />
+                      </div>
                     </td>
                     <td style={{ padding: "4px 2px" }}>
-                      <input type="number" min="0" value={bed[`${m.id}_a`]}
-                        onChange={e => updateCell(i, `${m.id}_a`, e.target.value)}
-                        placeholder="0" style={cellStyle}
-                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                      <div style={checkboxCellStyle}>
+                        <input type="checkbox"
+                          className="bed-checkbox bed-checkbox-a"
+                          checked={isChecked(bed[`${m.id}_a`])}
+                          onChange={e => updateCell(i, `${m.id}_a`, e.target.checked ? "1" : "0")} />
+                      </div>
                     </td>
                   </Fragment>
                 ))}
