@@ -221,6 +221,9 @@ const createEmptyBed = (metrics, roomNum) => {
 };
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
+  // Debug: log bed room values to browser console
+  console.log("[BedGrid] beds:", beds.map(b => ({ room: b.room, hasRoom: !!b.room })));
+
   const updateCell = (bedIdx, field, value) => {
     const updated = beds.map((b, i) => i === bedIdx ? { ...b, [field]: value } : b);
     onChange(updated);
@@ -265,10 +268,10 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
             {beds.map((bed, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
                 <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
-                  <input type="text" value={bed.room} placeholder={`${i + 1}`}
+                  <input type="text" value={bed.room || String(i + 1)}
                     onChange={e => updateCell(i, "room", e.target.value)}
-                    style={roomStyle}
-                    onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    style={{ ...roomStyle, color: bed.room ? C.primary : C.inkFaint, fontWeight: bed.room ? 600 : 400 }}
+                    onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell(i, "room", String(i + 1)); }} onBlur={e => e.target.style.borderColor = C.border} />
                 </td>
                 {metrics.map(m => (
                   <Fragment key={m.id}>
@@ -614,6 +617,7 @@ export default function App() {
   const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "simple"); // "simple" | "grid"
   const [bedGrid, setBedGrid] = useState([]);
   const [bedCount, setBedCount] = useState(0);
+  const lastGridKey = useRef("");
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [selectedMetrics, setSelectedMetrics] = useState(() => {
@@ -815,6 +819,9 @@ export default function App() {
   // Initialize bed grid when hospital/unit changes (grid mode)
   useEffect(() => {
     if (inputMode !== "grid" || !form.hospital || !form.location) return;
+    const key = `${form.hospital}|||${form.location}`;
+    if (key === lastGridKey.current) return; // same unit, don't recreate
+    lastGridKey.current = key;
     const savedCount = getBedCount(form.hospital, form.location);
     if (savedCount > 0) {
       setBedCount(savedCount);
@@ -822,7 +829,7 @@ export default function App() {
       const newGrid = [];
       for (let i = 0; i < savedCount; i++) {
         const bed = createEmptyBed(activeMetrics, i + 1);
-        bed.room = String(i + 1);  // explicit room assignment
+        bed.room = String(i + 1);
         newGrid.push(bed);
       }
       setBedGrid(newGrid);
@@ -912,7 +919,7 @@ export default function App() {
       localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
       setEntries(prev => [...prev, offlineSession]);
       saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-      setForm(defaultForm()); setBedGrid([]); setBedCount(0); setSaving(false); setSaved(true);
+      setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
       setSavedAt(new Date().toISOString());
       setTimeout(() => setSaved(false), 4000);
       return;
@@ -934,7 +941,7 @@ export default function App() {
     }
     setEntries(prev => [...prev, finalData]);
     saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-    setForm(defaultForm()); setBedGrid([]); setBedCount(0); setSaving(false); setSaved(true);
+    setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
     setTimeout(() => setSaved(false), 4000);
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
