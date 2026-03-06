@@ -4,7 +4,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "HoverTech CareTrack";
-  pres.title = "Wound Care Compliance Report";
+  pres.title = "HAPI Prevention Compliance Report";
 
   const BRAND = {
     primary:   "4F6E77",
@@ -25,24 +25,16 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   const brandPrimary = branding?.accentColor ? branding.accentColor.replace("#","") : BRAND.primary;
 
   const METRICS = [
-    { id: "turning_criteria", label: "Turning & Repositioning" },
     { id: "matt_applied",     label: "Matt Applied" },
+    { id: "wedges_applied",   label: "Wedges Applied" },
+    { id: "turning_criteria", label: "Turning & Repositioning" },
     { id: "matt_proper",      label: "Matt Applied Properly" },
     { id: "wedges_in_room",   label: "Wedges in Room" },
-    { id: "wedges_applied",   label: "Wedges Applied" },
     { id: "wedge_offload",    label: "Proper Wedge Offloading" },
     { id: "air_supply",       label: "Air Supply in Room" },
   ];
 
   const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-
-  const METRIC_BUCKETS = [
-    { label: "Patient Met Criteria", ids: ["turning_criteria"] },
-    { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
-    { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "Air Supply", ids: ["air_supply"] },
-  ];
-  const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
   const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
   const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
   const hasMayo = entries.some(e => isMayo(e.hospital));
@@ -82,7 +74,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s1.background = { color: brandPrimary };
   s1.addShape(pres.shapes.RECTANGLE, { x: 6.8, y: 0, w: 3.2, h: 5.625, fill: { color: "416069" }, line: { color: "416069" } });
   s1.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: 0, w: 0.4, h: 5.625, fill: { color: BRAND.accent }, line: { color: BRAND.accent } });
-  s1.addText("Wound Care", { x: 0.55, y: 1.3, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.white, bold: true, margin: 0 });
+  s1.addText("HAPI Prevention", { x: 0.55, y: 1.3, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.white, bold: true, margin: 0 });
   s1.addText("Compliance Report", { x: 0.55, y: 2.05, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.light, bold: false, italic: true, margin: 0 });
   s1.addShape(pres.shapes.RECTANGLE, { x: 0.55, y: 2.95, w: 2.5, h: 0.04, fill: { color: "7CA8B4" }, line: { color: "7CA8B4" } });
   s1.addText(`Generated ${today}`, { x: 0.55, y: 3.15, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
@@ -100,6 +92,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s2.addText("Average Compliance by Metric", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
   s2.addText(`Across all ${entries.length} logged sessions`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
 
+  const cardW = 1.26, cardH = 2.8, cardY = 1.62, cardGap = 0.08;
 
   // SVG icon data URIs for each metric — rendered as images on cards
   const ICON_SVGS = {
@@ -114,42 +107,26 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const svgToDataUri = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
-  // Group metric cards by bucket
-  const buckets = hasMayo ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b) : METRIC_BUCKETS;
-  const cardW = 1.26, cardH = 2.4, cardGap = 0.08;
-  let cardY = 1.62;
-
-  buckets.forEach(bucket => {
-    const bucketMetrics = avgMetrics.filter(m => bucket.ids.includes(m.id));
-    if (bucketMetrics.length === 0) return;
-
-    // Bucket label
-    s2.addText(bucket.label.toUpperCase(), { x: 0.38, y: cardY - 0.02, w: 9.3, h: 0.2, fontSize: 7, fontFace: "Calibri", color: brandPrimary, bold: true, charSpacing: 2, margin: 0 });
-    cardY += 0.22;
-
-    bucketMetrics.forEach((m, i) => {
-      const cx = 0.38 + i * (cardW + cardGap);
-      const col = pctColor(m.avg);
-      const hexCol = `#${col}`;
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.08 } });
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: 0.1, fill: { color: col }, line: { color: col } });
-      if (ICON_SVGS[m.id]) {
-        s2.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + (cardW - 0.4) / 2, y: cardY + 0.14, w: 0.4, h: 0.4 });
-      }
-      s2.addText(m.label, { x: cx + 0.08, y: cardY + 0.56, w: cardW - 0.16, h: 0.48, fontSize: 8, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
-      s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 1.02, w: cardW - 0.1, h: 0.55, fontSize: 24, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.62, w: cardW - 0.3, h: 0.12, fill: { color: BRAND.light }, line: { color: BRAND.light } });
-      if (m.avg !== null) {
-        const barW = Math.max(0.04, ((cardW - 0.3) * m.avg) / 100);
-        s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.62, w: barW, h: 0.12, fill: { color: col }, line: { color: col } });
-      }
-      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-      s2.addText(status, { x: cx + 0.05, y: cardY + 1.85, w: cardW - 0.1, h: 0.22, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
-    });
-
-    cardY += cardH + 0.12;
+  avgMetrics.forEach((m, i) => {
+    const cx = 0.38 + i * (cardW + cardGap);
+    const col = pctColor(m.avg);
+    const hexCol = `#${col}`;
+    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.08 } });
+    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: 0.12, fill: { color: col }, line: { color: col } });
+    // Icon
+    if (ICON_SVGS[m.id]) {
+      s2.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + (cardW - 0.45) / 2, y: cardY + 0.16, w: 0.45, h: 0.45 });
+    }
+    s2.addText(m.label, { x: cx + 0.1, y: cardY + 0.68, w: cardW - 0.2, h: 0.56, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
+    s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 1.22, w: cardW - 0.1, h: 0.65, fontSize: 26, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
+    s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: cardW - 0.3, h: 0.14, fill: { color: BRAND.light }, line: { color: BRAND.light } });
+    if (m.avg !== null) {
+      const barW = Math.max(0.04, ((cardW - 0.3) * m.avg) / 100);
+      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: barW, h: 0.14, fill: { color: col }, line: { color: col } });
+    }
+    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+    s2.addText(status, { x: cx + 0.05, y: cardY + 2.25, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
   });
-
   [["90%+", BRAND.green, "On Target"], ["70-89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
     const lx = 0.38 + i * 3.1;
     s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.1, w: 0.18, h: 0.18, fill: { color }, line: { color } });
@@ -212,7 +189,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const recentSessions = [...entries].reverse().slice(0, 12);
   const hdrOpts = (text) => ({ text, options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
-  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Turning"), hdrOpts("Matt"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Wedges"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
+  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
 
   const tableRows = recentSessions.map((e, idx) => {
     const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
@@ -224,8 +201,8 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { text: e.date || "—", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 9, fontFace: "Calibri", align: "center" } },
       { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 9, fontFace: "Calibri", bold: true } },
       { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
-      metricCell("turning_criteria"), metricCell("matt_applied"), metricCell("matt_proper"),
-      metricCell("wedges_in_room"), metricCell("wedges_applied"), metricCell("wedge_offload"), metricCell("air_supply"),
+      metricCell("matt_applied"), metricCell("wedges_applied"), metricCell("turning_criteria"),
+      metricCell("matt_proper"), metricCell("wedges_in_room"), metricCell("wedge_offload"), metricCell("air_supply"),
       { text: e.logged_by || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
     ];
   });

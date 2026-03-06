@@ -111,7 +111,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.white);
   doc.setFontSize(36);
   doc.setFont("helvetica", "bold");
-  doc.text("Wound Care", 20, 110);
+  doc.text("HAPI Prevention", 20, 110);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(32);
   doc.setTextColor(222, 218, 217);
