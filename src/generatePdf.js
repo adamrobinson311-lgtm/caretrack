@@ -360,15 +360,24 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     },
     alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 26 },
-      2: { cellWidth: 18 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 24 },
-      5: { cellWidth: 30 },
-      6: { cellWidth: 18 },
-      7: { cellWidth: 22 },
-      8: { cellWidth: 20 },
+      0: { cellWidth: 20 },  // Timestamp
+      1: { cellWidth: 24 },  // Hospital
+      2: { cellWidth: 15 },  // Location
+      3: { cellWidth: 20 },  // Patient Met Criteria
+      4: { cellWidth: 22 },  // Matt Compliance
+      5: { cellWidth: 28 },  // Wedge Compliance
+      6: { cellWidth: 16 },  // Air Supply
+      7: { cellWidth: 20 },  // Logged By
+      8: { cellWidth: "auto" },  // Notes — fills remaining space, no clipping
+    },
+    didParseCell: (data) => {
+      // Second header row — lighter background, italic, smaller
+      if (data.section === "head" && data.row.index === 1) {
+        data.cell.styles.fillColor = brandHeader.map(v => Math.min(255, v + 30));
+        data.cell.styles.fontStyle = "italic";
+        data.cell.styles.fontSize = 6;
+        data.cell.styles.textColor = [220, 230, 232];
+      }
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
