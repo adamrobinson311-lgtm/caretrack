@@ -221,9 +221,6 @@ const createEmptyBed = (metrics, roomNum) => {
 };
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
-  // Debug: log bed room values to browser console
-  console.log("[BedGrid] beds:", beds.map(b => ({ room: b.room, hasRoom: !!b.room })));
-
   const updateCell = (bedIdx, field, value) => {
     const updated = beds.map((b, i) => i === bedIdx ? { ...b, [field]: value } : b);
     onChange(updated);
@@ -403,6 +400,19 @@ const saveBedCount = (hospital, unit, count) => {
   if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
   if (!data[hospital].bedCounts) data[hospital].bedCounts = {};
   data[hospital].bedCounts[unit] = count;
+  saveHospitalData(data);
+};
+const getBedRooms = (hospital, unit) => {
+  if (!hospital || !unit) return [];
+  const data = getHospitalData();
+  return data[hospital]?.bedRooms?.[unit] || [];
+};
+const saveBedRooms = (hospital, unit, rooms) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].bedRooms) data[hospital].bedRooms = {};
+  data[hospital].bedRooms[unit] = rooms;
   saveHospitalData(data);
 };
 
@@ -823,13 +833,15 @@ export default function App() {
     if (key === lastGridKey.current) return; // same unit, don't recreate
     lastGridKey.current = key;
     const savedCount = getBedCount(form.hospital, form.location);
+    const savedRooms = getBedRooms(form.hospital, form.location);
     if (savedCount > 0) {
       setBedCount(savedCount);
       const activeMetrics = getMetrics(form.hospital);
       const newGrid = [];
       for (let i = 0; i < savedCount; i++) {
-        const bed = createEmptyBed(activeMetrics, i + 1);
-        bed.room = String(i + 1);
+        const room = savedRooms[i] || String(i + 1);
+        const bed = createEmptyBed(activeMetrics, room);
+        bed.room = room;
         newGrid.push(bed);
       }
       setBedGrid(newGrid);
@@ -853,6 +865,13 @@ export default function App() {
     });
     setForm(f => ({ ...f, ...updates }));
   }, [bedGrid, inputMode, form.hospital]);
+
+  // Persist room numbers to localStorage when grid changes
+  useEffect(() => {
+    if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
+    const rooms = bedGrid.map(b => b.room || "");
+    saveBedRooms(form.hospital, form.location, rooms);
+  }, [bedGrid, inputMode, form.hospital, form.location]);
 
   // Handle bed count change — resize the grid
   const handleBedCountChange = (count) => {
