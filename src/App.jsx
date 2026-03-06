@@ -214,10 +214,11 @@ const METRIC_SHORT = {
   air_supply: "Air Supply", air_reposition: "Air Repo",
 };
 
-const createEmptyBed = (metrics, roomNum = "") => ({
-  room: roomNum !== "" ? String(roomNum) : "",
-  ...Object.fromEntries(metrics.flatMap(m => [[`${m.id}_q`, ""], [`${m.id}_a`, ""]]))
-});
+const createEmptyBed = (metrics, roomNum) => {
+  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "" };
+  metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; });
+  return bed;
+};
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
   const updateCell = (bedIdx, field, value) => {
@@ -264,7 +265,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
             {beds.map((bed, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
                 <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
-                  <input type="text" value={bed.room || String(i + 1)}
+                  <input type="text" value={bed.room} placeholder={`${i + 1}`}
                     onChange={e => updateCell(i, "room", e.target.value)}
                     style={roomStyle}
                     onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
@@ -820,7 +821,9 @@ export default function App() {
       const activeMetrics = getMetrics(form.hospital);
       const newGrid = [];
       for (let i = 0; i < savedCount; i++) {
-        newGrid.push(createEmptyBed(activeMetrics, i + 1));
+        const bed = createEmptyBed(activeMetrics, i + 1);
+        bed.room = String(i + 1);  // explicit room assignment
+        newGrid.push(bed);
       }
       setBedGrid(newGrid);
     } else {
@@ -857,9 +860,14 @@ export default function App() {
       const newGrid = [];
       for (let i = 0; i < n; i++) {
         if (i < prev.length) {
-          newGrid.push(prev[i]);
+          // keep existing bed data, but ensure room is set
+          const bed = { ...prev[i] };
+          if (!bed.room) bed.room = String(i + 1);
+          newGrid.push(bed);
         } else {
-          newGrid.push(createEmptyBed(activeMetrics, i + 1));
+          const bed = createEmptyBed(activeMetrics, i + 1);
+          bed.room = String(i + 1);
+          newGrid.push(bed);
         }
       }
       return newGrid;
@@ -1395,7 +1403,9 @@ export default function App() {
                             const newCount = bedCount + 1;
                             setBedCount(newCount);
                             saveBedCount(form.hospital, form.location, newCount);
-                            setBedGrid(prev => [...prev, createEmptyBed(activeMetrics, newCount)]);
+                            const newBed = createEmptyBed(activeMetrics, newCount);
+                            newBed.room = String(newCount);
+                            setBedGrid(prev => [...prev, newBed]);
                           }}
                           onRemoveBed={(idx) => {
                             const newCount = Math.max(1, bedCount - 1);
