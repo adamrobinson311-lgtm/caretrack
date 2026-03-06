@@ -821,9 +821,11 @@ export default function App() {
       setBedGrid(prev => {
         // Preserve existing data if same size; resize if different
         if (prev.length === savedCount) return prev;
-        const newGrid = Array.from({ length: savedCount }, (_, i) =>
-          prev[i] || createEmptyBed(activeMetrics, i + 1)
-        );
+        const newGrid = Array.from({ length: savedCount }, (_, i) => {
+          const existing = prev[i];
+          if (existing) return existing.room ? existing : { ...existing, room: String(i + 1) };
+          return createEmptyBed(activeMetrics, i + 1);
+        });
         return newGrid;
       });
     } else if (form.hospital && form.location) {
@@ -858,7 +860,11 @@ export default function App() {
     const activeMetrics = getMetrics(form.hospital);
     setBedGrid(prev => {
       if (n === 0) return [];
-      return Array.from({ length: n }, (_, i) => prev[i] || createEmptyBed(activeMetrics, i + 1));
+      return Array.from({ length: n }, (_, i) => {
+        const existing = prev[i];
+        if (existing) return existing.room ? existing : { ...existing, room: String(i + 1) };
+        return createEmptyBed(activeMetrics, i + 1);
+      });
     });
   };
 
