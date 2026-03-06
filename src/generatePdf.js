@@ -16,16 +16,24 @@ const BRAND = {
 };
 
 const METRICS = [
-  { id: "matt_applied",     label: "Matt Applied" },
-  { id: "wedges_applied",   label: "Wedges Applied" },
   { id: "turning_criteria", label: "Turning & Repositioning" },
+  { id: "matt_applied",     label: "Matt Applied" },
   { id: "matt_proper",      label: "Matt Applied Properly" },
   { id: "wedges_in_room",   label: "Wedges in Room" },
+  { id: "wedges_applied",   label: "Wedges Applied" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading" },
   { id: "air_supply",       label: "Air Supply in Room" },
 ];
 
 const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+
+const METRIC_BUCKETS = [
+  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
+  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+  { label: "Air Supply", ids: ["air_supply"] },
+];
+const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
 const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
 
@@ -254,47 +262,62 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     }
   };
 
-  // Metric cards — 2 rows of 4 + 3
-  const cardW = 44, cardH = 44, startY = 48, gap = 2;
-  avgMetrics.forEach((m, i) => {
-    const col = i % 4;
-    const row = Math.floor(i / 4);
-    const cx = 14 + col * (cardW + gap);
-    const cy = startY + row * (cardH + gap + 2);
-    const color = pctColor(m.avg);
+  // Metric cards — grouped by bucket
+  const buckets = hasMayo ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b) : METRIC_BUCKETS;
+  const cardW = 44, cardH = 44, gap = 2;
+  let curY = 48;
 
-    doc.setFillColor(...BRAND.white);
-    doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
-    doc.setFillColor(...color);
-    doc.rect(cx, cy, cardW, 2, "F");
+  buckets.forEach(bucket => {
+    const bucketMetrics = avgMetrics.filter(m => bucket.ids.includes(m.id));
+    if (bucketMetrics.length === 0) return;
 
-    // Icon
-    drawIcon(m.id, cx + cardW / 2, cy + 12, 10, color);
-
-    doc.setTextColor(...BRAND.inkLight);
+    // Bucket header
+    doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    const lines = doc.splitTextToSize(m.label, cardW - 4);
-    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
-
-    doc.setTextColor(...color);
-    doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
-    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
+    doc.text(bucket.label.toUpperCase(), 14, curY + 2);
+    curY += 6;
 
-    // Progress bar
-    doc.setFillColor(...BRAND.light);
-    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
-    if (m.avg !== null) {
+    // Metric cards in this bucket
+    bucketMetrics.forEach((m, i) => {
+      const cx = 14 + i * (cardW + gap);
+      const color = pctColor(m.avg);
+
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, curY, cardW, cardH, 2, 2, "F");
       doc.setFillColor(...color);
-      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
-    }
+      doc.rect(cx, curY, cardW, 2, "F");
 
-    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...color);
-    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
+      // Icon
+      drawIcon(m.id, cx + cardW / 2, curY + 12, 10, color);
+
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(m.label, cardW - 4);
+      doc.text(lines, cx + cardW / 2, curY + 18, { align: "center" });
+
+      doc.setTextColor(...color);
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, curY + 29, { align: "center" });
+
+      // Progress bar
+      doc.setFillColor(...BRAND.light);
+      doc.rect(cx + 4, curY + 33, cardW - 8, 3, "F");
+      if (m.avg !== null) {
+        doc.setFillColor(...color);
+        doc.rect(cx + 4, curY + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
+      }
+
+      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...color);
+      doc.text(status, cx + cardW / 2, curY + 41, { align: "center" });
+    });
+
+    curY += cardH + 6;
   });
 
   // Legend
@@ -416,11 +439,17 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
     });
 
-    // Detailed comparison table
-    const compRows = summaryMetrics.map(m => [
-      m.label,
-      ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
-    ]);
+    // Detailed comparison table with bucket grouping
+    const compRows = [];
+    buckets.forEach(bucket => {
+      compRows.push([{ content: bucket.label.toUpperCase(), colSpan: hospitalData.length + 1, styles: { fontStyle: "bold", fillColor: [232, 239, 241], textColor: brandHeader, fontSize: 7 } }]);
+      summaryMetrics.filter(m => bucket.ids.includes(m.id)).forEach(m => {
+        compRows.push([
+          m.label,
+          ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
+        ]);
+      });
+    });
 
     autoTable(doc, {
       startY: 80,

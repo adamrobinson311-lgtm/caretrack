@@ -1,11 +1,11 @@
 import * as XLSX from "xlsx";
 
 const METRICS = [
-  { id: "matt_applied", label: "Matt Applied" },
-  { id: "wedges_applied", label: "Wedges Applied" },
   { id: "turning_criteria", label: "Turning & Repositioning" },
+  { id: "matt_applied", label: "Matt Applied" },
   { id: "matt_proper", label: "Matt Applied Properly" },
   { id: "wedges_in_room", label: "Wedges in Room" },
+  { id: "wedges_applied", label: "Wedges Applied" },
   { id: "wedge_offload", label: "Proper Wedge Offloading" },
   { id: "air_supply", label: "Air Supply in Room" },
 ];
@@ -13,6 +13,14 @@ const METRICS = [
 const MAYO_METRICS = [
   { id: "air_reposition", label: "Air Used to Reposition Patient" },
 ];
+
+const METRIC_BUCKETS = [
+  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
+  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+  { label: "Air Supply", ids: ["air_supply"] },
+];
+const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
 
 const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
@@ -53,17 +61,20 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   summaryData.push(["OVERALL AVERAGE COMPLIANCE", overallAvg !== null ? `${overallAvg}%` : "—"]);
   summaryData.push([]);
 
-  // Per-metric summary
-  summaryData.push(["METRIC", "AVERAGE", "SESSIONS WITH DATA", "NUMERATOR TOTAL", "DENOMINATOR TOTAL"]);
-  summaryMetrics.forEach(m => {
-    const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-    const numTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_num`]) || 0), 0);
-    const denTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_den`]) || 0), 0);
-    summaryData.push([m.label, avg !== null ? `${avg}%` : "—", vals.length, numTotal, denTotal]);
+  // Per-metric summary grouped by bucket
+  const buckets = hasMayo ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b) : METRIC_BUCKETS;
+  buckets.forEach(bucket => {
+    summaryData.push([bucket.label.toUpperCase()]);
+    summaryData.push(["METRIC", "AVERAGE", "SESSIONS WITH DATA", "NUMERATOR TOTAL", "DENOMINATOR TOTAL"]);
+    summaryMetrics.filter(m => bucket.ids.includes(m.id)).forEach(m => {
+      const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+      const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+      const numTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_num`]) || 0), 0);
+      const denTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_den`]) || 0), 0);
+      summaryData.push([m.label, avg !== null ? `${avg}%` : "—", vals.length, numTotal, denTotal]);
+    });
+    summaryData.push([]);
   });
-
-  summaryData.push([]);
 
   // Per-hospital breakdown
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
