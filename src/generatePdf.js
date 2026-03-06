@@ -315,25 +315,47 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFontSize(20);
   doc.text("Session Log", 14, 35);
 
+  // Session table — columns match the 4 compliance category buckets
+  const TABLE_CATS = [
+    { label: "Patient Met Criteria",  ids: ["turning_criteria"] },
+    { label: "Matt Compliance",       ids: ["matt_applied", "matt_proper"] },
+    { label: "Wedge Compliance",      ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "Air Supply",            ids: ["air_supply"] },
+  ];
+
+  const fmtCat = (e, ids) => {
+    const vals = ids.map(id => { const p = pct(e[`${id}_num`], e[`${id}_den`]); return p !== null ? `${p}%` : "—"; });
+    return vals.join(" / ");
+  };
+
   const recentSessions = [...entries].reverse().slice(0, 20);
   const tableRows = recentSessions.map(e => [
     e.created_at ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : e.date,
     e.hospital || "—",
     e.location || "—",
-    METRICS.slice(0, 4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
-    METRICS.slice(4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
+    ...TABLE_CATS.map(cat => fmtCat(e, cat.ids)),
     e.logged_by || "—",
     e.notes || "",
   ]);
 
   autoTable(doc, {
     startY: 40,
-    head: [["Timestamp", "Hospital", "Location", "Matt/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
+    head: [["Timestamp", "Hospital", "Location", ...TABLE_CATS.map(c => c.label), "Logged By", "Notes"]],
     body: tableRows,
-    styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
+    styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
+    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
-    columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 38 }, 4: { cellWidth: 24 }, 5: { cellWidth: 24 }, 6: { cellWidth: 22 } },
+    columnStyles: {
+      0: { cellWidth: 22 },  // Timestamp
+      1: { cellWidth: 26 },  // Hospital
+      2: { cellWidth: 18 },  // Location
+      3: { cellWidth: 22 },  // Patient Met Criteria (1 metric)
+      4: { cellWidth: 24 },  // Matt Compliance (2 metrics)
+      5: { cellWidth: 30 },  // Wedge Compliance (3 metrics)
+      6: { cellWidth: 18 },  // Air Supply (1 metric)
+      7: { cellWidth: 22 },  // Logged By
+      8: { cellWidth: 20 },  // Notes
+    },
     margin: { left: 14, right: 14 },
     theme: "plain",
   });
