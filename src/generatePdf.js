@@ -199,61 +199,97 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     return iconCache[key];
   };
 
-  // Metric cards — 2 rows of 4 + 3
-  const cardW = 44, cardH = 44, startY = 48, gap = 2;
-  // Pre-render all icons before drawing cards
+  // Category groups — matches PPTX and dashboard layout
+  const CATEGORIES = [
+    { label: "PATIENT MET CRITERIA", ids: ["turning_criteria"] },
+    { label: "MATT COMPLIANCE",      ids: ["matt_applied", "matt_proper"] },
+    { label: "WEDGE COMPLIANCE",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "AIR SUPPLY",           ids: ["air_supply", "air_reposition"] },
+  ];
+
+  // Build lookup from id → metric data
+  const metricMap = Object.fromEntries(avgMetrics.map(m => [m.id, m]));
+
+  // Pre-render all icons at their display colour
   const iconPngs = {};
   await Promise.all(avgMetrics.map(async (m) => {
-    const color = pctColor(m.avg);
-    iconPngs[m.id] = await getIconPng(m.id, color, 96);
+    iconPngs[m.id] = await getIconPng(m.id, pctColor(m.avg), 96);
   }));
 
-  avgMetrics.forEach((m, i) => {
-    const col = i % 4;
-    const row = Math.floor(i / 4);
-    const cx = 14 + col * (cardW + gap);
-    const cy = startY + row * (cardH + gap + 2);
-    const color = pctColor(m.avg);
+  const cardGap = 3;
+  const iconSize = 10;
+  const cardH = 46;
+  let cursorY = 48;
 
-    doc.setFillColor(...BRAND.white);
-    doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
-    doc.setFillColor(...color);
-    doc.rect(cx, cy, cardW, 2, "F");
+  for (const cat of CATEGORIES) {
+    const catMetrics = cat.ids.map(id => metricMap[id]).filter(Boolean);
+    if (catMetrics.length === 0) continue;
 
-    // Icon — embedded PNG from SVG, exact match with dashboard
-    const iconSize = 10;
-    if (iconPngs[m.id]) {
-      doc.addImage(iconPngs[m.id], "PNG", cx + cardW / 2 - iconSize / 2, cy + 4, iconSize, iconSize);
-    }
-
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    const lines = doc.splitTextToSize(m.label, cardW - 4);
-    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
-
-    doc.setTextColor(...color);
-    doc.setFontSize(22);
+    // Category label
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
-    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
+    doc.text(cat.label, 14, cursorY);
+    cursorY += 3;
 
-    // Progress bar
-    doc.setFillColor(...BRAND.light);
-    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
-    if (m.avg !== null) {
+    // Colour bar
+    doc.setFillColor(...brandHeader);
+    doc.rect(14, cursorY, 182, 1, "F");
+    cursorY += 3;
+
+    // Cards — evenly fill 182mm width
+    const n = catMetrics.length;
+    const cardW = (182 - cardGap * (n - 1)) / n;
+
+    catMetrics.forEach((m, i) => {
+      const cx = 14 + i * (cardW + cardGap);
+      const cy = cursorY;
+      const color = pctColor(m.avg);
+
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
       doc.setFillColor(...color);
-      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
-    }
+      doc.rect(cx, cy, cardW, 2, "F");
 
-    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...color);
-    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
-  });
+      // Icon
+      if (iconPngs[m.id]) {
+        doc.addImage(iconPngs[m.id], "PNG", cx + cardW / 2 - iconSize / 2, cy + 3, iconSize, iconSize);
+      }
 
-  // Legend
-  const legendY = 210;
+      // Label
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(m.label, cardW - 6);
+      doc.text(lines, cx + cardW / 2, cy + 17, { align: "center" });
+
+      // Percentage
+      doc.setTextColor(...color);
+      doc.setFontSize(20);
+      doc.setFont("helvetica", "bold");
+      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 28, { align: "center" });
+
+      // Progress bar
+      doc.setFillColor(...BRAND.light);
+      doc.rect(cx + 4, cy + 32, cardW - 8, 2.5, "F");
+      if (m.avg !== null) {
+        doc.setFillColor(...color);
+        doc.rect(cx + 4, cy + 32, Math.max(1, ((cardW - 8) * m.avg) / 100), 2.5, "F");
+      }
+
+      // Status
+      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...color);
+      doc.text(status, cx + cardW / 2, cy + 40, { align: "center" });
+    });
+
+    cursorY += cardH + 6;
+  }
+
+  // Legend — dynamically placed below all cards
+  const legendY = cursorY + 2;
   [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
