@@ -315,12 +315,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFontSize(20);
   doc.text("Session Log", 14, 35);
 
-  // Session table — columns match the 4 compliance category buckets
+  // Session table — two-row header: category row + sub-metric label row
   const TABLE_CATS = [
-    { label: "Patient Met Criteria",  ids: ["turning_criteria"] },
-    { label: "Matt Compliance",       ids: ["matt_applied", "matt_proper"] },
-    { label: "Wedge Compliance",      ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "Air Supply",            ids: ["air_supply"] },
+    { label: "Patient Met Criteria",  ids: ["turning_criteria"],                        subLabels: ["Turning & Repos."] },
+    { label: "Matt Compliance",       ids: ["matt_applied", "matt_proper"],              subLabels: ["Applied", "Applied Properly"] },
+    { label: "Wedge Compliance",      ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], subLabels: ["In Room", "Applied", "Offloading"] },
+    { label: "Air Supply",            ids: ["air_supply"],                               subLabels: ["Air Supply"] },
   ];
 
   const fmtCat = (e, ids) => {
@@ -338,23 +338,37 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     e.notes || "",
   ]);
 
+  // Row 1: category headers (merged visually via content)
+  // Row 2: sub-metric labels in smaller italic text
+  const headRow1 = ["Timestamp", "Hospital", "Location", ...TABLE_CATS.map(c => c.label), "Logged By", "Notes"];
+  const headRow2 = ["", "", "", ...TABLE_CATS.map(c => c.subLabels.join(" / ")), "", ""];
+
   autoTable(doc, {
     startY: 40,
-    head: [["Timestamp", "Hospital", "Location", ...TABLE_CATS.map(c => c.label), "Logged By", "Notes"]],
+    head: [headRow1, headRow2],
     body: tableRows,
     styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
     headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
+    didParseCell: (data) => {
+      // Second header row — lighter background, italic, smaller
+      if (data.section === "head" && data.row.index === 1) {
+        data.cell.styles.fillColor = brandHeader.map(v => Math.min(255, v + 30));
+        data.cell.styles.fontStyle = "italic";
+        data.cell.styles.fontSize = 6;
+        data.cell.styles.textColor = [220, 230, 232];
+      }
+    },
     alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
-      0: { cellWidth: 22 },  // Timestamp
-      1: { cellWidth: 26 },  // Hospital
-      2: { cellWidth: 18 },  // Location
-      3: { cellWidth: 22 },  // Patient Met Criteria (1 metric)
-      4: { cellWidth: 24 },  // Matt Compliance (2 metrics)
-      5: { cellWidth: 30 },  // Wedge Compliance (3 metrics)
-      6: { cellWidth: 18 },  // Air Supply (1 metric)
-      7: { cellWidth: 22 },  // Logged By
-      8: { cellWidth: 20 },  // Notes
+      0: { cellWidth: 22 },
+      1: { cellWidth: 26 },
+      2: { cellWidth: 18 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 24 },
+      5: { cellWidth: 30 },
+      6: { cellWidth: 18 },
+      7: { cellWidth: 22 },
+      8: { cellWidth: 20 },
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
