@@ -819,14 +819,12 @@ export default function App() {
     if (savedCount > 0 && form.hospital && form.location) {
       setBedCount(savedCount);
       setBedGrid(prev => {
-        // Preserve existing data if same size; resize if different
-        if (prev.length === savedCount) return prev;
-        const newGrid = Array.from({ length: savedCount }, (_, i) => {
+        return Array.from({ length: savedCount }, (_, i) => {
           const existing = prev[i];
-          if (existing) return existing.room ? existing : { ...existing, room: String(i + 1) };
+          if (existing && existing.room) return existing;
+          if (existing) return { ...existing, room: String(i + 1) };
           return createEmptyBed(activeMetrics, i + 1);
         });
-        return newGrid;
       });
     } else if (form.hospital && form.location) {
       // No saved bed count — start with 0 beds, user sets the count
