@@ -225,15 +225,6 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     onChange(updated);
   };
 
-  // On mount or when beds change, ensure all beds have room numbers
-  useEffect(() => {
-    const needsFix = beds.some((b, i) => !b.room);
-    if (needsFix) {
-      const fixed = beds.map((b, i) => b.room ? b : { ...b, room: String(i + 1) });
-      onChange(fixed);
-    }
-  }, [beds.length]);
-
   // Compute totals
   const totals = {};
   metrics.forEach(m => {
@@ -822,21 +813,17 @@ export default function App() {
 
   // Initialize bed grid when hospital/unit changes (grid mode)
   useEffect(() => {
-    if (inputMode !== "grid") return;
-    const activeMetrics = getMetrics(form.hospital);
+    if (inputMode !== "grid" || !form.hospital || !form.location) return;
     const savedCount = getBedCount(form.hospital, form.location);
-    if (savedCount > 0 && form.hospital && form.location) {
+    if (savedCount > 0) {
       setBedCount(savedCount);
-      setBedGrid(prev => {
-        return Array.from({ length: savedCount }, (_, i) => {
-          const existing = prev[i];
-          if (existing && existing.room) return existing;
-          if (existing) return { ...existing, room: String(i + 1) };
-          return createEmptyBed(activeMetrics, i + 1);
-        });
-      });
-    } else if (form.hospital && form.location) {
-      // No saved bed count — start with 0 beds, user sets the count
+      const activeMetrics = getMetrics(form.hospital);
+      const newGrid = [];
+      for (let i = 0; i < savedCount; i++) {
+        newGrid.push(createEmptyBed(activeMetrics, i + 1));
+      }
+      setBedGrid(newGrid);
+    } else {
       setBedCount(0);
       setBedGrid([]);
     }
@@ -867,11 +854,15 @@ export default function App() {
     const activeMetrics = getMetrics(form.hospital);
     setBedGrid(prev => {
       if (n === 0) return [];
-      return Array.from({ length: n }, (_, i) => {
-        const existing = prev[i];
-        if (existing) return existing.room ? existing : { ...existing, room: String(i + 1) };
-        return createEmptyBed(activeMetrics, i + 1);
-      });
+      const newGrid = [];
+      for (let i = 0; i < n; i++) {
+        if (i < prev.length) {
+          newGrid.push(prev[i]);
+        } else {
+          newGrid.push(createEmptyBed(activeMetrics, i + 1));
+        }
+      }
+      return newGrid;
     });
   };
 
