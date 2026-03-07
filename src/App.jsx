@@ -1208,6 +1208,8 @@ export default function App() {
       hasData: thisYearEntries.length > 0 || lastYearEntries.length > 0,
     };
   })();
+
+  const avgByMetric = METRICS.map(m => {
     const vals = filteredDashboard.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     const nationalVals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return {
