@@ -579,6 +579,8 @@ export default function App() {
   const [auditLog, setAuditLog] = useState([]);
   const [userProfiles, setUserProfiles] = useState([]);
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users
+  const [deletionRequestModal, setDeletionRequestModal] = useState(null); // { session } | null
+  const [deletionRequestReason, setDeletionRequestReason] = useState("");
   const [reassignFrom, setReassignFrom] = useState(null);
   const [reassignTo, setReassignTo] = useState("");
 
@@ -1149,6 +1151,39 @@ export default function App() {
     return all;
   };
 
+  const handleRequestDeletion = async (sessionId, reason) => {
+    const { error } = await supabase.from("sessions")
+      .update({ deletion_requested: true, deletion_reason: reason || null })
+      .eq("id", sessionId);
+    if (error) { alert("Failed to submit request: " + error.message); return; }
+    const session = entries.find(e => e.id === sessionId);
+    setEntries(prev => prev.map(e => e.id === sessionId ? { ...e, deletion_requested: true, deletion_reason: reason || null } : e));
+    setAllEntriesFull(prev => prev.map(e => e.id === sessionId ? { ...e, deletion_requested: true, deletion_reason: reason || null } : e));
+    await logAudit("DELETION_REQUESTED", { hospital: session?.hospital, location: session?.location, date: session?.date, reason: reason || null }, session?.logged_by, sessionId);
+    setDeletionRequestModal(null);
+    setDeletionRequestReason("");
+  };
+
+  const handleApproveDeletion = async (id) => {
+    const session = allEntriesFull.find(e => e.id === id);
+    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    if (error) { alert("Failed to delete session: " + error.message); return; }
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setAllEntriesFull(prev => prev.filter(e => e.id !== id));
+    await logAudit("DELETION_APPROVED", { hospital: session?.hospital, location: session?.location, date: session?.date, logged_by: session?.logged_by }, session?.logged_by, id);
+  };
+
+  const handleDenyDeletion = async (id) => {
+    const { error } = await supabase.from("sessions")
+      .update({ deletion_requested: false, deletion_reason: null })
+      .eq("id", id);
+    if (error) { alert("Failed to deny request: " + error.message); return; }
+    const session = allEntriesFull.find(e => e.id === id);
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, deletion_requested: false, deletion_reason: null } : e));
+    setAllEntriesFull(prev => prev.map(e => e.id === id ? { ...e, deletion_requested: false, deletion_reason: null } : e));
+    await logAudit("DELETION_DENIED", { hospital: session?.hospital, location: session?.location, date: session?.date }, session?.logged_by, id);
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this session? This cannot be undone.")) return;
     const session = allEntriesFull.find(e => e.id === id) || entries.find(e => e.id === id);
@@ -1513,7 +1548,30 @@ export default function App() {
           </div>
         )}
 
-        {/* ── DASHBOARD ── */}
+        {/* ── DELETION REQUEST MODAL ── */}
+      {deletionRequestModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: C.surface, borderRadius: 16, padding: 32, width: "100%", maxWidth: 460, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, letterSpacing: "0.08em", marginBottom: 8 }}>REQUEST SESSION DELETION</div>
+            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, color: C.ink, marginBottom: 4 }}>{deletionRequestModal.session.hospital}</div>
+            <div style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>{deletionRequestModal.session.date}{deletionRequestModal.session.location ? ` · ${deletionRequestModal.session.location}` : ""}</div>
+            <div style={{ fontSize: 13, color: C.inkMid, marginBottom: 16, lineHeight: 1.6 }}>This will notify an admin to review and delete this session. You can add an optional reason below.</div>
+            <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REASON (OPTIONAL)</label>
+            <textarea value={deletionRequestReason} onChange={e => setDeletionRequestReason(e.target.value)}
+              placeholder="e.g. Entered incorrect data, duplicate session..."
+              rows={3} style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.ink, resize: "vertical", lineHeight: 1.5, marginBottom: 20, boxSizing: "border-box" }}
+              onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => { setDeletionRequestModal(null); setDeletionRequestReason(""); }}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer" }}>CANCEL</button>
+              <button onClick={() => handleRequestDeletion(deletionRequestModal.session.id, deletionRequestReason)}
+                style={{ background: C.red, border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>SUBMIT REQUEST</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
           <div>
             {/* Hospital branding banner */}
@@ -1847,6 +1905,14 @@ export default function App() {
                                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
                                   PRINT
                                 </button>
+                                {!isOfflinePending && (
+                                  e.deletion_requested
+                                    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.redLight, border: `1px solid ${C.red}44`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, letterSpacing: "0.04em" }}>⏳ DELETION PENDING</span>
+                                    : <button onClick={() => { setDeletionRequestModal({ session: e }); setDeletionRequestReason(""); }}
+                                        style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                        REQUEST DELETION
+                                      </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -2137,12 +2203,16 @@ export default function App() {
 
             {/* Admin sub-nav */}
             <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              {[["sessions","ALL SESSIONS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => (
-                <button key={id} onClick={() => setAdminSection(id)}
-                  style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {label}
-                </button>
-              ))}
+              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => {
+                const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : 0;
+                return (
+                  <button key={id} onClick={() => setAdminSection(id)}
+                    style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    {label}
+                    {pendingCount > 0 && <span style={{ background: C.red, color: "white", borderRadius: 10, padding: "1px 7px", fontSize: 9, fontWeight: 700 }}>{pendingCount}</span>}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Stats row - always visible */}
@@ -2205,6 +2275,45 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* ── DELETION REQUESTS SECTION ── */}
+            {adminSection === "deletions" && (() => {
+              const pending = [...allEntriesFull].filter(e => e.deletion_requested).reverse();
+              return (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>DELETION REQUESTS ({pending.length})</div>
+                  {pending.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>No pending deletion requests.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {pending.map(e => {
+                        const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                        const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
+                        return (
+                          <div key={e.id} style={{ background: C.redLight, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "14px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{e.date}{e.hospital ? <span style={{ color: C.primary }}> · {e.hospital}</span> : ""}</div>
+                                <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{e.location && `${e.location} · `}{formatTimestamp(e.created_at)}</div>
+                                {e.logged_by && <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "2px 10px" }}><span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary }}>{e.logged_by}</span></div>}
+                                {e.deletion_reason && <div style={{ marginTop: 8, fontSize: 12, color: C.inkMid, background: "white", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", fontStyle: "italic" }}>"{e.deletion_reason}"</div>}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint, marginRight: 4 }}>{overall !== null ? `${overall}%` : "—"}</div>
+                                <button onClick={() => handleDenyDeletion(e.id)}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.04em" }}>DENY</button>
+                                <button onClick={() => { if (window.confirm(`Permanently delete this session from ${e.hospital} on ${e.date}?`)) handleApproveDeletion(e.id); }}
+                                  style={{ background: C.red, border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.04em" }}>APPROVE & DELETE</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── USER MANAGEMENT SECTION ── */}
             {adminSection === "users" && (
@@ -2290,12 +2399,14 @@ export default function App() {
                         SESSION_CREATED: C.green, SESSION_EDITED: C.amber, SESSION_DELETED: C.red,
                         USER_DEACTIVATED: C.red, USER_REACTIVATED: C.green, PASSWORD_RESET_SENT: C.primary,
                         ALL_SESSIONS_DELETED: C.red,
+                        DELETION_REQUESTED: C.amber, DELETION_APPROVED: C.red, DELETION_DENIED: C.green,
                       };
                       const actionLabels = {
                         SESSION_CREATED: "Session Created", SESSION_EDITED: "Session Edited",
                         SESSION_DELETED: "Session Deleted", USER_DEACTIVATED: "User Deactivated",
                         USER_REACTIVATED: "User Reactivated", PASSWORD_RESET_SENT: "Password Reset Sent",
                         ALL_SESSIONS_DELETED: "All Sessions Deleted",
+                        DELETION_REQUESTED: "Deletion Requested", DELETION_APPROVED: "Deletion Approved", DELETION_DENIED: "Deletion Denied",
                       };
                       const color = actionColors[log.action] || C.inkLight;
                       const label = actionLabels[log.action] || log.action;
