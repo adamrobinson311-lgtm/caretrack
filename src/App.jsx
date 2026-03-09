@@ -265,11 +265,10 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
           <thead>
             <tr>
               <th style={{ ...metricThStyle, textAlign: "left", paddingLeft: 10, position: "sticky", left: 0, background: C.surface, zIndex: 2, minWidth: 80 }}>ROOM</th>
-              <th style={{ ...metricThStyle, minWidth: 58 }}>SCORE</th>
+              <th style={{ ...metricThStyle, minWidth: 64 }}>SCORE / N/A</th>
               {metrics.map(m => (
                 <th key={m.id} colSpan={2} style={metricThStyle}>{METRIC_SHORT[m.id] || m.label}</th>
               ))}
-              <th style={{ ...metricThStyle, minWidth: 48 }}>N/A</th>
             </tr>
             <tr style={{ borderBottom: `1px solid ${C.border}` }}>
               <th style={{ ...thStyle, position: "sticky", left: 0, background: C.surface, zIndex: 2 }}></th>
@@ -280,7 +279,6 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                   <th style={thStyle}>A</th>
                 </Fragment>
               ))}
-              <th style={thStyle}></th>
             </tr>
           </thead>
           <tbody>
@@ -293,11 +291,28 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                     onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell(i, "room", String(i + 1)); }} onBlur={e => e.target.style.borderColor = C.border} />
                 </td>
                 <td style={{ padding: "4px 4px" }}>
-                  <input type="number" min="1" max="23" value={bed.patient_score || ""}
-                    onChange={e => updateCell(i, "patient_score", e.target.value)}
-                    placeholder="—" disabled={bed.na}
-                    style={{ width: 50, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 4px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, textAlign: "center", outline: "none" }}
-                    onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <input type="number" min="1" max="23" value={bed.patient_score || ""}
+                      onChange={e => updateCell(i, "patient_score", e.target.value)}
+                      placeholder="—" disabled={bed.na}
+                      style={{ width: 50, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "5px 4px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, textAlign: "center", outline: "none" }}
+                      onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    <button onClick={() => {
+                      const isNA = !bed.na;
+                      const updated = beds.map((b, idx) => {
+                        if (idx !== i) return b;
+                        const cleared = { ...b, na: isNA };
+                        if (isNA) metrics.forEach(m => { cleared[`${m.id}_q`] = "0"; cleared[`${m.id}_a`] = "0"; });
+                        return cleared;
+                      });
+                      onChange(updated);
+                    }}
+                      style={{ width: 50, background: bed.na ? C.amberLight : "none", border: `1px solid ${bed.na ? C.amber : C.border}`, borderRadius: 4, padding: "3px 4px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: bed.na ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.04em", fontWeight: bed.na ? 700 : 400, transition: "all 0.15s" }}
+                      onMouseEnter={e => { if (!bed.na) { e.target.style.borderColor = C.amber; e.target.style.color = C.amber; } }}
+                      onMouseLeave={e => { if (!bed.na) { e.target.style.borderColor = C.border; e.target.style.color = C.inkLight; } }}>
+                      N/A
+                    </button>
+                  </div>
                 </td>
                 {metrics.map(m => (
                   <Fragment key={m.id}>
@@ -319,23 +334,6 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                     </td>
                   </Fragment>
                 ))}
-                <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                  <button onClick={() => {
-                    const isNA = !bed.na;
-                    const updated = beds.map((b, idx) => {
-                      if (idx !== i) return b;
-                      const cleared = { ...b, na: isNA };
-                      if (isNA) metrics.forEach(m => { cleared[`${m.id}_q`] = "0"; cleared[`${m.id}_a`] = "0"; });
-                      return cleared;
-                    });
-                    onChange(updated);
-                  }}
-                    style={{ background: bed.na ? C.amberLight : "none", border: `1px solid ${bed.na ? C.amber : C.border}`, borderRadius: 4, padding: "3px 8px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: bed.na ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", fontWeight: bed.na ? 700 : 400 }}
-                    onMouseEnter={e => { if (!bed.na) { e.target.style.borderColor = C.amber; e.target.style.color = C.amber; } }}
-                    onMouseLeave={e => { if (!bed.na) { e.target.style.borderColor = C.border; e.target.style.color = C.inkLight; } }}>
-                    N/A
-                  </button>
-                </td>
               </tr>
             ))}
             {/* Totals row */}
@@ -355,7 +353,6 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                   </Fragment>
                 );
               })}
-              <td></td>
             </tr>
           </tbody>
         </table>
