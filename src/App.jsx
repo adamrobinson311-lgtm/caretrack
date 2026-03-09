@@ -215,7 +215,7 @@ const METRIC_SHORT = {
 };
 
 const createEmptyBed = (metrics, roomNum) => {
-  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "" };
+  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "", patient_score: "", na: false };
   metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; });
   return bed;
 };
@@ -234,11 +234,11 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
   // Clamp activeBed if beds shrink
   const safeActive = Math.min(activeBed, Math.max(0, beds.length - 1));
 
-  // Compute totals — each checkbox counts as 1
+  // Compute totals — exclude N/A rows, each checkbox counts as 1
   const totals = {};
   metrics.forEach(m => {
-    totals[`${m.id}_q`] = beds.reduce((sum, b) => sum + (isChecked(b[`${m.id}_q`]) ? 1 : 0), 0);
-    totals[`${m.id}_a`] = beds.reduce((sum, b) => sum + (isChecked(b[`${m.id}_a`]) ? 1 : 0), 0);
+    totals[`${m.id}_q`] = beds.reduce((sum, b) => b.na ? sum : sum + (isChecked(b[`${m.id}_q`]) ? 1 : 0), 0);
+    totals[`${m.id}_a`] = beds.reduce((sum, b) => b.na ? sum : sum + (isChecked(b[`${m.id}_a`]) ? 1 : 0), 0);
   });
 
   const checkboxCellStyle = { display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 2px" };
@@ -265,13 +265,15 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
           <thead>
             <tr>
               <th style={{ ...metricThStyle, textAlign: "left", paddingLeft: 10, position: "sticky", left: 0, background: C.surface, zIndex: 2, minWidth: 80 }}>ROOM</th>
+              <th style={{ ...metricThStyle, minWidth: 58 }}>SCORE</th>
               {metrics.map(m => (
                 <th key={m.id} colSpan={2} style={metricThStyle}>{METRIC_SHORT[m.id] || m.label}</th>
               ))}
-              <th style={{ ...metricThStyle, minWidth: 36 }}></th>
+              <th style={{ ...metricThStyle, minWidth: 48 }}>N/A</th>
             </tr>
             <tr style={{ borderBottom: `1px solid ${C.border}` }}>
               <th style={{ ...thStyle, position: "sticky", left: 0, background: C.surface, zIndex: 2 }}></th>
+              <th style={thStyle}></th>
               {metrics.map(m => (
                 <Fragment key={m.id}>
                   <th style={thStyle}>Q</th>
@@ -283,46 +285,63 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
           </thead>
           <tbody>
             {beds.map((bed, i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+              <tr key={i} style={{ borderBottom: `1px solid ${C.border}22`, opacity: bed.na ? 0.45 : 1 }}>
                 <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
                   <input type="text" value={bed.room || String(i + 1)}
                     onChange={e => updateCell(i, "room", e.target.value)}
                     style={{ ...roomStyle, color: bed.room ? C.primary : C.inkFaint, fontWeight: bed.room ? 600 : 400 }}
                     onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell(i, "room", String(i + 1)); }} onBlur={e => e.target.style.borderColor = C.border} />
                 </td>
+                <td style={{ padding: "4px 4px" }}>
+                  <input type="number" min="1" max="23" value={bed.patient_score || ""}
+                    onChange={e => updateCell(i, "patient_score", e.target.value)}
+                    placeholder="—" disabled={bed.na}
+                    style={{ width: 50, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 4px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, textAlign: "center", outline: "none" }}
+                    onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                </td>
                 {metrics.map(m => (
                   <Fragment key={m.id}>
                     <td style={{ padding: "4px 2px" }}>
                       <div style={checkboxCellStyle}>
                         <input type="checkbox" className="bed-checkbox bed-checkbox-q"
-                          checked={isChecked(bed[`${m.id}_q`])}
+                          checked={!bed.na && isChecked(bed[`${m.id}_q`])}
+                          disabled={bed.na}
                           onChange={e => updateCell(i, `${m.id}_q`, e.target.checked ? "1" : "0")} />
                       </div>
                     </td>
                     <td style={{ padding: "4px 2px" }}>
                       <div style={checkboxCellStyle}>
                         <input type="checkbox" className="bed-checkbox bed-checkbox-a"
-                          checked={isChecked(bed[`${m.id}_a`])}
+                          checked={!bed.na && isChecked(bed[`${m.id}_a`])}
+                          disabled={bed.na}
                           onChange={e => updateCell(i, `${m.id}_a`, e.target.checked ? "1" : "0")} />
                       </div>
                     </td>
                   </Fragment>
                 ))}
-                <td style={{ padding: "4px 6px" }}>
-                  {beds.length > 1 && (
-                    <button onClick={() => onRemoveBed(i)}
-                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, width: 26, height: 26, cursor: "pointer", color: C.red, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}
-                      onMouseEnter={e => { e.target.style.background = C.redLight; e.target.style.borderColor = C.red; }}
-                      onMouseLeave={e => { e.target.style.background = "none"; e.target.style.borderColor = C.border; }}>
-                      ✕
-                    </button>
-                  )}
+                <td style={{ padding: "4px 8px", textAlign: "center" }}>
+                  <button onClick={() => {
+                    const isNA = !bed.na;
+                    const updated = beds.map((b, idx) => {
+                      if (idx !== i) return b;
+                      const cleared = { ...b, na: isNA };
+                      if (isNA) metrics.forEach(m => { cleared[`${m.id}_q`] = "0"; cleared[`${m.id}_a`] = "0"; });
+                      return cleared;
+                    });
+                    onChange(updated);
+                  }}
+                    style={{ background: bed.na ? C.amberLight : "none", border: `1px solid ${bed.na ? C.amber : C.border}`, borderRadius: 4, padding: "3px 8px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: bed.na ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", fontWeight: bed.na ? 700 : 400 }}
+                    onMouseEnter={e => { if (!bed.na) { e.target.style.borderColor = C.amber; e.target.style.color = C.amber; } }}
+                    onMouseLeave={e => { if (!bed.na) { e.target.style.borderColor = C.border; e.target.style.color = C.inkLight; } }}>
+                    N/A
+                  </button>
                 </td>
               </tr>
             ))}
             {/* Totals row */}
             <tr style={{ background: C.primaryLight }}>
               <td style={{ padding: "10px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: C.primary, position: "sticky", left: 0, background: C.primaryLight, zIndex: 1 }}>TOTALS</td>
+              <td></td>
               {metrics.map(m => {
                 const q = totals[`${m.id}_q`]; const a = totals[`${m.id}_a`];
                 const p = q > 0 ? Math.round((a / q) * 100) : null;
@@ -361,7 +380,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
 
         {/* Swipeable card */}
         <div
-          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px", touchAction: "pan-y" }}
+          style={{ background: bed.na ? C.bg : C.surface, border: `1px solid ${bed.na ? C.amber + "66" : C.border}`, borderRadius: 10, padding: "16px", touchAction: "pan-y", opacity: bed.na ? 0.75 : 1 }}
           onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
           onTouchEnd={e => {
             if (touchStartX.current === null) return;
@@ -370,41 +389,60 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
             if (dx < -40 && safeActive < beds.length - 1) setActiveBed(i => i + 1);
             if (dx > 40 && safeActive > 0) setActiveBed(i => i - 1);
           }}>
-          {/* Room name edit */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>ROOM / BED LABEL</label>
-            <input type="text" value={bed.room || String(safeActive + 1)}
-              onChange={e => updateCell(safeActive, "room", e.target.value)}
-              style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, fontWeight: 600 }}
-              onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+          {/* Room name + Score row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>ROOM / BED LABEL</label>
+              <input type="text" value={bed.room || String(safeActive + 1)}
+                onChange={e => updateCell(safeActive, "room", e.target.value)}
+                style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 16, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, fontWeight: 600 }}
+                onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</label>
+              <input type="number" min="1" max="23" value={bed.patient_score || ""}
+                onChange={e => updateCell(safeActive, "patient_score", e.target.value)}
+                placeholder="—" disabled={bed.na}
+                style={{ width: 60, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 6px", fontSize: 16, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, textAlign: "center" }}
+                onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+            </div>
           </div>
           {/* Metrics */}
           {metrics.map(m => (
             <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}22` }}>
-              <div style={{ fontSize: 13, color: C.ink, flex: 1 }}>{METRIC_SHORT[m.id] || m.label}</div>
+              <div style={{ fontSize: 13, color: bed.na ? C.inkFaint : C.ink, flex: 1 }}>{METRIC_SHORT[m.id] || m.label}</div>
               <div style={{ display: "flex", gap: 20 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>Q</span>
                   <input type="checkbox" className="bed-checkbox bed-checkbox-q"
-                    checked={isChecked(bed[`${m.id}_q`])}
+                    checked={!bed.na && isChecked(bed[`${m.id}_q`])}
+                    disabled={bed.na}
                     onChange={e => updateCell(safeActive, `${m.id}_q`, e.target.checked ? "1" : "0")} />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>A</span>
                   <input type="checkbox" className="bed-checkbox bed-checkbox-a"
-                    checked={isChecked(bed[`${m.id}_a`])}
+                    checked={!bed.na && isChecked(bed[`${m.id}_a`])}
+                    disabled={bed.na}
                     onChange={e => updateCell(safeActive, `${m.id}_a`, e.target.checked ? "1" : "0")} />
                 </div>
               </div>
             </div>
           ))}
-          {/* Remove bed */}
-          {beds.length > 1 && (
-            <button onClick={() => { onRemoveBed(safeActive); setActiveBed(i => Math.max(0, i - 1)); }}
-              style={{ marginTop: 14, width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}>
-              REMOVE THIS BED
-            </button>
-          )}
+          {/* N/A toggle */}
+          <button onClick={() => {
+            const isNA = !bed.na;
+            const updated = beds.map((b, idx) => {
+              if (idx !== safeActive) return b;
+              const cleared = { ...b, na: isNA };
+              if (isNA) metrics.forEach(m => { cleared[`${m.id}_q`] = "0"; cleared[`${m.id}_a`] = "0"; });
+              return cleared;
+            });
+            onChange(updated);
+          }}
+            style={{ marginTop: 14, width: "100%", background: bed.na ? C.amberLight : "none", border: `1px solid ${bed.na ? C.amber : C.border}`, borderRadius: 6, padding: "8px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: bed.na ? C.amber : C.inkLight, cursor: "pointer", fontWeight: bed.na ? 700 : 400, letterSpacing: "0.04em" }}>
+            {bed.na ? "MARKED N/A — TAP TO RESTORE" : "MARK AS N/A"}
+          </button>
         </div>
 
         {/* Totals summary on mobile */}
@@ -2400,23 +2438,76 @@ export default function App() {
                   {[...allEntriesFull].reverse().map(e => {
                     const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
                     const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
+                    const isEditing = editingId === e.id;
+                    const ef = isEditing ? editForm : e;
+                    const inpStyle = { background: C.surface, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, width: "100%", outline: "none" };
                     return (
-                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{e.date} {e.hospital && <span style={{ color: C.primary }}>· {e.hospital}</span>}</div>
-                          <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
-                            {e.location && `${e.location} · `}
-                            {formatTimestamp(e.created_at)}
-                            {e.logged_by && <span style={{ marginLeft: 6, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: "1px 8px", fontSize: 10 }}>{e.logged_by}</span>}
+                      <div key={e.id} style={{ background: isEditing ? C.surface : C.bg, border: `1px solid ${isEditing ? C.primary : C.border}`, borderRadius: 8, padding: isEditing ? "16px" : "10px 14px", transition: "all 0.2s" }}>
+                        {isEditing ? (
+                          <>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.08em", marginBottom: 12 }}>EDITING SESSION — {e.logged_by}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                              <div><label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>DATE</label>
+                                <input type="date" value={ef.date || ""} onChange={ev => setEditForm(f => ({ ...f, date: ev.target.value }))} style={inpStyle} /></div>
+                              <div><label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>HOSPITAL</label>
+                                <input type="text" value={ef.hospital || ""} onChange={ev => setEditForm(f => ({ ...f, hospital: ev.target.value }))} style={inpStyle} /></div>
+                              <div><label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>LOCATION</label>
+                                <input type="text" value={ef.location || ""} onChange={ev => setEditForm(f => ({ ...f, location: ev.target.value }))} style={inpStyle} /></div>
+                              <div><label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PROTOCOL</label>
+                                <input type="text" value={ef.protocol_for_use || ""} onChange={ev => setEditForm(f => ({ ...f, protocol_for_use: ev.target.value }))} style={inpStyle} /></div>
+                              <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>NOTES</label>
+                                <input type="text" value={ef.notes || ""} onChange={ev => setEditForm(f => ({ ...f, notes: ev.target.value }))} style={inpStyle} /></div>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 12 }} className="history-metric-grid">
+                              {getMetrics(e.hospital).map(m => (
+                                <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
+                                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
+                                  <input type="number" min="0" placeholder="num" value={editForm[`${m.id}_num`] ?? ""} onChange={ev => setEditForm(f => ({ ...f, [`${m.id}_num`]: ev.target.value }))}
+                                    style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 6px", fontSize: 12, color: C.ink, marginBottom: 4, outline: "none" }} />
+                                  <input type="number" min="0" placeholder="den" value={editForm[`${m.id}_den`] ?? ""} onChange={ev => setEditForm(f => ({ ...f, [`${m.id}_den`]: ev.target.value }))}
+                                    style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 6px", fontSize: 12, color: C.ink, outline: "none" }} />
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: pctColor(pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`])), textAlign: "center", marginTop: 4 }}>
+                                    {pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`]) !== null ? `${pct(editForm[`${m.id}_num`], editForm[`${m.id}_den`])}%` : "—"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button onClick={saveEdit} disabled={editSaving}
+                                style={{ background: C.primary, border: "none", borderRadius: 6, padding: "6px 16px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>
+                                {editSaving ? "SAVING..." : "SAVE"}
+                              </button>
+                              <button onClick={cancelEdit}
+                                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 16px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                                CANCEL
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{e.date} {e.hospital && <span style={{ color: C.primary }}>· {e.hospital}</span>}</div>
+                              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
+                                {e.location && `${e.location} · `}
+                                {formatTimestamp(e.created_at)}
+                                {e.logged_by && <span style={{ marginLeft: 6, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: "1px 8px", fontSize: 10 }}>{e.logged_by}</span>}
+                              </div>
+                            </div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
+                            <button onClick={() => startEdit(e)}
+                              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer" }}
+                              onMouseEnter={el => { el.target.style.borderColor = C.primary; el.target.style.color = C.primary; }}
+                              onMouseLeave={el => { el.target.style.borderColor = C.border; el.target.style.color = C.inkMid; }}>
+                              EDIT
+                            </button>
+                            <button onClick={() => handleDelete(e.id)}
+                              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}
+                              onMouseEnter={el => { el.target.style.background = C.redLight; el.target.style.borderColor = C.red; }}
+                              onMouseLeave={el => { el.target.style.background = "none"; el.target.style.borderColor = C.border; }}>
+                              DELETE
+                            </button>
                           </div>
-                        </div>
-                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
-                        <button onClick={() => handleDelete(e.id)}
-                          style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}
-                          onMouseEnter={el => { el.target.style.background = C.redLight; el.target.style.borderColor = C.red; }}
-                          onMouseLeave={el => { el.target.style.background = "none"; el.target.style.borderColor = C.border; }}>
-                          DELETE
-                        </button>
+                        )}
                       </div>
                     );
                   })}
@@ -2616,11 +2707,13 @@ export default function App() {
             </div>
             {[
               { version: "2.6", date: "March 2026", badge: "LATEST", items: [
-                "Year-over-year comparison — new dashboard card showing this year vs last year overall and per-metric, alongside month-over-month",
+                "Bed grid: Patient Score numeric input per room (e.g. Braden score 1–23)",
+                "Bed grid: N/A toggle per room — marks room as not applicable, disables and clears all checkboxes, excludes from totals",
+                "Admin: edit any session inline from the Admin → Sessions tab (date, hospital, unit, protocol, notes, all metrics)",
+                "Year-over-year comparison — new dashboard card showing this year vs last year overall and per-metric",
                 "National average toggle — click 'National avg' in the trend chart to show or hide the dashed benchmark lines",
                 "Auto-save draft — Log Session form automatically saves your progress; a banner appears on return so you can pick up where you left off or discard",
                 "Bed grid swipe on mobile — on phones, bed grid switches to a swipeable card view (one bed at a time) with prev/next arrows and a totals summary panel",
-                "Bed grid checkboxes — each Q and A cell is now a checkbox (checked = 1) instead of a number input",
                 "Report title updated to HAPI Prevention Compliance Report in PDF and PPTX exports",
               ]},
               { version: "2.5", date: "March 2026", badge: null, items: [
