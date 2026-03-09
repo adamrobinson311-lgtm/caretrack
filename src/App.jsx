@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
 import { generatePptx } from "./generatePptx";
@@ -29,11 +29,11 @@ const DARK = {
 let C = { ...LIGHT };
 
 const METRICS = [
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
-  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
   { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had Matt applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
+  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
 ];
@@ -45,6 +45,20 @@ const MAYO_METRICS = [
 const KAISER_METRICS = [
   { id: "heel_boots",       label: "Heel Boots On",                  desc: "Qualifying patients that had heel boots applied" },
 ];
+
+const METRIC_BUCKETS = [
+  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
+  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+  { label: "Air Supply", ids: ["air_supply"] },
+];
+const MAYO_BUCKET   = { label: "Air Supply",      ids: ["air_supply", "air_reposition"] };
+const KAISER_BUCKET = { label: "Heel Boot Audit", ids: ["heel_boots"] };
+const getBuckets = (hospital) => {
+  let buckets = METRIC_BUCKETS.map(b => b.label === "Air Supply" && isMayo(hospital) ? MAYO_BUCKET : b);
+  if (isKaiser(hospital)) buckets = [...buckets, KAISER_BUCKET];
+  return buckets;
+};
 
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
@@ -205,6 +219,129 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+// ── Bed-Level Grid Input ──────────────────────────────────────────────────────
+const METRIC_SHORT = {
+  matt_applied: "Matt App", wedges_applied: "Wedges App", turning_criteria: "Turn & Repo",
+  matt_proper: "Matt Proper", wedges_in_room: "Wedge Room", wedge_offload: "Wedge Off",
+  air_supply: "Air Supply", air_reposition: "Air Repo",
+};
+
+const createEmptyBed = (metrics, roomNum) => {
+  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "" };
+  metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; });
+  return bed;
+};
+
+const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
+  const updateCell = (bedIdx, field, value) => {
+    const updated = beds.map((b, i) => i === bedIdx ? { ...b, [field]: value } : b);
+    onChange(updated);
+  };
+
+  // Compute totals
+  const totals = {};
+  metrics.forEach(m => {
+    totals[`${m.id}_q`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
+    totals[`${m.id}_a`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+  });
+
+  const cellStyle = { width: 52, minWidth: 52, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 4px", fontSize: 14, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center", outline: "none" };
+  const roomStyle = { ...cellStyle, width: 72, minWidth: 72, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "left", padding: "6px 8px" };
+  const thStyle = { padding: "4px 2px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", color: C.inkLight, textAlign: "center", whiteSpace: "nowrap", fontWeight: 400 };
+  const metricThStyle = { ...thStyle, fontSize: 10, color: C.inkMid, fontWeight: 600, padding: "8px 2px", borderBottom: `2px solid ${C.border}` };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface }}>
+        <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%" }}>
+          <thead>
+            <tr>
+              <th style={{ ...metricThStyle, textAlign: "left", paddingLeft: 10, position: "sticky", left: 0, background: C.surface, zIndex: 2, minWidth: 80 }}>ROOM</th>
+              {metrics.map(m => (
+                <th key={m.id} colSpan={2} style={metricThStyle}>{METRIC_SHORT[m.id] || m.label}</th>
+              ))}
+              <th style={{ ...metricThStyle, minWidth: 36 }}></th>
+            </tr>
+            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+              <th style={{ ...thStyle, position: "sticky", left: 0, background: C.surface, zIndex: 2 }}></th>
+              {metrics.map(m => (
+                <Fragment key={m.id}>
+                  <th style={thStyle}>Q</th>
+                  <th style={thStyle}>A</th>
+                </Fragment>
+              ))}
+              <th style={thStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {beds.map((bed, i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
+                  <input type="text" value={bed.room || String(i + 1)}
+                    onChange={e => updateCell(i, "room", e.target.value)}
+                    style={{ ...roomStyle, color: bed.room ? C.primary : C.inkFaint, fontWeight: bed.room ? 600 : 400 }}
+                    onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell(i, "room", String(i + 1)); }} onBlur={e => e.target.style.borderColor = C.border} />
+                </td>
+                {metrics.map(m => (
+                  <Fragment key={m.id}>
+                    <td style={{ padding: "4px 2px" }}>
+                      <input type="number" min="0" value={bed[`${m.id}_q`]}
+                        onChange={e => updateCell(i, `${m.id}_q`, e.target.value)}
+                        placeholder="0" style={cellStyle}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </td>
+                    <td style={{ padding: "4px 2px" }}>
+                      <input type="number" min="0" value={bed[`${m.id}_a`]}
+                        onChange={e => updateCell(i, `${m.id}_a`, e.target.value)}
+                        placeholder="0" style={cellStyle}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </td>
+                  </Fragment>
+                ))}
+                <td style={{ padding: "4px 6px" }}>
+                  {beds.length > 1 && (
+                    <button onClick={() => onRemoveBed(i)}
+                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, width: 26, height: 26, cursor: "pointer", color: C.red, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}
+                      onMouseEnter={e => { e.target.style.background = C.redLight; e.target.style.borderColor = C.red; }}
+                      onMouseLeave={e => { e.target.style.background = "none"; e.target.style.borderColor = C.border; }}>
+                      ✕
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {/* Totals row */}
+            <tr style={{ background: C.primaryLight }}>
+              <td style={{ padding: "10px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: C.primary, position: "sticky", left: 0, background: C.primaryLight, zIndex: 1 }}>TOTALS</td>
+              {metrics.map(m => {
+                const q = totals[`${m.id}_q`];
+                const a = totals[`${m.id}_a`];
+                const p = q > 0 ? Math.round((a / q) * 100) : null;
+                return (
+                  <Fragment key={m.id}>
+                    <td style={{ padding: "10px 2px", textAlign: "center", fontFamily: "'Libre Baskerville', serif", fontSize: 14, fontWeight: 700, color: C.ink }}>{q || "—"}</td>
+                    <td style={{ padding: "10px 2px", textAlign: "center", fontFamily: "'Libre Baskerville', serif", fontSize: 14, fontWeight: 700, color: C.ink }}>
+                      {a || "—"}
+                      {p !== null && <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: pctColor(p), fontWeight: 600, marginTop: 2 }}>{p}%</div>}
+                    </td>
+                  </Fragment>
+                );
+              })}
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <button onClick={onAddBed}
+        style={{ alignSelf: "flex-start", background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "8px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.05em", transition: "all 0.15s" }}
+        onMouseEnter={e => { e.target.style.borderColor = C.primary; e.target.style.color = C.primary; }}
+        onMouseLeave={e => { e.target.style.borderColor = C.border; e.target.style.color = C.inkLight; }}>
+        + ADD BED
+      </button>
+    </div>
+  );
+};
+
 const HospitalInput = ({ value, onChange, hospitals }) => {
   const [open, setOpen] = useState(false);
   const [filtered, setFiltered] = useState([]);
@@ -262,6 +399,32 @@ const saveHospitalUnit = (hospital, unit, protocol) => {
   if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
   if (!data[hospital].units.includes(unit)) data[hospital].units.push(unit);
   if (protocol) data[hospital].protocols[unit] = protocol;
+  saveHospitalData(data);
+};
+const getBedCount = (hospital, unit) => {
+  if (!hospital || !unit) return 0;
+  const data = getHospitalData();
+  return data[hospital]?.bedCounts?.[unit] || 0;
+};
+const saveBedCount = (hospital, unit, count) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].bedCounts) data[hospital].bedCounts = {};
+  data[hospital].bedCounts[unit] = count;
+  saveHospitalData(data);
+};
+const getBedRooms = (hospital, unit) => {
+  if (!hospital || !unit) return [];
+  const data = getHospitalData();
+  return data[hospital]?.bedRooms?.[unit] || [];
+};
+const saveBedRooms = (hospital, unit, rooms) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].bedRooms) data[hospital].bedRooms = {};
+  data[hospital].bedRooms[unit] = rooms;
   saveHospitalData(data);
 };
 
@@ -448,7 +611,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.4";
+  const CURRENT_VERSION = "2.5";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -471,6 +634,13 @@ export default function App() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [expandedPhotos, setExpandedPhotos] = useState({}); // { sessionId: bool }
   const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
+
+  // Bed-level grid input mode
+  const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "simple"); // "simple" | "grid"
+  const [auditHeelBoots, setAuditHeelBoots] = useState(false);
+  const [bedGrid, setBedGrid] = useState([]);
+  const [bedCount, setBedCount] = useState(0);
+  const lastGridKey = useRef("");
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [selectedMetrics, setSelectedMetrics] = useState(() => {
@@ -669,6 +839,80 @@ export default function App() {
     })();
   }, [user]);
 
+  // Initialize bed grid when hospital/unit changes (grid mode)
+  useEffect(() => {
+    if (inputMode !== "grid" || !form.hospital || !form.location) return;
+    const key = `${form.hospital}|||${form.location}`;
+    if (key === lastGridKey.current) return; // same unit, don't recreate
+    lastGridKey.current = key;
+    const savedCount = getBedCount(form.hospital, form.location);
+    const savedRooms = getBedRooms(form.hospital, form.location);
+    if (savedCount > 0) {
+      setBedCount(savedCount);
+      const activeMetrics = getMetrics(form.hospital);
+      const newGrid = [];
+      for (let i = 0; i < savedCount; i++) {
+        const room = savedRooms[i] || String(i + 1);
+        const bed = createEmptyBed(activeMetrics, room);
+        bed.room = room;
+        newGrid.push(bed);
+      }
+      setBedGrid(newGrid);
+    } else {
+      setBedCount(0);
+      setBedGrid([]);
+    }
+  }, [form.hospital, form.location, inputMode]);
+
+  // Auto-sum bed grid values into the form's metric fields
+  useEffect(() => {
+    if (inputMode !== "grid" || bedGrid.length === 0) return;
+    const activeMetrics = getMetrics(form.hospital);
+    const updates = {};
+    activeMetrics.forEach(m => {
+      const totalQ = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
+      const totalA = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+      const hasAny = bedGrid.some(b => b[`${m.id}_q`] !== "" || b[`${m.id}_a`] !== "");
+      updates[`${m.id}_den`] = hasAny ? String(totalQ) : "";
+      updates[`${m.id}_num`] = hasAny ? String(totalA) : "";
+    });
+    setForm(f => ({ ...f, ...updates }));
+  }, [bedGrid, inputMode, form.hospital]);
+
+  // Persist room numbers to localStorage when grid changes
+  useEffect(() => {
+    if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
+    const rooms = bedGrid.map(b => b.room || "");
+    saveBedRooms(form.hospital, form.location, rooms);
+  }, [bedGrid, inputMode, form.hospital, form.location]);
+
+  // Handle bed count change — resize the grid
+  const handleBedCountChange = (count) => {
+    const n = Math.max(0, Math.min(100, parseInt(count) || 0));
+    setBedCount(n);
+    if (form.hospital && form.location && n > 0) {
+      saveBedCount(form.hospital, form.location, n);
+    }
+    const activeMetrics = getMetrics(form.hospital);
+    setBedGrid(prev => {
+      if (n === 0) return [];
+      const newGrid = [];
+      for (let i = 0; i < n; i++) {
+        if (i < prev.length) {
+          // keep existing bed data, but ensure room is set
+          const bed = { ...prev[i] };
+          if (!bed.room) bed.room = String(i + 1);
+          newGrid.push(bed);
+        } else {
+          const bed = createEmptyBed(activeMetrics, i + 1);
+          bed.room = String(i + 1);
+          newGrid.push(bed);
+        }
+      }
+      return newGrid;
+    });
+  };
+
   const handleLogout = async () => { await supabase.auth.signOut(); setEntries([]); };
   const updateMetric = (id, field, val) => setForm(f => ({ ...f, [`${id}_${field}`]: val }));
 
@@ -707,7 +951,7 @@ export default function App() {
       localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
       setEntries(prev => [...prev, offlineSession]);
       saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-      setForm(defaultForm()); setSaving(false); setSaved(true);
+      setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
       setSavedAt(new Date().toISOString());
       setTimeout(() => setSaved(false), 4000);
       return;
@@ -729,7 +973,7 @@ export default function App() {
     }
     setEntries(prev => [...prev, finalData]);
     saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-    setForm(defaultForm()); setSaving(false); setSaved(true);
+    setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
     setTimeout(() => setSaved(false), 4000);
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
@@ -1134,7 +1378,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" }))} hospitals={hospitals} />
+              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); }} hospitals={hospitals} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -1153,16 +1397,85 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              {/* Input mode toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <label style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>COMPLIANCE METRICS</label>
+                <div style={{ display: "flex", background: C.surfaceAlt, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                  {[["simple", "Simple"], ["grid", "Bed Grid"]].map(([mode, label]) => (
+                    <button key={mode} onClick={() => { setInputMode(mode); localStorage.setItem("caretrack_input_mode", mode); }}
+                      style={{ padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", cursor: "pointer", border: "none", transition: "all 0.15s",
+                        background: inputMode === mode ? C.primary : "transparent", color: inputMode === mode ? "white" : C.inkLight }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {isKaiser(form.hospital) && (
-                <div style={{ background: C.amberLight, border: `1px solid ${C.amber}`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 12 }}>
-                  <span style={{ fontSize: 20, lineHeight: 1 }}>👢</span>
-                  <div>
-                    <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: C.amber, letterSpacing: "0.06em", marginBottom: 4 }}>AUDIT HEEL BOOTS</div>
-                    <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>Kaiser protocol requires heel boot auditing. Please complete the <strong>Heel Boots On</strong> metric below for all qualifying patients.</div>
-                  </div>
+                <div style={{ background: auditHeelBoots ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditHeelBoots ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                    <div style={{ marginTop: 2, flexShrink: 0 }}>
+                      <input type="checkbox" checked={auditHeelBoots} onChange={e => setAuditHeelBoots(e.target.checked)}
+                        style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditHeelBoots ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>👢  AUDIT HEEL BOOTS</div>
+                      <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Heel Boots On</strong> compliance metric for this session.</div>
+                    </div>
+                  </label>
                 </div>
               )}
-              {getMetrics(form.hospital).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
+              {inputMode === "simple" ? (
+                getMetrics(form.hospital).filter(m => m.id !== "heel_boots" || auditHeelBoots).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
+              ) : (
+                <>
+                  {/* Bed count input */}
+                  {form.hospital && form.location ? (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ flex: "0 0 auto" }}>
+                          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>NUMBER OF BEDS</label>
+                          <input type="number" min="1" max="100" value={bedCount || ""} placeholder="0"
+                            onChange={e => handleBedCountChange(e.target.value)}
+                            style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center" }}
+                            onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                        </div>
+                        {bedCount > 0 && (
+                          <div style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", paddingTop: 16 }}>
+                            {form.location} · {bedCount} bed{bedCount !== 1 ? "s" : ""}
+                          </div>
+                        )}
+                      </div>
+                      {bedCount > 0 && bedGrid.length > 0 && (
+                        <BedGrid
+                          metrics={getMetrics(form.hospital).filter(m => m.id !== "heel_boots" || auditHeelBoots)}
+                          beds={bedGrid}
+                          onChange={setBedGrid}
+                          onAddBed={() => {
+                            const activeMetrics = getMetrics(form.hospital);
+                            const newCount = bedCount + 1;
+                            setBedCount(newCount);
+                            saveBedCount(form.hospital, form.location, newCount);
+                            const newBed = createEmptyBed(activeMetrics, newCount);
+                            newBed.room = String(newCount);
+                            setBedGrid(prev => [...prev, newBed]);
+                          }}
+                          onRemoveBed={(idx) => {
+                            const newCount = Math.max(1, bedCount - 1);
+                            setBedCount(newCount);
+                            saveBedCount(form.hospital, form.location, newCount);
+                            setBedGrid(prev => prev.filter((_, i) => i !== idx));
+                          }}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ padding: "24px 0", textAlign: "center", color: C.inkLight, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      Select a hospital and unit above to enter bed-level data.
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NOTES (OPTIONAL)</label>
@@ -1226,8 +1539,14 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: hiddenMetrics.length > 0 ? 8 : 28 }} className="metric-grid">
-                  {avgByMetric.filter(m => !hiddenMetrics.includes(m.id)).map(m => {
+                {METRIC_BUCKETS.map(bucket => {
+                  const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
+                  if (bucketMetrics.length === 0) return null;
+                  return (
+                    <div key={bucket.label} style={{ marginBottom: 20 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8, paddingLeft: 2 }}>{bucket.label.toUpperCase()}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 12 }} className="metric-grid">
+                        {bucketMetrics.map(m => {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
@@ -1261,7 +1580,10 @@ export default function App() {
                       )}
                     </div>
                   )})}
-                </div>
+                      </div>
+                    </div>
+                  );
+                })}
                 {/* Hidden metrics restore bar */}
                 {hiddenMetrics.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, padding: "8px 14px", background: C.surfaceAlt, borderRadius: 8, flexWrap: "wrap" }}>
@@ -2075,7 +2397,16 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.4", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.5", date: "March 2026", badge: "LATEST", items: [
+                "Metric bucket grouping — metrics organized into Patient Met Criteria, Matt Compliance, Wedge Compliance, and Air Supply across dashboard, PDF, PowerPoint, and Excel exports",
+                "Reordered metrics: Turning & Repositioning first, then Matt, Wedge, and Air Supply groups",
+                "Bed-level grid input — enter compliance data per bed/room with auto-summed totals",
+                "Toggle between Simple mode (aggregate entry) and Bed Grid mode on the Log Session form",
+                "Number of beds saved per hospital/unit — auto-populates on return visits",
+                "Mayo Clinic extra metric (Air Used to Reposition Patient)",
+                "Fixed session save error for non-Mayo hospitals sending Mayo-only fields",
+              ]},
+              { version: "2.4", date: "March 2026", badge: null, items: [
                 "Mobile layout overhaul — dashboard, performers, and admin sections fully optimised for phones",
                 "Performers tab: hospital rows now use two-line cards so names and scores never get cut off",
                 "Performers tab: Top Performers and Needs Attention stack vertically instead of side by side",
