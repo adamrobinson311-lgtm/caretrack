@@ -233,11 +233,11 @@ const createEmptyBed = (metrics, roomNum) => {
 };
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
-  const [activeBed, setActiveBed] = React.useState(0);
+  const [activeBed, setActiveBed] = useState(0);
 
   // Keep activeBed in bounds if beds shrink
   const safeIdx = Math.min(activeBed, beds.length - 1);
-  React.useEffect(() => { if (safeIdx !== activeBed) setActiveBed(safeIdx); }, [beds.length]);
+  useEffect(() => { if (safeIdx !== activeBed) setActiveBed(safeIdx); }, [beds.length]);
 
   const updateCell = (field, value) => {
     const updated = beds.map((b, i) => i === safeIdx ? { ...b, [field]: value } : b);
