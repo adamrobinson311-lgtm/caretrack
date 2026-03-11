@@ -233,111 +233,181 @@ const createEmptyBed = (metrics, roomNum) => {
 };
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
-  const updateCell = (bedIdx, field, value) => {
-    const updated = beds.map((b, i) => i === bedIdx ? { ...b, [field]: value } : b);
+  const [activeBed, setActiveBed] = React.useState(0);
+
+  // Keep activeBed in bounds if beds shrink
+  const safeIdx = Math.min(activeBed, beds.length - 1);
+  React.useEffect(() => { if (safeIdx !== activeBed) setActiveBed(safeIdx); }, [beds.length]);
+
+  const updateCell = (field, value) => {
+    const updated = beds.map((b, i) => i === safeIdx ? { ...b, [field]: value } : b);
     onChange(updated);
   };
 
-  // Compute totals
+  const goTo = (idx) => setActiveBed(Math.max(0, Math.min(idx, beds.length - 1)));
+
+  const addAndGo = () => { onAddBed(); setActiveBed(beds.length); };
+
+  const removeAndGo = () => {
+    onRemoveBed(safeIdx);
+    setActiveBed(Math.max(0, safeIdx - 1));
+  };
+
+  // Per-metric totals across all beds
   const totals = {};
   metrics.forEach(m => {
-    totals[`${m.id}_q`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
-    totals[`${m.id}_a`] = beds.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+    totals[`${m.id}_q`] = beds.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
+    totals[`${m.id}_a`] = beds.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
   });
 
-  const cellStyle = { width: 52, minWidth: 52, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 4px", fontSize: 14, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center", outline: "none" };
-  const roomStyle = { ...cellStyle, width: 72, minWidth: 72, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "left", padding: "6px 8px" };
-  const thStyle = { padding: "4px 2px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", color: C.inkLight, textAlign: "center", whiteSpace: "nowrap", fontWeight: 400 };
-  const metricThStyle = { ...thStyle, fontSize: 10, color: C.inkMid, fontWeight: 600, padding: "8px 2px", borderBottom: `2px solid ${C.border}` };
+  const bed = beds[safeIdx] || {};
+
+  // Compliance colour for a pct value
+  const pctCol = (p) => p === null ? C.inkFaint : p >= 90 ? C.green : p >= 70 ? C.amber : C.red;
+  const pctBg2 = (p) => p === null ? C.surfaceAlt : p >= 90 ? C.greenLight : p >= 70 ? C.amberLight : C.redLight;
+
+  const inpBase = {
+    background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+    padding: "10px 0", fontSize: 18, fontFamily: "'Libre Baskerville', serif",
+    color: C.ink, textAlign: "center", outline: "none", width: "100%",
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface }}>
-        <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={{ ...metricThStyle, textAlign: "left", paddingLeft: 10, position: "sticky", left: 0, background: C.surface, zIndex: 2, minWidth: 80 }}>ROOM</th>
-              {metrics.map(m => (
-                <th key={m.id} colSpan={2} style={metricThStyle}>{METRIC_SHORT[m.id] || m.label}</th>
-              ))}
-              <th style={{ ...metricThStyle, minWidth: 36 }}></th>
-            </tr>
-            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              <th style={{ ...thStyle, position: "sticky", left: 0, background: C.surface, zIndex: 2 }}></th>
-              {metrics.map(m => (
-                <Fragment key={m.id}>
-                  <th style={thStyle}>Q</th>
-                  <th style={thStyle}>A</th>
-                </Fragment>
-              ))}
-              <th style={thStyle}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {beds.map((bed, i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
-                <td style={{ padding: "4px 4px 4px 8px", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>
-                  <input type="text" value={bed.room || String(i + 1)}
-                    onChange={e => updateCell(i, "room", e.target.value)}
-                    style={{ ...roomStyle, color: bed.room ? C.primary : C.inkFaint, fontWeight: bed.room ? 600 : 400 }}
-                    onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell(i, "room", String(i + 1)); }} onBlur={e => e.target.style.borderColor = C.border} />
-                </td>
-                {metrics.map(m => (
-                  <Fragment key={m.id}>
-                    <td style={{ padding: "4px 2px" }}>
-                      <input type="number" min="0" value={bed[`${m.id}_q`]}
-                        onChange={e => updateCell(i, `${m.id}_q`, e.target.value)}
-                        placeholder="0" style={cellStyle}
-                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-                    </td>
-                    <td style={{ padding: "4px 2px" }}>
-                      <input type="number" min="0" value={bed[`${m.id}_a`]}
-                        onChange={e => updateCell(i, `${m.id}_a`, e.target.value)}
-                        placeholder="0" style={cellStyle}
-                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
-                    </td>
-                  </Fragment>
-                ))}
-                <td style={{ padding: "4px 6px" }}>
-                  {beds.length > 1 && (
-                    <button onClick={() => onRemoveBed(i)}
-                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, width: 26, height: 26, cursor: "pointer", color: C.red, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}
-                      onMouseEnter={e => { e.target.style.background = C.redLight; e.target.style.borderColor = C.red; }}
-                      onMouseLeave={e => { e.target.style.background = "none"; e.target.style.borderColor = C.border; }}>
-                      ✕
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {/* Totals row */}
-            <tr style={{ background: C.primaryLight }}>
-              <td style={{ padding: "10px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: C.primary, position: "sticky", left: 0, background: C.primaryLight, zIndex: 1 }}>TOTALS</td>
-              {metrics.map(m => {
-                const q = totals[`${m.id}_q`];
-                const a = totals[`${m.id}_a`];
-                const p = q > 0 ? Math.round((a / q) * 100) : null;
-                return (
-                  <Fragment key={m.id}>
-                    <td style={{ padding: "10px 2px", textAlign: "center", fontFamily: "'Libre Baskerville', serif", fontSize: 14, fontWeight: 700, color: C.ink }}>{q || "—"}</td>
-                    <td style={{ padding: "10px 2px", textAlign: "center", fontFamily: "'Libre Baskerville', serif", fontSize: 14, fontWeight: 700, color: C.ink }}>
-                      {a || "—"}
-                      {p !== null && <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: pctColor(p), fontWeight: 600, marginTop: 2 }}>{p}%</div>}
-                    </td>
-                  </Fragment>
-                );
-              })}
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
+
+      {/* ── Navigation bar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => goTo(safeIdx - 1)} disabled={safeIdx === 0}
+          style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: safeIdx === 0 ? "not-allowed" : "pointer", color: safeIdx === 0 ? C.inkFaint : C.primary, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          ‹
+        </button>
+
+        {/* Progress dots */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+          {beds.map((_, i) => (
+            <button key={i} onClick={() => goTo(i)}
+              style={{ width: i === safeIdx ? 24 : 8, height: 8, borderRadius: 4, border: "none", cursor: "pointer", background: i === safeIdx ? C.primary : C.border, transition: "all 0.2s", padding: 0, flexShrink: 0 }} />
+          ))}
+        </div>
+
+        <button onClick={() => goTo(safeIdx + 1)} disabled={safeIdx === beds.length - 1}
+          style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: safeIdx === beds.length - 1 ? "not-allowed" : "pointer", color: safeIdx === beds.length - 1 ? C.inkFaint : C.primary, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          ›
+        </button>
       </div>
-      <button onClick={onAddBed}
-        style={{ alignSelf: "flex-start", background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "8px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.05em", transition: "all 0.15s" }}
-        onMouseEnter={e => { e.target.style.borderColor = C.primary; e.target.style.color = C.primary; }}
-        onMouseLeave={e => { e.target.style.borderColor = C.border; e.target.style.color = C.inkLight; }}>
-        + ADD BED
-      </button>
+
+      {/* ── Bed card ── */}
+      <div style={{ background: C.surface, border: `1px solid ${C.primary}44`, borderRadius: 14, overflow: "hidden" }}>
+
+        {/* Card header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: C.primaryLight, borderBottom: `1px solid ${C.primary}22` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.08em" }}>ROOM / BED</span>
+            <input type="text" value={bed.room || ""} placeholder={String(safeIdx + 1)}
+              onChange={e => updateCell("room", e.target.value)}
+              style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.primary, outline: "none" }}
+              onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell("room", String(safeIdx + 1)); }}
+              onBlur={e => e.target.style.borderColor = C.border} />
+          </div>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>
+            {safeIdx + 1} of {beds.length}
+          </span>
+        </div>
+
+        {/* Metric rows */}
+        <div style={{ padding: "8px 16px 16px" }}>
+          {metrics.map((m, mi) => {
+            const q = parseFloat(bed[`${m.id}_q`]) || 0;
+            const a = parseFloat(bed[`${m.id}_a`]) || 0;
+            const p = bed[`${m.id}_q`] !== "" && q > 0 ? Math.round((a / q) * 100) : null;
+            return (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                {/* Metric name */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{m.label}</div>
+                  <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{m.desc}</div>
+                </div>
+                {/* Q input */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>QUALIFYING</span>
+                  <input type="number" min="0" value={bed[`${m.id}_q`]} placeholder="0"
+                    onChange={e => updateCell(`${m.id}_q`, e.target.value)}
+                    style={{ ...inpBase, width: 68 }}
+                    onFocus={e => e.target.style.borderColor = C.primary}
+                    onBlur={e => e.target.style.borderColor = C.border} />
+                </div>
+                <span style={{ color: C.inkFaint, fontSize: 14, flexShrink: 0 }}>÷</span>
+                {/* A input */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>ADHERENT</span>
+                  <input type="number" min="0" value={bed[`${m.id}_a`]} placeholder="0"
+                    onChange={e => updateCell(`${m.id}_a`, e.target.value)}
+                    style={{ ...inpBase, width: 68 }}
+                    onFocus={e => e.target.style.borderColor = C.primary}
+                    onBlur={e => e.target.style.borderColor = C.border} />
+                </div>
+                {/* Pct badge */}
+                <div style={{ width: 46, flexShrink: 0, textAlign: "center" }}>
+                  {p !== null && (
+                    <span style={{ display: "inline-block", background: pctBg2(p), border: `1px solid ${pctCol(p)}33`, borderRadius: 20, padding: "3px 8px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: pctCol(p) }}>{p}%</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Card footer — actions */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => goTo(safeIdx - 1)} disabled={safeIdx === 0}
+              style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: safeIdx === 0 ? C.inkFaint : C.inkMid, cursor: safeIdx === 0 ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+              ← PREV
+            </button>
+            {safeIdx < beds.length - 1 ? (
+              <button onClick={() => goTo(safeIdx + 1)}
+                style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: C.primary, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.04em" }}>
+                NEXT →
+              </button>
+            ) : (
+              <button onClick={addAndGo}
+                style={{ padding: "7px 16px", borderRadius: 8, border: `1px dashed ${C.primary}`, background: C.primaryLight, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.04em" }}>
+                + ADD BED
+              </button>
+            )}
+          </div>
+          {beds.length > 1 && (
+            <button onClick={removeAndGo}
+              style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.04em" }}>
+              REMOVE BED
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Totals summary strip ── */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", marginBottom: 10, fontWeight: 600 }}>ALL BEDS — TOTALS</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {metrics.map(m => {
+            const q = totals[`${m.id}_q`];
+            const a = totals[`${m.id}_a`];
+            const p = q > 0 ? Math.round((a / q) * 100) : null;
+            return (
+              <div key={m.id} style={{ background: p !== null ? pctBg2(p) : C.bg, border: `1px solid ${p !== null ? pctCol(p) + "33" : C.border}`, borderRadius: 8, padding: "7px 12px", minWidth: 90, flex: "1 1 90px" }}>
+                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{METRIC_SHORT[m.id] || m.label}</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 15, fontWeight: 700, color: p !== null ? pctCol(p) : C.inkFaint }}>
+                    {p !== null ? `${p}%` : "—"}
+                  </span>
+                  {q > 0 && <span style={{ fontSize: 10, color: C.inkLight }}>{a}/{q}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
     </div>
   );
 };
