@@ -634,6 +634,7 @@ const FilterBar = ({ value, onChange, label, hospitals }) => (
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
+  const [viewAsUser, setViewAsUser] = useState(null); // { email, full_name } when admin is impersonating
   const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState("log");
   const [entries, setEntries] = useState([]);
@@ -740,8 +741,13 @@ export default function App() {
   const [dateTo, setDateTo] = useState("");
   const summaryRef = useRef(null);
 
-  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
-  const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
+  const realIsAdmin = user && ADMIN_EMAILS.includes(user.email);
+  const isAdmin = realIsAdmin && !viewAsUser;
+  // When impersonating, override the display name and filter entries to that user only
+  const userName = viewAsUser
+    ? (viewAsUser.full_name || viewAsUser.email)
+    : (user?.user_metadata?.full_name || user?.email || "");
+  const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
 
   // Session streak — count consecutive weeks with at least one session logged by this user
@@ -830,12 +836,13 @@ export default function App() {
     if (!isOnline || !user || offlineQueue.length === 0) return;
     (async () => {
       setSyncing(true);
-      const userName = user?.user_metadata?.full_name || user?.email;
+      // userName defined above (proxy-aware)
+  const realUserName = user?.user_metadata?.full_name || user?.email || "";
       const failed = [];
       let successCount = 0;
       for (const session of offlineQueue) {
         const { queuedAt, tempId, ...payload } = session;
-        payload.logged_by = userName;
+        payload.logged_by = realUserName;
         const { data, error } = await supabase.from("sessions").insert([payload]).select().single();
         if (error) { failed.push(session); }
         else {
@@ -859,7 +866,7 @@ export default function App() {
     (async () => {
       setLoading(true);
       const userName = user?.user_metadata?.full_name || user?.email;
-      const isAdminUser = ADMIN_EMAILS.includes(user?.email);
+      const isAdminUser = ADMIN_EMAILS.includes(user?.email); // uses real user always
 
       // Step 1: Fetch user's own sessions to discover which hospitals they've logged for
       const { data: ownData, error } = await supabase.from("sessions")
@@ -1013,7 +1020,7 @@ export default function App() {
     const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
-      protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
+      protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: realUserName,
       ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
       ...(inputMode === "grid" && bedGrid.length > 0 ? { bed_data: bedGrid } : {}),
     };
@@ -1062,8 +1069,11 @@ export default function App() {
     return true;
   });
 
-  const filteredDashboard = applyFilters(entries, hospitalFilter);
-  const filteredHistory = applyFilters(entries, historyHospitalFilter);
+  const proxyEntries = viewAsUser
+    ? allEntriesFull.filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
+    : entries;
+  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
+  const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter);
 
   const chartData = filteredDashboard.map(e => {
     const row = { date: e.date?.slice(5) };
@@ -1450,6 +1460,25 @@ export default function App() {
       `}</style>
 
 
+      {/* ── IMPERSONATION BANNER ── */}
+      {viewAsUser && (
+        <div style={{ background: C.amber, padding: "10px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 16 }}>👁</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: "white", letterSpacing: "0.06em" }}>
+              VIEWING AS: {viewAsUser.full_name || viewAsUser.email}
+            </span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
+              — read-only view of their data
+            </span>
+          </div>
+          <button onClick={() => { setViewAsUser(null); setTab("admin"); }}
+            style={{ background: "white", border: "none", borderRadius: 6, padding: "5px 16px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, fontWeight: 700, cursor: "pointer", letterSpacing: "0.06em" }}>
+            EXIT VIEW ✕
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 32px" }} className="header-outer">
@@ -1541,7 +1570,7 @@ export default function App() {
           <div style={{ maxWidth: 720 }} className="mobile-full">
             <div style={{ marginBottom: 28 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
-              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
+              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{realUserName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE <span style={{ color: C.red }}>*</span></label>
@@ -2524,6 +2553,10 @@ export default function App() {
                                   }}
                                   style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", whiteSpace: "nowrap" }}>
                                   RESET PASSWORD
+                                </button>
+                                <button onClick={() => { setViewAsUser({ email: profile.email, full_name: profile.full_name }); setTab("dashboard"); }}
+                                  style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  👁 VIEW AS
                                 </button>
                               </div>
                             )}
