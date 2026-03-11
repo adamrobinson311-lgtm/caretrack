@@ -322,13 +322,11 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
         {/* Metric rows */}
         <div style={{ padding: "8px 16px 16px" }}>
           {metrics.map((m, mi) => {
+            const metricNa = !!bed[`${m.id}_na`];
             const q = parseFloat(bed[`${m.id}_q`]) || 0;
             const a = parseFloat(bed[`${m.id}_a`]) || 0;
-            const p = bed[`${m.id}_q`] !== "" && q > 0 ? Math.round((a / q) * 100) : null;
+            const p = !metricNa && bed[`${m.id}_q`] !== "" && q > 0 ? Math.round((a / q) * 100) : null;
             return (
-              {(() => {
-                const metricNa = !!bed[`${m.id}_na`];
-                return (
                   <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none", opacity: metricNa ? 0.45 : 1, transition: "opacity 0.15s" }}>
                     {/* Metric name */}
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -367,8 +365,6 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                       )}
                     </div>
                   </div>
-                );
-              })()}
             );
           })}
         </div>
