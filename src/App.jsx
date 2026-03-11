@@ -228,7 +228,7 @@ const METRIC_SHORT = {
 
 const createEmptyBed = (metrics, roomNum) => {
   const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "", na: false };
-  metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; });
+  metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; bed[`${m.id}_na`] = false; });
   return bed;
 };
 
@@ -253,12 +253,13 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     onChange(updated);
   };
 
-  // Per-metric totals — exclude N/A beds
+  // Per-metric totals — exclude N/A beds and per-metric N/A flags
   const totals = {};
   const activeBeds = beds.filter(b => !b.na);
   metrics.forEach(m => {
-    totals[`${m.id}_q`] = activeBeds.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
-    totals[`${m.id}_a`] = activeBeds.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
+    const eligible = activeBeds.filter(b => !b[`${m.id}_na`]);
+    totals[`${m.id}_q`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
+    totals[`${m.id}_a`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
   });
 
   const bed = beds[safeIdx] || {};
@@ -310,11 +311,12 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
               style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.primary, outline: "none" }}
               onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell("room", String(safeIdx + 1)); }}
               onBlur={e => e.target.style.borderColor = C.border} />
+            <button onClick={toggleNa}
+              style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${isNa ? C.amber : C.border}`, background: isNa ? C.amberLight : "none", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: isNa ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", fontWeight: isNa ? 700 : 400, transition: "all 0.15s" }}>
+              {isNa ? "✓ N/A" : "N/A"}
+            </button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isNa && <span style={{ background: C.amberLight, border: `1px solid ${C.amber}44`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, fontWeight: 700, letterSpacing: "0.06em" }}>N/A</span>}
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>{safeIdx + 1} of {beds.length}</span>
-          </div>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>{safeIdx + 1} of {beds.length}</span>
         </div>
 
         {/* Metric rows */}
@@ -324,38 +326,49 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
             const a = parseFloat(bed[`${m.id}_a`]) || 0;
             const p = bed[`${m.id}_q`] !== "" && q > 0 ? Math.round((a / q) * 100) : null;
             return (
-              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                {/* Metric name */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{m.label}</div>
-                  <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{m.desc}</div>
-                </div>
-                {/* Q input */}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                  <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>QUALIFYING</span>
-                  <input type="number" min="0" value={bed[`${m.id}_q`]} placeholder="0"
-                    onChange={e => updateCell(`${m.id}_q`, e.target.value)}
-                    style={{ ...inpBase, width: 68 }}
-                    onFocus={e => e.target.style.borderColor = C.primary}
-                    onBlur={e => e.target.style.borderColor = C.border} />
-                </div>
-                <span style={{ color: C.inkFaint, fontSize: 14, flexShrink: 0 }}>÷</span>
-                {/* A input */}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                  <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>ADHERENT</span>
-                  <input type="number" min="0" value={bed[`${m.id}_a`]} placeholder="0"
-                    onChange={e => updateCell(`${m.id}_a`, e.target.value)}
-                    style={{ ...inpBase, width: 68 }}
-                    onFocus={e => e.target.style.borderColor = C.primary}
-                    onBlur={e => e.target.style.borderColor = C.border} />
-                </div>
-                {/* Pct badge */}
-                <div style={{ width: 46, flexShrink: 0, textAlign: "center" }}>
-                  {p !== null && (
-                    <span style={{ display: "inline-block", background: pctBg2(p), border: `1px solid ${pctCol(p)}33`, borderRadius: 20, padding: "3px 8px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: pctCol(p) }}>{p}%</span>
-                  )}
-                </div>
-              </div>
+              {(() => {
+                const metricNa = !!bed[`${m.id}_na`];
+                return (
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none", opacity: metricNa ? 0.45 : 1, transition: "opacity 0.15s" }}>
+                    {/* Metric name */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{m.label}</div>
+                      <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{m.desc}</div>
+                    </div>
+                    {/* Q input */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>QUALIFYING</span>
+                      <input type="number" min="0" value={bed[`${m.id}_q`]} placeholder="0"
+                        disabled={metricNa}
+                        onChange={e => updateCell(`${m.id}_q`, e.target.value)}
+                        style={{ ...inpBase, width: 68, cursor: metricNa ? "not-allowed" : "text" }}
+                        onFocus={e => e.target.style.borderColor = C.primary}
+                        onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                    <span style={{ color: C.inkFaint, fontSize: 14, flexShrink: 0 }}>÷</span>
+                    {/* A input */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>ADHERENT</span>
+                      <input type="number" min="0" value={bed[`${m.id}_a`]} placeholder="0"
+                        disabled={metricNa}
+                        onChange={e => updateCell(`${m.id}_a`, e.target.value)}
+                        style={{ ...inpBase, width: 68, cursor: metricNa ? "not-allowed" : "text" }}
+                        onFocus={e => e.target.style.borderColor = C.primary}
+                        onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                    {/* Pct badge or N/A toggle */}
+                    <div style={{ width: 46, flexShrink: 0, textAlign: "center" }}>
+                      <button onClick={() => updateCell(`${m.id}_na`, !metricNa)}
+                        style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${metricNa ? C.amber : C.border}`, background: metricNa ? C.amberLight : "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: metricNa ? 700 : 400, color: metricNa ? C.amber : C.inkFaint, cursor: "pointer", transition: "all 0.15s", display: "block", width: "100%" }}>
+                        N/A
+                      </button>
+                      {!metricNa && p !== null && (
+                        <span style={{ display: "inline-block", marginTop: 4, background: pctBg2(p), border: `1px solid ${pctCol(p)}33`, borderRadius: 20, padding: "3px 8px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: pctCol(p) }}>{p}%</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             );
           })}
         </div>
@@ -379,10 +392,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
               </button>
             )}
           </div>
-          <button onClick={toggleNa}
-            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${isNa ? C.amber : C.border}`, background: isNa ? C.amberLight : "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: isNa ? C.amber : C.inkMid, cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", fontWeight: isNa ? 700 : 400 }}>
-            {isNa ? "✓ MARKED N/A" : "MARK N/A"}
-          </button>
+
         </div>
       </div>
 
