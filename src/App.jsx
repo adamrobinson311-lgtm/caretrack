@@ -44,6 +44,7 @@ const MAYO_METRICS = [
 
 const KAISER_METRICS = [
   { id: "heel_boots",       label: "Heel Boots On",                  desc: "Qualifying patients that had heel boots applied" },
+  { id: "turn_clock",       label: "Turn Clock",                     desc: "Qualifying patients with Turn Clock compliance" },
 ];
 
 const METRIC_BUCKETS = [
@@ -53,7 +54,7 @@ const METRIC_BUCKETS = [
   { label: "Air Supply", ids: ["air_supply"] },
 ];
 const MAYO_BUCKET   = { label: "Air Supply",      ids: ["air_supply", "air_reposition"] };
-const KAISER_BUCKET = { label: "Heel Boot Audit", ids: ["heel_boots"] };
+const KAISER_BUCKET = { label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"] };
 const getBuckets = (hospital) => {
   let buckets = METRIC_BUCKETS.map(b => b.label === "Air Supply" && isMayo(hospital) ? MAYO_BUCKET : b);
   if (isKaiser(hospital)) buckets = [...buckets, KAISER_BUCKET];
@@ -720,6 +721,7 @@ export default function App() {
   // Bed-level grid input mode
   const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "simple"); // "simple" | "grid"
   const [auditHeelBoots, setAuditHeelBoots] = useState(false);
+  const [auditTurnClock, setAuditTurnClock] = useState(false);
   const [bedGrid, setBedGrid] = useState([]);
   const [bedCount, setBedCount] = useState(0);
   const lastGridKey = useRef("");
@@ -1493,7 +1495,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); }} hospitals={hospitals} />
+              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={hospitals} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -1527,21 +1529,35 @@ export default function App() {
               </div>
 
               {isKaiser(form.hospital) && (
-                <div style={{ background: auditHeelBoots ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditHeelBoots ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
-                    <div style={{ marginTop: 2, flexShrink: 0 }}>
-                      <input type="checkbox" checked={auditHeelBoots} onChange={e => setAuditHeelBoots(e.target.checked)}
-                        style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditHeelBoots ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>👢  AUDIT HEEL BOOTS</div>
-                      <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Heel Boots On</strong> compliance metric for this session.</div>
-                    </div>
-                  </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ background: auditHeelBoots ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditHeelBoots ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <div style={{ marginTop: 2, flexShrink: 0 }}>
+                        <input type="checkbox" checked={auditHeelBoots} onChange={e => setAuditHeelBoots(e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditHeelBoots ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>👢  AUDIT HEEL BOOTS</div>
+                        <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Heel Boots On</strong> compliance metric for this session.</div>
+                      </div>
+                    </label>
+                  </div>
+                  <div style={{ background: auditTurnClock ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditTurnClock ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <div style={{ marginTop: 2, flexShrink: 0 }}>
+                        <input type="checkbox" checked={auditTurnClock} onChange={e => setAuditTurnClock(e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditTurnClock ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>🕐  AUDIT TURN CLOCK</div>
+                        <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Turn Clock</strong> compliance metric for this session.</div>
+                      </div>
+                    </label>
+                  </div>
                 </div>
               )}
               {inputMode === "simple" ? (
-                getMetrics(form.hospital).filter(m => m.id !== "heel_boots" || auditHeelBoots).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
+                getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock)).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
               ) : (
                 <>
                   {/* Bed count input */}
@@ -1563,7 +1579,7 @@ export default function App() {
                       </div>
                       {bedCount > 0 && bedGrid.length > 0 && (
                         <BedGrid
-                          metrics={getMetrics(form.hospital).filter(m => m.id !== "heel_boots" || auditHeelBoots)}
+                          metrics={getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock))}
                           beds={bedGrid}
                           onChange={setBedGrid}
                           onAddBed={() => {
