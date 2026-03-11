@@ -227,7 +227,7 @@ const METRIC_SHORT = {
 };
 
 const createEmptyBed = (metrics, roomNum) => {
-  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "" };
+  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "", na: false };
   metrics.forEach(m => { bed[`${m.id}_q`] = ""; bed[`${m.id}_a`] = ""; });
   return bed;
 };
@@ -248,19 +248,21 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
 
   const addAndGo = () => { onAddBed(); setActiveBed(beds.length); };
 
-  const removeAndGo = () => {
-    onRemoveBed(safeIdx);
-    setActiveBed(Math.max(0, safeIdx - 1));
+  const toggleNa = () => {
+    const updated = beds.map((b, i) => i === safeIdx ? { ...b, na: !b.na } : b);
+    onChange(updated);
   };
 
-  // Per-metric totals across all beds
+  // Per-metric totals — exclude N/A beds
   const totals = {};
+  const activeBeds = beds.filter(b => !b.na);
   metrics.forEach(m => {
-    totals[`${m.id}_q`] = beds.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
-    totals[`${m.id}_a`] = beds.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
+    totals[`${m.id}_q`] = activeBeds.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
+    totals[`${m.id}_a`] = activeBeds.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
   });
 
   const bed = beds[safeIdx] || {};
+  const isNa = !!bed.na;
 
   // Compliance colour for a pct value
   const pctCol = (p) => p === null ? C.inkFaint : p >= 90 ? C.green : p >= 70 ? C.amber : C.red;
@@ -284,9 +286,9 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
 
         {/* Progress dots */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-          {beds.map((_, i) => (
+          {beds.map((b, i) => (
             <button key={i} onClick={() => goTo(i)}
-              style={{ width: i === safeIdx ? 24 : 8, height: 8, borderRadius: 4, border: "none", cursor: "pointer", background: i === safeIdx ? C.primary : C.border, transition: "all 0.2s", padding: 0, flexShrink: 0 }} />
+              style={{ width: i === safeIdx ? 24 : 8, height: 8, borderRadius: 4, border: "none", cursor: "pointer", background: i === safeIdx ? C.primary : b.na ? C.amber : C.border, transition: "all 0.2s", padding: 0, flexShrink: 0 }} />
           ))}
         </div>
 
@@ -297,7 +299,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
       </div>
 
       {/* ── Bed card ── */}
-      <div style={{ background: C.surface, border: `1px solid ${C.primary}44`, borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ background: C.surface, border: `1px solid ${isNa ? C.border : C.primary + "44"}`, borderRadius: 14, overflow: "hidden", opacity: isNa ? 0.6 : 1, transition: "opacity 0.2s" }}>
 
         {/* Card header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: C.primaryLight, borderBottom: `1px solid ${C.primary}22` }}>
@@ -309,9 +311,10 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
               onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell("room", String(safeIdx + 1)); }}
               onBlur={e => e.target.style.borderColor = C.border} />
           </div>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>
-            {safeIdx + 1} of {beds.length}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isNa && <span style={{ background: C.amberLight, border: `1px solid ${C.amber}44`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, fontWeight: 700, letterSpacing: "0.06em" }}>N/A</span>}
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>{safeIdx + 1} of {beds.length}</span>
+          </div>
         </div>
 
         {/* Metric rows */}
@@ -376,18 +379,19 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
               </button>
             )}
           </div>
-          {beds.length > 1 && (
-            <button onClick={removeAndGo}
-              style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.04em" }}>
-              REMOVE BED
-            </button>
-          )}
+          <button onClick={toggleNa}
+            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${isNa ? C.amber : C.border}`, background: isNa ? C.amberLight : "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: isNa ? C.amber : C.inkMid, cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", fontWeight: isNa ? 700 : 400 }}>
+            {isNa ? "✓ MARKED N/A" : "MARK N/A"}
+          </button>
         </div>
       </div>
 
       {/* ── Totals summary strip ── */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
-        <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", marginBottom: 10, fontWeight: 600 }}>ALL BEDS — TOTALS</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", fontWeight: 600 }}>ALL BEDS — TOTALS</div>
+          {beds.some(b => b.na) && <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, letterSpacing: "0.06em" }}>{beds.filter(b => b.na).length} N/A EXCLUDED</div>}
+        </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {metrics.map(m => {
             const q = totals[`${m.id}_q`];
@@ -1506,7 +1510,7 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <label style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>COMPLIANCE METRICS</label>
                 <div style={{ display: "flex", background: C.surfaceAlt, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden" }}>
-                  {[["simple", "Simple"], ["grid", "Bed Grid"]].map(([mode, label]) => (
+                  {[["simple", "Simple"], ["grid", "Per Bed"]].map(([mode, label]) => (
                     <button key={mode} onClick={() => { setInputMode(mode); localStorage.setItem("caretrack_input_mode", mode); }}
                       style={{ padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", cursor: "pointer", border: "none", transition: "all 0.15s",
                         background: inputMode === mode ? C.primary : "transparent", color: inputMode === mode ? "white" : C.inkLight }}>
@@ -2582,7 +2586,7 @@ export default function App() {
                 "Metric bucket grouping — metrics organized into Patient Met Criteria, Matt Compliance, Wedge Compliance, and Air Supply across dashboard, PDF, PowerPoint, and Excel exports",
                 "Reordered metrics: Turning & Repositioning first, then Matt, Wedge, and Air Supply groups",
                 "Bed-level grid input — enter compliance data per bed/room with auto-summed totals",
-                "Toggle between Simple mode (aggregate entry) and Bed Grid mode on the Log Session form",
+                "Toggle between Simple mode (aggregate entry) and Per Bed mode on the Log Session form",
                 "Number of beds saved per hospital/unit — auto-populates on return visits",
                 "Mayo Clinic extra metric (Air Used to Reposition Patient)",
                 "Fixed session save error for non-Mayo hospitals sending Mayo-only fields",
