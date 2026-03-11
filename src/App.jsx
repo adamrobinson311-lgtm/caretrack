@@ -347,7 +347,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
                 <button onClick={toggleCompliant} disabled={metricNa}
                   style={{ flexShrink: 0, width: 72, height: 56, borderRadius: 10, border: `2px solid ${btnBorder}`, background: btnBg, cursor: metricNa ? "not-allowed" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, transition: "all 0.15s", WebkitTapHighlightColor: "transparent" }}>
                   <span style={{ fontSize: 22, lineHeight: 1, color: btnColor, fontWeight: 700 }}>{btnIcon}</span>
-                  <span style={{ fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", color: btnColor, fontWeight: state !== "unset" ? 700 : 400 }}>{btnLabel}</span>
+                  <span style={{ fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", color: btnColor, fontWeight: 700 }}>{btnLabel}</span>
                 </button>
 
                 {/* N/A toggle */}
