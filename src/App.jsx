@@ -694,7 +694,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.5";
+  const CURRENT_VERSION = "2.7";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -1025,6 +1025,7 @@ export default function App() {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
       ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...(inputMode === "grid" && bedGrid.length > 0 ? { bed_data: bedGrid } : {}),
     };
     // If offline, queue the session locally
     if (!isOnline) {
@@ -1280,13 +1281,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -1318,20 +1319,49 @@ export default function App() {
     </button>
   );
 
-  const DateRangeFilter = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>DATE RANGE</span>
-      <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
-      <span style={{ fontSize: 11, color: C.inkLight }}>to</span>
-      <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
-      {(dateFrom || dateTo) && (
-        <button onClick={() => { setDateFrom(""); setDateTo(""); }}
-          style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: C.inkLight, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace" }}>CLEAR</button>
-      )}
-    </div>
-  );
+  const DateRangeFilter = () => {
+    const presets = [
+      { label: "30D", days: 30 }, { label: "90D", days: 90 },
+      { label: "YTD", ytd: true }, { label: "1Y", days: 365 },
+    ];
+    const applyPreset = (p) => {
+      const to = new Date().toISOString().slice(0, 10);
+      let from;
+      if (p.ytd) { from = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10); }
+      else { const d = new Date(); d.setDate(d.getDate() - p.days); from = d.toISOString().slice(0, 10); }
+      setDateFrom(from); setDateTo(to);
+    };
+    const isActive = (p) => {
+      if (!dateFrom || !dateTo) return false;
+      const to = new Date().toISOString().slice(0, 10);
+      if (dateTo !== to) return false;
+      if (p.ytd) return dateFrom === new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const d = new Date(); d.setDate(d.getDate() - p.days);
+      return dateFrom === d.toISOString().slice(0, 10);
+    };
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>DATE</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {presets.map(p => (
+            <button key={p.label} onClick={() => isActive(p) ? (setDateFrom(""), setDateTo("")) : applyPreset(p)}
+              style={{ padding: "3px 8px", borderRadius: 5, border: `1px solid ${isActive(p) ? C.primary : C.border}`, background: isActive(p) ? C.primaryLight : "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: isActive(p) ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
+        <span style={{ fontSize: 11, color: C.inkLight }}>to</span>
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
+        {(dateFrom || dateTo) && (
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: C.inkLight, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace" }}>CLEAR</button>
+        )}
+      </div>
+    );
+  };
 
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
@@ -1458,7 +1488,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
-            <Tab id="log" label="LOG SESSION" />
+            <Tab id="log" label="LOG AUDIT" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
@@ -1485,7 +1515,7 @@ export default function App() {
         {tab === "log" && (
           <div style={{ maxWidth: 720 }} className="mobile-full">
             <div style={{ marginBottom: 28 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Session</h1>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -1509,7 +1539,7 @@ export default function App() {
             </div>
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PROTOCOL FOR USE</label>
-              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this session..."
+              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this audit..."
                 rows={3} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, resize: "vertical", lineHeight: 1.6 }}
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
@@ -2550,7 +2580,7 @@ export default function App() {
                 <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Welcome to CareTrack</h2>
                 <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>CareTrack helps you track wound care compliance across hospitals and locations. Log sessions after each visit, view trends on your dashboard, and export reports for your team.</p>
                 <div style={{ background: C.bg, borderRadius: 10, padding: "16px 20px", marginBottom: 24, fontSize: 13, color: C.inkMid, lineHeight: 1.8 }}>
-                  <div>📋 <strong>Log Session</strong> — Record compliance data after each visit</div>
+                  <div>📋 <strong>Log Audit</strong> — Record compliance data after each visit</div>
                   <div>📊 <strong>Dashboard</strong> — View trends and national averages</div>
                   <div>📁 <strong>History</strong> — Browse and edit past sessions</div>
                   <div>🏆 <strong>Performers</strong> — See hospital and location rankings</div>
@@ -2566,7 +2596,7 @@ export default function App() {
                 <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Keyboard Shortcuts</h2>
                 <p style={{ fontSize: 14, color: C.inkMid, marginBottom: 20 }}>Navigate CareTrack faster with these shortcuts:</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-                  {[["1","Log Session"],["2","Dashboard"],["3","History"],["4","Performers"],["5","Admin (admins only)"],["?","What's New / Changelog"],["Esc","Close any modal"]].map(([key, desc]) => (
+                  {[["1","Log Audit"],["2","Dashboard"],["3","History"],["4","Performers"],["5","Admin (admins only)"],["?","What's New / Changelog"],["Esc","Close any modal"]].map(([key, desc]) => (
                     <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
                       <kbd style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.ink, minWidth: 36, textAlign: "center" }}>{key}</kbd>
                       <span style={{ fontSize: 13, color: C.inkMid }}>{desc}</span>
@@ -2583,7 +2613,7 @@ export default function App() {
               <>
                 <div style={{ fontSize: 36, marginBottom: 16 }}>✅</div>
                 <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>You're all set!</h2>
-                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>Start by logging your first session — tap <strong>Log Session</strong> and fill in your hospital, location, and metric data. Your dashboard will populate as you add more sessions.</p>
+                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>Start by logging your first session — tap <strong>Log Audit</strong> and fill in your hospital, location, and metric data. Your dashboard will populate as you add more sessions.</p>
                 <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 24 }}>You can revisit this guide anytime from the <strong>What's New</strong> button in the top bar.</p>
                 <div style={{ display: "flex", gap: 10 }}>
                   <button onClick={() => setOnboardingStep(1)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
@@ -2604,11 +2634,24 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.5", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.7", date: "March 2026", badge: "LATEST", items: [
+                "Log Audit — form renamed from \"Log Session\" throughout the app",
+                "Kaiser Permanente metrics — opt-in Heel Boots On and Turn Clock compliance metrics for Kaiser hospitals",
+                "Deletion requests — reps can request a session be deleted; admins approve or deny from a new Admin tab panel",
+                "Per Bed card mode — enter compliance data bed-by-bed with room labels, per-metric N/A toggles, and live totals",
+                "Per Bed data saved to database and included in PDF, PowerPoint, and Excel exports as a detailed breakdown",
+                "Kaiser metrics (Heel Boots, Turn Clock) flow through to all exports when present",
+                "Date range filter on dashboard — scope all metrics, charts, and exports to a custom date window",
+              ]},
+              { version: "2.6", date: "March 2026", badge: null, items: [
+                "In-app User Guide — downloadable PDF walkthrough accessible from the header",
+                "Session print layout improvements — fixed blank page on print",
+              ]},
+              { version: "2.5", date: "March 2026", badge: null, items: [
                 "Metric bucket grouping — metrics organized into Patient Met Criteria, Matt Compliance, Wedge Compliance, and Air Supply across dashboard, PDF, PowerPoint, and Excel exports",
                 "Reordered metrics: Turning & Repositioning first, then Matt, Wedge, and Air Supply groups",
                 "Bed-level grid input — enter compliance data per bed/room with auto-summed totals",
-                "Toggle between Simple mode (aggregate entry) and Per Bed mode on the Log Session form",
+                "Toggle between Simple mode (aggregate entry) and Per Bed mode on the Log Audit form",
                 "Number of beds saved per hospital/unit — auto-populates on return visits",
                 "Mayo Clinic extra metric (Air Used to Reposition Patient)",
                 "Fixed session save error for non-Mayo hospitals sending Mayo-only fields",
@@ -2660,7 +2703,7 @@ export default function App() {
               ]},
               { version: "1.5", date: "January 2026", badge: null, items: [
                 "Inline session editing from History tab",
-                "Required field validation on Log Session form",
+                "Required field validation on Log Audit form",
                 "Duplicate session warnings",
                 "Export filenames now include hospital name",
                 "Session notes included in PDF and PPTX exports",

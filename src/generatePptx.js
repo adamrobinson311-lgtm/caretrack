@@ -1,10 +1,10 @@
 import pptxgen from "pptxgenjs";
 
-export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null) {
+export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null, chartData = []) {
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "HoverTech CareTrack";
-  pres.title = "HAPI Prevention Compliance Report";
+  pres.title = "Wound Care Compliance Report";
 
   const BRAND = {
     primary:   "4F6E77",
@@ -34,11 +34,25 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     { id: "air_supply",       label: "Air Supply in Room" },
   ];
 
-  const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-  const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-  const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
-  const hasMayo = entries.some(e => isMayo(e.hospital));
-  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const MAYO_METRICS   = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+  const KAISER_METRICS = [
+    { id: "heel_boots", label: "Heel Boots On" },
+    { id: "turn_clock", label: "Turn Clock" },
+  ];
+  const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+  const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+  const getMetrics = (hospital) => [
+    ...METRICS,
+    ...(isMayo(hospital)   ? MAYO_METRICS   : []),
+    ...(isKaiser(hospital) ? KAISER_METRICS : []),
+  ];
+  const hasMayo   = entries.some(e => isMayo(e.hospital));
+  const hasKaiser = entries.some(e => isKaiser(e.hospital));
+  const summaryMetrics = [
+    ...METRICS,
+    ...(hasMayo   ? MAYO_METRICS   : []),
+    ...(hasKaiser ? KAISER_METRICS : []),
+  ];
 
   const pct = (n, d) => {
     const nv = parseFloat(n), dv = parseFloat(d);
@@ -74,7 +88,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s1.background = { color: brandPrimary };
   s1.addShape(pres.shapes.RECTANGLE, { x: 6.8, y: 0, w: 3.2, h: 5.625, fill: { color: "416069" }, line: { color: "416069" } });
   s1.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: 0, w: 0.4, h: 5.625, fill: { color: BRAND.accent }, line: { color: BRAND.accent } });
-  s1.addText("HAPI Prevention", { x: 0.55, y: 1.3, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.white, bold: true, margin: 0 });
+  s1.addText("Wound Care", { x: 0.55, y: 1.3, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.white, bold: true, margin: 0 });
   s1.addText("Compliance Report", { x: 0.55, y: 2.05, w: 6.0, h: 0.8, fontSize: 44, fontFace: "Georgia", color: BRAND.light, bold: false, italic: true, margin: 0 });
   s1.addShape(pres.shapes.RECTANGLE, { x: 0.55, y: 2.95, w: 2.5, h: 0.04, fill: { color: "7CA8B4" }, line: { color: "7CA8B4" } });
   s1.addText(`Generated ${today}`, { x: 0.55, y: 3.15, w: 6.0, h: 0.3, fontSize: 12, fontFace: "Calibri", color: "A8C8D0", margin: 0 });
@@ -156,6 +170,44 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s3.addText(label, { x: lx + 0.2, y: 5.28, w: 2.2, h: 0.18, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
   });
 
+  // ── SLIDE: COMPLIANCE TRENDS OVER TIME ───────────────────────────────────
+  if (chartData.length > 1) {
+    const sTrend = pres.addSlide();
+    sTrend.background = { color: BRAND.bg };
+    addSectionLabel(sTrend, "COMPLIANCE TRENDS OVER TIME");
+    sTrend.addText("Compliance Trends Over Time", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
+    sTrend.addText(`${chartData.length} audit points`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+
+    const CHART_COLORS = ["4F6E77", "678093", "7C5366", "3a7d5c", "8a6a2a", "5b7fa6", "7C7270"];
+    const labels = chartData.map(d => d.date || "");
+    // Build one series per metric that has at least one non-null value
+    const trendSeries = METRICS
+      .map((m, i) => ({
+        name: m.label,
+        labels,
+        values: chartData.map(d => d[m.label] ?? 0),
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }))
+      .filter(s => s.values.some(v => v > 0));
+
+    if (trendSeries.length > 0) {
+      sTrend.addChart(pres.charts.LINE, trendSeries.map(s => ({ name: s.name, labels: s.labels, values: s.values })), {
+        x: 0.38, y: 1.52, w: 9.3, h: 3.75,
+        lineDataSymbol: "circle", lineDataSymbolSize: 5,
+        chartColors: trendSeries.map(s => s.color),
+        chartArea: { fill: { color: BRAND.white } },
+        plotArea: { fill: { color: BRAND.white } },
+        catAxisLabelColor: BRAND.inkLight, valAxisLabelColor: BRAND.inkLight,
+        catAxisLabelFontSize: 8, valAxisLabelFontSize: 9,
+        catAxisLabelRotate: chartData.length > 8 ? 45 : 0,
+        valAxisMaxVal: 100, valAxisMinVal: 0,
+        valGridLine: { color: "E8E4E0", size: 0.5 }, catGridLine: { style: "none" },
+        showValue: false,
+        showLegend: true, legendPos: "b", legendFontSize: 9, legendColor: BRAND.inkLight,
+      });
+    }
+  }
+
   // ── SLIDE 4: HOSPITAL COMPARISON (if multiple) ────────────────────────────
   if (hospitals.length > 1) {
     const s4 = pres.addSlide();
@@ -189,11 +241,20 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const recentSessions = [...entries].reverse().slice(0, 12);
   const hdrOpts = (text) => ({ text, options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
-  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
-
+  // Build dynamic metric columns based on which hospitals appear
+  const tableMetrics = summaryMetrics;
+  const tableHeader = [
+    hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"),
+    ...tableMetrics.map(m => hdrOpts(m.label.length > 10 ? m.label.slice(0, 9) + "…" : m.label)),
+    hdrOpts("Logged By"),
+  ];
+  const fixedColW = [0.72, 1.05, 0.85];
+  const metricColW = tableMetrics.map(() => (9.3 - fixedColW.reduce((a,b)=>a+b,0) - 0.9) / tableMetrics.length);
   const tableRows = recentSessions.map((e, idx) => {
     const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
-    const metricCell = (id) => {
+    const metricCell = (id, hospital) => {
+      const eMetrics = getMetrics(hospital);
+      if (!eMetrics.find(x => x.id === id)) return { text: "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 9, fontFace: "Calibri", align: "center" } };
       const p = pct(e[`${id}_num`], e[`${id}_den`]);
       return { text: p !== null ? `${p}%` : "—", options: { fill: { color: rowBg }, color: p !== null ? pctColor(p) : BRAND.inkLight, fontSize: 9, fontFace: "Calibri", align: "center", bold: p !== null } };
     };
@@ -201,8 +262,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { text: e.date || "—", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 9, fontFace: "Calibri", align: "center" } },
       { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 9, fontFace: "Calibri", bold: true } },
       { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
-      metricCell("matt_applied"), metricCell("wedges_applied"), metricCell("turning_criteria"),
-      metricCell("matt_proper"), metricCell("wedges_in_room"), metricCell("wedge_offload"), metricCell("air_supply"),
+      ...tableMetrics.map(m => metricCell(m.id, e.hospital)),
       { text: e.logged_by || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
     ];
   });
@@ -210,7 +270,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s5.addTable([tableHeader, ...tableRows], {
     x: 0.38, y: 1.25, w: 9.3, rowH: 0.28,
     border: { pt: 0.5, color: BRAND.light },
-    colW: [0.75, 1.1, 0.9, 0.75, 0.75, 0.75, 0.85, 0.75, 0.75, 0.65, 1.1],
+    colW: [...fixedColW, ...metricColW, 0.9],
   });
   if (entries.length > 12) {
     s5.addText(`Showing most recent 12 of ${entries.length} sessions`, { x: 0.38, y: 5.3, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
@@ -227,6 +287,52 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s6.addText("✦  AI CLINICAL ANALYSIS", { x: 0.75, y: 1.42, w: 8.7, h: 0.28, fontSize: 9, fontFace: "Calibri", color: brandPrimary, bold: true, charSpacing: 2, margin: 0 });
     s6.addText(summary.slice(0, 900), { x: 0.75, y: 1.82, w: 8.7, h: 3.0, fontSize: 11, fontFace: "Calibri", color: BRAND.inkLight, lineSpacingMultiple: 1.4, valign: "top", margin: 0 });
     s6.addText(`Generated by HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, { x: 0.38, y: 5.28, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, align: "right", margin: 0 });
+  }
+
+  // ── SLIDE: PER BED BREAKDOWN ──────────────────────────────────────────────
+  const bedEntries = entries.filter(e => e.bed_data && Array.isArray(e.bed_data) && e.bed_data.length > 0);
+  if (bedEntries.length > 0) {
+    const sBed = pres.addSlide();
+    sBed.background = { color: BRAND.bg };
+    addSectionLabel(sBed, "PER BED DETAIL");
+    sBed.addText("Bed-Level Compliance", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
+    sBed.addText("Sessions recorded using Per Bed mode", { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+    const bedMetricIds = [...new Set(bedEntries.flatMap(e => getMetrics(e.hospital).map(m => m.id)))];
+    const bedMetricLabels = bedMetricIds.map(id => [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].find(x => x.id === id)?.label || id);
+    const bedHdr = [
+      hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Unit"), hdrOpts("Bed"), hdrOpts("Room"),
+      ...bedMetricLabels.map(l => hdrOpts(l.length > 10 ? l.slice(0, 9) + "…" : l)),
+    ];
+    const fixedW = [0.65, 1.3, 0.9, 0.4, 0.55];
+    const metW = bedMetricIds.map(() => (9.3 - fixedW.reduce((a,b)=>a+b,0)) / bedMetricIds.length);
+    const bedTableRows = [];
+    bedEntries.slice(0, 10).forEach(e => {
+      e.bed_data.slice(0, 8).forEach((bed, idx) => {
+        const rowBg = bedTableRows.length % 2 === 0 ? BRAND.white : "F0EDEA";
+        const metricCells = bedMetricIds.map(id => {
+          if (bed.na || bed[`${id}_na`]) return { text: "N/A", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } };
+          const q = parseFloat(bed[`${id}_q`]) || 0;
+          const a = parseFloat(bed[`${id}_a`]) || 0;
+          const p = q > 0 ? Math.round((a / q) * 100) : null;
+          return { text: p !== null ? `${p}%` : "—", options: { fill: { color: rowBg }, color: p !== null ? pctColor(p) : BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center", bold: p !== null } };
+        });
+        bedTableRows.push([
+          { text: e.date || "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } },
+          { text: e.hospital || "", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 8, fontFace: "Calibri", bold: true } },
+          { text: e.location || "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
+          { text: String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } },
+          { text: bed.room || "", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 8, fontFace: "Calibri" } },
+          ...metricCells,
+        ]);
+      });
+    });
+    if (bedTableRows.length > 0) {
+      sBed.addTable([bedHdr, ...bedTableRows], {
+        x: 0.38, y: 1.52, w: 9.3, rowH: 0.24,
+        border: { pt: 0.5, color: BRAND.light },
+        colW: [...fixedW, ...metW],
+      });
+    }
   }
 
   // ── CLOSING SLIDE ─────────────────────────────────────────────────────────

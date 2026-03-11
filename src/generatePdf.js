@@ -26,8 +26,17 @@ const METRICS = [
 ];
 
 const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+const KAISER_METRICS = [
+  { id: "heel_boots", label: "Heel Boots On" },
+  { id: "turn_clock", label: "Turn Clock" },
+];
+const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const getMetrics = (hospital) => [
+  ...METRICS,
+  ...(isMayo(hospital)   ? MAYO_METRICS   : []),
+  ...(isKaiser(hospital) ? KAISER_METRICS : []),
+];
 
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
@@ -72,7 +81,7 @@ const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAN
   doc.text(`Generated ${today} · HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null) {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = []) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
   // Apply branding accent colour if provided
@@ -81,8 +90,13 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     : BRAND.primary;
   const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
-  const hasMayo = entries.some(e => isMayo(e.hospital));
-  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const hasMayo   = entries.some(e => isMayo(e.hospital));
+  const hasKaiser = entries.some(e => isKaiser(e.hospital));
+  const summaryMetrics = [
+    ...METRICS,
+    ...(hasMayo   ? MAYO_METRICS   : []),
+    ...(hasKaiser ? KAISER_METRICS : []),
+  ];
 
   const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
@@ -96,8 +110,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   // Count pages for pagination
+  const hasBedData  = entries.some(e => e.bed_data && Array.isArray(e.bed_data) && e.bed_data.length > 0);
+  const hasTrend    = chartData.length > 1;
   let totalPages = 3; // title + summary + history
+  if (hasTrend) totalPages++;
   if (hospitals.length > 1) totalPages++;
+  if (hasBedData) totalPages++;
   if (summary && summary.length > 10) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
@@ -111,7 +129,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.white);
   doc.setFontSize(36);
   doc.setFont("helvetica", "bold");
-  doc.text("HAPI Prevention", 20, 110);
+  doc.text("Wound Care", 20, 110);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(32);
   doc.setTextColor(222, 218, 217);
@@ -159,137 +177,146 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Render SVG icons to PNG data URLs via canvas — exact match with dashboard MetricIcons.jsx
-  const ICON_SVG = (id, col) => {
-    const c = col;
-    const icons = {
-      matt_applied: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${c}" stroke-width="1.6" fill="none"/><line x1="8" y1="7" x2="8" y2="17" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${c}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${c}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-      wedges_applied: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 19 L7 10 L12 19 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${c}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      turning_criteria: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="10" r="8.5" stroke="${c}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${c}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${c}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${c}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
-      matt_proper: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${c}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${c}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${c}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${c}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      wedges_in_room: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${c}" stroke-width="1.2" stroke-linejoin="round" fill="${c}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
-      wedge_offload: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="3.5" cy="5" r="2.2" stroke="${c}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${c}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${c}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${c}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 M12.4 14 M13.6 16.5 L13.6 14.5" stroke="${c}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${c}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${c}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
-      air_supply: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${c}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="4" r="4" fill="${c}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      air_reposition: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${c}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 12 Q8.5 9.5 11 12 Q13.5 14.5 16 12 Q18.5 9.5 20 12" stroke="${c}" stroke-width="1.5" stroke-linecap="round"/><path d="M9 8 L12 5 L15 8" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="5" x2="12" y2="10" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/></svg>`,
-    };
-    return icons[id] || icons.air_supply;
+  // Draw icons using jsPDF primitives only (no canvas, no SVG import)
+  const drawIcon = (id, cx, cy, sz, rgb) => {
+    const s = sz / 24;
+    const x = (v) => cx - sz / 2 + v * s;
+    const y = (v) => cy - sz / 2 + v * s;
+    const sc = (v) => v * s;
+    doc.setDrawColor(...rgb);
+    doc.setFillColor(...rgb);
+
+    if (id === "matt_applied") {
+      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(2), y(7), sc(20), sc(10), sc(2), sc(2), "S");
+      doc.setLineWidth(sc(0.8));
+      doc.line(x(8), y(7), x(8), y(17));
+      doc.line(x(16), y(7), x(16), y(17));
+      doc.line(x(2), y(12), x(22), y(12));
+      doc.setLineWidth(0); doc.circle(x(18.5), y(6.5), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(16.5), y(6.5), x(18), y(8)); doc.line(x(18), y(8), x(20.5), y(5.2));
+
+    } else if (id === "wedges_applied") {
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(2), y(19), x(7), y(10)); doc.line(x(7), y(10), x(12), y(19)); doc.line(x(2), y(19), x(12), y(19));
+      doc.line(x(12), y(19), x(17), y(10)); doc.line(x(17), y(10), x(22), y(19)); doc.line(x(12), y(19), x(22), y(19));
+      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(17), y(7), x(18.5), y(8.8)); doc.line(x(18.5), y(8.8), x(21), y(5.2));
+
+    } else if (id === "turning_criteria") {
+      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(10), sc(8), "S");
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(10), x(12), y(5.5));
+      doc.line(x(12), y(10), x(15.5), y(12));
+      doc.setLineWidth(0); doc.circle(x(12), y(10), sc(1), "F");
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.4));
+      doc.circle(x(12), y(17), sc(3), "FD");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.5));
+      doc.line(x(8.5), y(20.5), x(15.5), y(20.5));
+
+    } else if (id === "matt_proper") {
+      doc.setLineWidth(sc(1.4)); doc.roundedRect(x(1), y(5), sc(17), sc(14), sc(1.5), sc(1.5), "S");
+      doc.setLineWidth(sc(1.2));
+      doc.line(x(9.5), y(9), x(9.5), y(15));
+      doc.line(x(6.5), y(12), x(12.5), y(12));
+      doc.setLineWidth(sc(1.1));
+      doc.line(x(8.2), y(10.2), x(9.5), y(9)); doc.line(x(9.5), y(9), x(10.8), y(10.2));
+      doc.line(x(8.2), y(13.8), x(9.5), y(15)); doc.line(x(9.5), y(15), x(10.8), y(13.8));
+      doc.line(x(7.8), y(10.7), x(6.5), y(12)); doc.line(x(6.5), y(12), x(7.8), y(13.3));
+      doc.line(x(11.2), y(10.7), x(12.5), y(12)); doc.line(x(12.5), y(12), x(11.2), y(13.3));
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(15), y(4), x(23), y(4)); doc.line(x(23), y(4), x(19), y(13)); doc.line(x(19), y(13), x(15), y(4));
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.3));
+      doc.line(x(17.2), y(7.5), x(18.8), y(9.2)); doc.line(x(18.8), y(9.2), x(21.2), y(5.8));
+
+    } else if (id === "wedges_in_room") {
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(2), x(6), y(8)); doc.line(x(6), y(8), x(6), y(12));
+      doc.line(x(6), y(12), x(12), y(20)); doc.line(x(12), y(20), x(18), y(12));
+      doc.line(x(18), y(12), x(18), y(8)); doc.line(x(18), y(8), x(12), y(2));
+      doc.setLineWidth(0); doc.setFillColor(...rgb);
+      doc.line(x(8.5), y(10), x(12), y(5.5)); doc.line(x(12), y(5.5), x(15.5), y(10)); doc.line(x(15.5), y(10), x(8.5), y(10));
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.2));
+      doc.line(x(8.5), y(10), x(15.5), y(10));
+
+    } else if (id === "wedge_offload") {
+      doc.setLineWidth(sc(1.3)); doc.circle(x(3.5), y(5), sc(2.2), "S");
+      doc.roundedRect(x(7), y(3), sc(14), sc(4), sc(1.5), sc(1.5), "S");
+      doc.line(x(1), y(13), x(1), y(17)); doc.line(x(1), y(17), x(8), y(17));
+      doc.line(x(8), y(17), x(8), y(13)); doc.line(x(8), y(13), x(1), y(13));
+      doc.setLineWidth(sc(0.9));
+      doc.line(x(10), y(14), x(10), y(16.5));
+      doc.line(x(11.5), y(13.5), x(11.5), y(16.5));
+      doc.line(x(13), y(14), x(13), y(16.5));
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(15), y(13), x(15), y(17)); doc.line(x(15), y(17), x(22), y(17));
+      doc.line(x(22), y(17), x(22), y(15)); doc.line(x(22), y(15), x(15), y(13));
+
+    } else if (id === "air_supply") {
+      doc.setLineWidth(sc(1.6));
+      doc.line(x(3), y(20), x(3), y(4));
+      doc.line(x(3), y(4), x(21), y(4));
+      doc.line(x(21), y(4), x(21), y(20));
+      doc.line(x(2), y(20), x(22), y(20));
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(6), y(10), x(8.5), y(7.5)); doc.line(x(8.5), y(7.5), x(11), y(10));
+      doc.line(x(11), y(10), x(13.5), y(12.5)); doc.line(x(13.5), y(12.5), x(16), y(10));
+      doc.line(x(16), y(10), x(18.5), y(7.5)); doc.line(x(18.5), y(7.5), x(20), y(10));
+      doc.line(x(6), y(15), x(8.5), y(12.5)); doc.line(x(8.5), y(12.5), x(11), y(15));
+      doc.line(x(11), y(15), x(13.5), y(17.5)); doc.line(x(13.5), y(17.5), x(16), y(15));
+      doc.line(x(16), y(15), x(18.5), y(12.5)); doc.line(x(18.5), y(12.5), x(20), y(15));
+      doc.setLineWidth(0); doc.setFillColor(...rgb); doc.circle(x(19), y(4), sc(3.5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(17), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21), y(2.2));
+    }
   };
 
-  const svgToPngDataUrl = (svgStr, size = 48) => new Promise((resolve) => {
-    const blob = new Blob([svgStr], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = size; canvas.height = size;
-      canvas.getContext("2d").drawImage(img, 0, 0, size, size);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/png"));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-    img.src = url;
+  // Metric cards — 2 rows of 4 + 3
+  const cardW = 44, cardH = 44, startY = 48, gap = 2;
+  avgMetrics.forEach((m, i) => {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const cx = 14 + col * (cardW + gap);
+    const cy = startY + row * (cardH + gap + 2);
+    const color = pctColor(m.avg);
+
+    doc.setFillColor(...BRAND.white);
+    doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
+    doc.setFillColor(...color);
+    doc.rect(cx, cy, cardW, 2, "F");
+
+    // Icon
+    drawIcon(m.id, cx + cardW / 2, cy + 12, 10, color);
+
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(m.label, cardW - 4);
+    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
+
+    doc.setTextColor(...color);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
+
+    // Progress bar
+    doc.setFillColor(...BRAND.light);
+    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
+    if (m.avg !== null) {
+      doc.setFillColor(...color);
+      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
+    }
+
+    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...color);
+    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
   });
 
-  // Pre-render all icons at each needed colour
-  const iconCache = {};
-  const getIconPng = async (id, rgbArr, size = 48) => {
-    const hex = "#" + rgbArr.map(v => v.toString(16).padStart(2,"0")).join("");
-    const key = `${id}_${hex}`;
-    if (!iconCache[key]) iconCache[key] = await svgToPngDataUrl(ICON_SVG(id, hex), size);
-    return iconCache[key];
-  };
-
-  // Category groups — matches PPTX and dashboard layout
-  const CATEGORIES = [
-    { label: "PATIENT MET CRITERIA", ids: ["turning_criteria"] },
-    { label: "MATT COMPLIANCE",      ids: ["matt_applied", "matt_proper"] },
-    { label: "WEDGE COMPLIANCE",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "AIR SUPPLY",           ids: ["air_supply", "air_reposition"] },
-  ];
-
-  // Build lookup from id → metric data
-  const metricMap = Object.fromEntries(avgMetrics.map(m => [m.id, m]));
-
-  // Pre-render all icons at their display colour
-  const iconPngs = {};
-  await Promise.all(avgMetrics.map(async (m) => {
-    iconPngs[m.id] = await getIconPng(m.id, pctColor(m.avg), 96);
-  }));
-
-  const cardGap = 3;
-  const iconSize = 10;
-  const cardH = 46;
-  let cursorY = 48;
-
-  for (const cat of CATEGORIES) {
-    const catMetrics = cat.ids.map(id => metricMap[id]).filter(Boolean);
-    if (catMetrics.length === 0) continue;
-
-    // Category label
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(6.5);
-    doc.setFont("helvetica", "bold");
-    doc.text(cat.label, 14, cursorY);
-    cursorY += 3;
-
-    // Colour bar
-    doc.setFillColor(...brandHeader);
-    doc.rect(14, cursorY, 182, 1, "F");
-    cursorY += 3;
-
-    // Cards — evenly fill 182mm width
-    const n = catMetrics.length;
-    const cardW = (182 - cardGap * (n - 1)) / n;
-
-    catMetrics.forEach((m, i) => {
-      const cx = 14 + i * (cardW + cardGap);
-      const cy = cursorY;
-      const color = pctColor(m.avg);
-
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
-      doc.setFillColor(...color);
-      doc.rect(cx, cy, cardW, 2, "F");
-
-      // Icon
-      if (iconPngs[m.id]) {
-        doc.addImage(iconPngs[m.id], "PNG", cx + cardW / 2 - iconSize / 2, cy + 3, iconSize, iconSize);
-      }
-
-      // Label
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(m.label, cardW - 6);
-      doc.text(lines, cx + cardW / 2, cy + 17, { align: "center" });
-
-      // Percentage
-      doc.setTextColor(...color);
-      doc.setFontSize(20);
-      doc.setFont("helvetica", "bold");
-      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 28, { align: "center" });
-
-      // Progress bar
-      doc.setFillColor(...BRAND.light);
-      doc.rect(cx + 4, cy + 32, cardW - 8, 2.5, "F");
-      if (m.avg !== null) {
-        doc.setFillColor(...color);
-        doc.rect(cx + 4, cy + 32, Math.max(1, ((cardW - 8) * m.avg) / 100), 2.5, "F");
-      }
-
-      // Status
-      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...color);
-      doc.text(status, cx + cardW / 2, cy + 40, { align: "center" });
-    });
-
-    cursorY += cardH + 6;
-  }
-
-  // Legend — dynamically placed below all cards
-  const legendY = cursorY + 2;
+  // Legend
+  const legendY = 210;
   [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
@@ -299,9 +326,91 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.text(label, 22 + i * 64, legendY + 3.5);
   });
 
+  // ── PAGE 3: TRENDS OVER TIME ──────────────────────────────────────────────
+  if (hasTrend) {
+    doc.addPage();
+    addHeader(doc, 3, totalPages, preparedBy, brandHeader);
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7); doc.setFont("helvetica", "bold");
+    doc.text("COMPLIANCE TRENDS OVER TIME", 14, 24);
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(20); doc.setFont("helvetica", "normal");
+    doc.text("Compliance Trends Over Time", 14, 35);
+    doc.setFontSize(9); doc.setTextColor(...BRAND.inkLight);
+    doc.text(`${chartData.length} audit${chartData.length !== 1 ? "s" : ""} · all active metrics`, 14, 42);
+
+    // Chart drawing area
+    const CX = 18, CY = 52, CW = 176, CH = 130;
+    const CHART_COLORS_PDF = ["#4F6E77","#678093","#7C5366","#3a7d5c","#8a6a2a","#5b7fa6","#7C7270"];
+
+    // White chart background
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(CX - 2, CY - 2, CW + 4, CH + 4, 2, 2, "F");
+
+    // Y-axis grid lines + labels at 0, 25, 50, 75, 100
+    [0, 25, 50, 75, 100].forEach(v => {
+      const y = CY + CH - (v / 100) * CH;
+      doc.setDrawColor(232, 228, 224); doc.setLineWidth(0.3);
+      doc.setLineDash([2, 2], 0);
+      doc.line(CX, y, CX + CW, y);
+      doc.setLineDash([], 0);
+      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
+      doc.text(`${v}%`, CX - 3, y + 2, { align: "right" });
+    });
+
+    // X-axis date labels (max 8 evenly spaced)
+    const labelStep = Math.max(1, Math.ceil(chartData.length / 8));
+    chartData.forEach((d, i) => {
+      if (i % labelStep !== 0 && i !== chartData.length - 1) return;
+      const x = CX + (i / (chartData.length - 1)) * CW;
+      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(6.5);
+      doc.text(d.date || "", x, CY + CH + 6, { align: "center" });
+    });
+
+    // Draw one line per metric
+    const metricsToDraw = METRICS.filter(m => chartData.some(d => d[m.label] !== null && d[m.label] !== undefined));
+    metricsToDraw.forEach((m, mi) => {
+      const hex = CHART_COLORS_PDF[mi % CHART_COLORS_PDF.length];
+      const rgb = hex.replace("#","").match(/.{2}/g).map(v => parseInt(v, 16));
+      doc.setDrawColor(...rgb); doc.setLineWidth(1.2); doc.setLineDash([], 0);
+
+      let prevX = null, prevY = null;
+      chartData.forEach((d, i) => {
+        const val = d[m.label];
+        if (val === null || val === undefined) { prevX = null; prevY = null; return; }
+        const x = CX + (chartData.length > 1 ? (i / (chartData.length - 1)) * CW : CW / 2);
+        const y = CY + CH - (val / 100) * CH;
+        if (prevX !== null) doc.line(prevX, prevY, x, y);
+        doc.setFillColor(...rgb);
+        doc.circle(x, y, 1.2, "F");
+        prevX = x; prevY = y;
+      });
+    });
+
+    // Legend
+    const legendY = CY + CH + 14;
+    const legendCols = Math.min(metricsToDraw.length, 4);
+    const legendSpacing = CW / legendCols;
+    metricsToDraw.forEach((m, mi) => {
+      const hex = CHART_COLORS_PDF[mi % CHART_COLORS_PDF.length];
+      const rgb = hex.replace("#","").match(/.{2}/g).map(v => parseInt(v, 16));
+      const col = mi % legendCols;
+      const row = Math.floor(mi / legendCols);
+      const lx = CX + col * legendSpacing;
+      const ly = legendY + row * 8;
+      doc.setFillColor(...rgb);
+      doc.circle(lx + 2, ly - 1, 2, "F");
+      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
+      doc.text(m.label, lx + 6, ly + 1);
+    });
+  }
+
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, 3, totalPages, preparedBy, brandHeader);
+  addHeader(doc, hasTrend ? 4 : 3, totalPages, preparedBy, brandHeader);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -315,70 +424,25 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFontSize(20);
   doc.text("Session Log", 14, 35);
 
-  // Session table — two-row header: category row + sub-metric label row
-  const TABLE_CATS = [
-    { label: "Patient Met Criteria",  ids: ["turning_criteria"],                        subLabels: ["Turning & Repos."] },
-    { label: "Matt Compliance",       ids: ["matt_applied", "matt_proper"],              subLabels: ["Applied", "Applied Properly"] },
-    { label: "Wedge Compliance",      ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], subLabels: ["In Room", "Applied", "Offloading"] },
-    { label: "Air Supply",            ids: ["air_supply"],                               subLabels: ["Air Supply"] },
-  ];
-
-  const fmtCat = (e, ids) => {
-    const vals = ids.map(id => { const p = pct(e[`${id}_num`], e[`${id}_den`]); return p !== null ? `${p}%` : "—"; });
-    return vals.join(" / ");
-  };
-
   const recentSessions = [...entries].reverse().slice(0, 20);
   const tableRows = recentSessions.map(e => [
     e.created_at ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : e.date,
     e.hospital || "—",
     e.location || "—",
-    ...TABLE_CATS.map(cat => fmtCat(e, cat.ids)),
+    getMetrics(e.hospital).slice(0, 4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
+    getMetrics(e.hospital).slice(4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
     e.logged_by || "—",
     e.notes || "",
   ]);
 
-  // Row 1: category headers (merged visually via content)
-  // Row 2: sub-metric labels in smaller italic text
-  const headRow1 = ["Timestamp", "Hospital", "Location", ...TABLE_CATS.map(c => c.label), "Logged By", "Notes"];
-  const headRow2 = ["", "", "", ...TABLE_CATS.map(c => c.subLabels.join(" / ")), "", ""];
-
   autoTable(doc, {
     startY: 40,
-    head: [headRow1, headRow2],
+    head: [["Timestamp", "Hospital", "Location", "Matt/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
     body: tableRows,
-    styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
-    didParseCell: (data) => {
-      // Second header row — lighter background, italic, smaller
-      if (data.section === "head" && data.row.index === 1) {
-        data.cell.styles.fillColor = brandHeader.map(v => Math.min(255, v + 30));
-        data.cell.styles.fontStyle = "italic";
-        data.cell.styles.fontSize = 6;
-        data.cell.styles.textColor = [220, 230, 232];
-      }
-    },
+    styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
+    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
-    columnStyles: {
-      0: { cellWidth: 20 },  // Timestamp
-      1: { cellWidth: 24 },  // Hospital
-      2: { cellWidth: 15 },  // Location
-      3: { cellWidth: 20 },  // Patient Met Criteria
-      4: { cellWidth: 22 },  // Matt Compliance
-      5: { cellWidth: 28 },  // Wedge Compliance
-      6: { cellWidth: 16 },  // Air Supply
-      7: { cellWidth: 20 },  // Logged By
-      8: { cellWidth: "auto" },  // Notes — fills remaining space, no clipping
-    },
-    didParseCell: (data) => {
-      // Second header row — lighter background, italic, smaller
-      if (data.section === "head" && data.row.index === 1) {
-        data.cell.styles.fillColor = brandHeader.map(v => Math.min(255, v + 30));
-        data.cell.styles.fontStyle = "italic";
-        data.cell.styles.fontSize = 6;
-        data.cell.styles.textColor = [220, 230, 232];
-      }
-    },
+    columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 38 }, 4: { cellWidth: 24 }, 5: { cellWidth: 24 }, 6: { cellWidth: 22 } },
     margin: { left: 14, right: 14 },
     theme: "plain",
   });
@@ -465,6 +529,54 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       styles: { fontSize: 8, cellPadding: 2.5 },
       headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [240, 237, 234] },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+    });
+  }
+
+  // ── PAGE: PER BED BREAKDOWN ───────────────────────────────────────────────
+  if (hasBedData) {
+    doc.addPage();
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
+    pageNum++;
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7); doc.setFont("helvetica", "bold");
+    doc.text("PER BED DETAIL", 14, 24);
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(20);
+    doc.text("Bed-Level Compliance", 14, 35);
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.setTextColor(...BRAND.inkLight);
+    doc.text("Sessions recorded using Per Bed mode — individual bed data", 14, 42);
+
+    const bedEntries = entries.filter(e => e.bed_data && Array.isArray(e.bed_data) && e.bed_data.length > 0);
+    const allBedRows = [];
+    bedEntries.forEach(e => {
+      const eMetrics = getMetrics(e.hospital);
+      e.bed_data.forEach((bed, idx) => {
+        const metricPcts = eMetrics.map(m => {
+          if (bed.na || bed[`${m.id}_na`]) return "N/A";
+          const q = parseFloat(bed[`${m.id}_q`]) || 0;
+          const a = parseFloat(bed[`${m.id}_a`]) || 0;
+          const p = q > 0 ? Math.round((a / q) * 100) : null;
+          return p !== null ? `${p}%` : "—";
+        });
+        allBedRows.push([e.date || "", e.hospital || "", e.location || "", String(idx + 1), bed.room || "", ...metricPcts]);
+      });
+    });
+
+    const bedMetricIds = [...new Set(bedEntries.flatMap(e => getMetrics(e.hospital).map(m => m.id)))];
+    const bedMetricLabels = bedMetricIds.map(id => [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].find(x => x.id === id)?.label || id);
+    autoTable(doc, {
+      startY: 46,
+      head: [["Date", "Hospital", "Location", "Bed", "Room", ...bedMetricLabels]],
+      body: allBedRows,
+      styles: { fontSize: 7, cellPadding: 1.8, font: "helvetica" },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 28 }, 2: { cellWidth: 20 }, 3: { cellWidth: 8 }, 4: { cellWidth: 12 } },
       margin: { left: 14, right: 14 },
       theme: "plain",
     });

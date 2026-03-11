@@ -1,11 +1,11 @@
 import * as XLSX from "xlsx";
 
 const METRICS = [
-  { id: "turning_criteria", label: "Turning & Repositioning" },
   { id: "matt_applied", label: "Matt Applied" },
+  { id: "wedges_applied", label: "Wedges Applied" },
+  { id: "turning_criteria", label: "Turning & Repositioning" },
   { id: "matt_proper", label: "Matt Applied Properly" },
   { id: "wedges_in_room", label: "Wedges in Room" },
-  { id: "wedges_applied", label: "Wedges Applied" },
   { id: "wedge_offload", label: "Proper Wedge Offloading" },
   { id: "air_supply", label: "Air Supply in Room" },
 ];
@@ -14,16 +14,17 @@ const MAYO_METRICS = [
   { id: "air_reposition", label: "Air Used to Reposition Patient" },
 ];
 
-const METRIC_BUCKETS = [
-  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
-  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
-  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-  { label: "Air Supply", ids: ["air_supply"] },
+const KAISER_METRICS = [
+  { id: "heel_boots", label: "Heel Boots On" },
+  { id: "turn_clock", label: "Turn Clock" },
 ];
-const MAYO_BUCKET = { label: "Air Supply", ids: ["air_supply", "air_reposition"] };
-
-const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const getMetrics = (hospital) => [
+  ...METRICS,
+  ...(isMayo(hospital)   ? MAYO_METRICS   : []),
+  ...(isKaiser(hospital) ? KAISER_METRICS : []),
+];
 
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
@@ -42,8 +43,13 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   };
 
   // Determine if any entries are from Mayo hospitals — include Mayo metric in summary if so
-  const hasMayo = entries.some(e => isMayo(e.hospital));
-  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const hasMayo   = entries.some(e => isMayo(e.hospital));
+  const hasKaiser = entries.some(e => isKaiser(e.hospital));
+  const summaryMetrics = [
+    ...METRICS,
+    ...(hasMayo   ? MAYO_METRICS   : []),
+    ...(hasKaiser ? KAISER_METRICS : []),
+  ];
 
   // ── SHEET 1: SUMMARY ──────────────────────────────────────────────────────
   const summaryData = [];
@@ -61,20 +67,17 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   summaryData.push(["OVERALL AVERAGE COMPLIANCE", overallAvg !== null ? `${overallAvg}%` : "—"]);
   summaryData.push([]);
 
-  // Per-metric summary grouped by bucket
-  const buckets = hasMayo ? METRIC_BUCKETS.map(b => b.label === "Air Supply" ? MAYO_BUCKET : b) : METRIC_BUCKETS;
-  buckets.forEach(bucket => {
-    summaryData.push([bucket.label.toUpperCase()]);
-    summaryData.push(["METRIC", "AVERAGE", "SESSIONS WITH DATA", "NUMERATOR TOTAL", "DENOMINATOR TOTAL"]);
-    summaryMetrics.filter(m => bucket.ids.includes(m.id)).forEach(m => {
-      const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-      const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-      const numTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_num`]) || 0), 0);
-      const denTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_den`]) || 0), 0);
-      summaryData.push([m.label, avg !== null ? `${avg}%` : "—", vals.length, numTotal, denTotal]);
-    });
-    summaryData.push([]);
+  // Per-metric summary
+  summaryData.push(["METRIC", "AVERAGE", "SESSIONS WITH DATA", "NUMERATOR TOTAL", "DENOMINATOR TOTAL"]);
+  summaryMetrics.forEach(m => {
+    const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    const numTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_num`]) || 0), 0);
+    const denTotal = entries.reduce((s, e) => s + (parseFloat(e[`${m.id}_den`]) || 0), 0);
+    summaryData.push([m.label, avg !== null ? `${avg}%` : "—", vals.length, numTotal, denTotal]);
   });
+
+  summaryData.push([]);
 
   // Per-hospital breakdown
   const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
@@ -144,6 +147,36 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   sessionsSheet["!freeze"] = { xSplit: "0", ySplit: "1", topLeftCell: "A2", activePane: "bottomLeft" };
 
   XLSX.utils.book_append_sheet(wb, sessionsSheet, "Raw Sessions");
+
+  // ── SHEET 3: PER BED DETAIL (if any sessions have bed_data) ─────────────
+  const bedEntries = entries.filter(e => e.bed_data && Array.isArray(e.bed_data) && e.bed_data.length > 0);
+  if (bedEntries.length > 0) {
+    const allSessionMetrics = [...new Set(bedEntries.flatMap(e => getMetrics(e.hospital).map(m => m.id)))];
+    const metaLabels = allSessionMetrics.flatMap(id => {
+      const m = [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].find(x => x.id === id);
+      const label = m ? m.label : id;
+      return [`${label} (Qual)`, `${label} (Adh)`, `${label} (%)`];
+    });
+    const bedHeaders = ["Date", "Hospital", "Location", "Bed #", "Room", "Bed N/A", ...metaLabels];
+    const bedRows = [];
+    bedEntries.forEach(e => {
+      e.bed_data.forEach((bed, idx) => {
+        const metricCols = allSessionMetrics.flatMap(id => {
+          if (bed.na) return ["N/A", "N/A", "N/A"];
+          const q = parseFloat(bed[`${id}_q`]) || 0;
+          const a = parseFloat(bed[`${id}_a`]) || 0;
+          if (bed[`${id}_na`]) return ["N/A", "N/A", "N/A"];
+          const p = q > 0 ? Math.round((a / q) * 100) : null;
+          return [q || "", a || "", p !== null ? `${p}%` : "—"];
+        });
+        bedRows.push([e.date || "", e.hospital || "", e.location || "", idx + 1, bed.room || "", bed.na ? "Yes" : "No", ...metricCols]);
+      });
+    });
+    const bedSheet = XLSX.utils.aoa_to_sheet([bedHeaders, ...bedRows]);
+    bedSheet["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 7 }, { wch: 10 }, { wch: 8 }, ...metaLabels.map(() => ({ wch: 10 }))];
+    bedSheet["!freeze"] = { xSplit: "0", ySplit: "1", topLeftCell: "A2", activePane: "bottomLeft" };
+    XLSX.utils.book_append_sheet(wb, bedSheet, "Per Bed Detail");
+  }
 
   // ── DOWNLOAD ──────────────────────────────────────────────────────────────
   const dateStr = new Date().toISOString().slice(0, 10);
