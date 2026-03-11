@@ -747,6 +747,8 @@ export default function App() {
   const userName = viewAsUser
     ? (viewAsUser.full_name || viewAsUser.email)
     : (user?.user_metadata?.full_name || user?.email || "");
+  // Always the real logged-in user — used for session saves and audits
+  const realUserName = user?.user_metadata?.full_name || user?.email || "";
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
 
   // Session streak — count consecutive weeks with at least one session logged by this user
@@ -835,8 +837,6 @@ export default function App() {
     if (!isOnline || !user || offlineQueue.length === 0) return;
     (async () => {
       setSyncing(true);
-      // userName defined above (proxy-aware)
-  const realUserName = user?.user_metadata?.full_name || user?.email || "";
       const failed = [];
       let successCount = 0;
       for (const session of offlineQueue) {
