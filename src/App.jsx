@@ -1340,7 +1340,7 @@ export default function App() {
       return dateFrom === d.toISOString().slice(0, 10);
     };
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} className="date-filter">
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>DATE</span>
         <div style={{ display: "flex", gap: 4 }}>
           {presets.map(p => (
@@ -1393,23 +1393,58 @@ export default function App() {
         }
         /* Mobile optimisation */
         @media (max-width: 640px) {
+          /* Layout */
           .mobile-pad { padding: 16px !important; }
           .mobile-full { max-width: 100% !important; padding: 0 !important; }
-          .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
-          .history-metric-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
-          .nav-tabs { padding: 0 8px !important; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-          .nav-tabs button { padding: 10px 14px !important; font-size: 10px !important; }
-          input, textarea, select { font-size: 16px !important; min-height: 44px; }
+
+          /* Header */
+          .header-outer { padding: 0 16px !important; }
+          .header-meta { display: none !important; }
+          .header-session-count { display: none !important; }
+          .header-status { display: none !important; }
+          .header-divider { display: none !important; }
+          .header-user-name { display: none !important; }
+          .header-right { gap: 8px !important; }
+
+          /* Nav tabs */
+          .nav-tabs { padding: 0 4px !important; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+          .nav-tabs button { padding: 10px 12px !important; font-size: 10px !important; }
+
+          /* Inputs */
+          input, textarea, select { font-size: 16px !important; }
           .savebtn { width: 100% !important; padding: 16px !important; font-size: 13px !important; }
-          .dashboard-header { flex-direction: column !important; align-items: flex-start !important; }
+
+          /* Dashboard */
+          .dashboard-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
           .dashboard-filters { align-items: flex-start !important; width: 100% !important; }
-          .filter-bar { flex-wrap: wrap !important; }
+          .dashboard-title { font-size: 20px !important; }
+          .metric-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
           .export-row { flex-direction: column !important; gap: 8px !important; }
-          .export-row button { width: 100% !important; }
+          .export-row button { width: 100% !important; justify-content: center !important; }
           .mom-grid { grid-template-columns: 1fr !important; }
-          .dashboard-title { font-size: 22px !important; }
           .chart-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .mom-metric-row { font-size: 11px !important; }
+          .mom-delta { min-width: 36px !important; }
+
+          /* Filter bar */
+          .filter-bar { flex-wrap: wrap !important; }
+          .date-filter { flex-wrap: wrap !important; gap: 6px !important; }
+          .date-filter input[type=date] { flex: 1 !important; min-width: 120px !important; }
+
+          /* History */
+          .history-card-top { flex-direction: column !important; gap: 12px !important; }
+          .history-actions { flex-wrap: wrap !important; gap: 6px !important; justify-content: flex-start !important; }
+          .history-actions button, .history-actions span { flex: 1 1 auto !important; text-align: center !important; justify-content: center !important; min-width: 80px !important; }
+          .history-metric-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+          .history-notes { max-width: 100% !important; text-align: left !important; }
+
+          /* Admin */
           .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+          .admin-sub-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+          .admin-sub-nav button { white-space: nowrap !important; flex-shrink: 0 !important; }
+          .admin-user-card { flex-direction: column !important; }
+          .admin-user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
+          .admin-user-actions button { flex: 1 !important; }
           .user-card-row { flex-wrap: wrap !important; }
           .user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
           .user-actions button { flex: 1; }
@@ -1427,7 +1462,7 @@ export default function App() {
 
       {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 32px" }}>
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 32px" }} className="header-outer">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
               <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 36, objectFit: "contain" }} />
@@ -1437,8 +1472,8 @@ export default function App() {
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkFaint, letterSpacing: "0.1em" }}>WOUND CARE COMPLIANCE</div>
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {!isOnline
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }} className="header-right">
+              <span className="header-status">{!isOnline
                 ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber }}>● OFFLINE{offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}</span>
                 : syncing
                   ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>● SYNCING...</span>
@@ -1447,14 +1482,14 @@ export default function App() {
                     : dbError
                       ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>● DB ERROR</span>
                       : null
-              }
+              }</span>
               {syncResult && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
               <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
                 style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
                 WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
               </button>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }} className="header-meta">
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }} className="header-session-count">{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
                 {streak > 0 && (
                   <div title={`${streak} consecutive week${streak !== 1 ? "s" : ""} with sessions logged`}
                     style={{ display: "flex", alignItems: "center", gap: 4, background: streak >= 4 ? C.amberLight : C.surfaceAlt, border: `1px solid ${streak >= 4 ? C.amber : C.border}`, borderRadius: 12, padding: "2px 8px" }}>
@@ -1463,12 +1498,12 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div style={{ width: 1, height: 20, background: C.border }} />
+              <div style={{ width: 1, height: 20, background: C.border }} className="header-divider" />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
                   {userName.charAt(0).toUpperCase()}
                 </div>
-                <div>
+                <div className="header-user-name">
                   <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
                   {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
                 </div>
@@ -1954,7 +1989,7 @@ export default function App() {
                   const inpStyle = { background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, width: "100%", outline: "none" };
                   return (
                     <div key={e.id} style={{ background: C.surface, border: `1px solid ${isEditing ? C.primary : C.border}`, borderRadius: 12, padding: "18px 20px", transition: "border-color 0.2s" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }} className="history-card-top">
                         <div style={{ flex: 1, marginRight: 16 }}>
                           {isEditing ? (
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -2008,8 +2043,8 @@ export default function App() {
                           )}
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }}>{e.notes}</div>}
-                          <div style={{ display: "flex", gap: 6 }}>
+                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }} className="history-notes">{e.notes}</div>}
+                          <div style={{ display: "flex", gap: 6 }} className="history-actions">
                             {isEditing ? (
                               <>
                                 <button onClick={saveEdit} disabled={editSaving}
@@ -2045,7 +2080,7 @@ export default function App() {
                         </div>
                       </div>
                       {isEditing ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid">
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid history-metric-grid-edit">
                           {getMetrics(e.hospital).map(m => (
                             <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
                               <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
