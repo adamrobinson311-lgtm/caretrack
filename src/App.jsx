@@ -747,7 +747,6 @@ export default function App() {
   const userName = viewAsUser
     ? (viewAsUser.full_name || viewAsUser.email)
     : (user?.user_metadata?.full_name || user?.email || "");
-  const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
 
   // Session streak — count consecutive weeks with at least one session logged by this user
@@ -1072,6 +1071,7 @@ export default function App() {
   const proxyEntries = viewAsUser
     ? allEntriesFull.filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
     : entries;
+  const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
   const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter);
 
