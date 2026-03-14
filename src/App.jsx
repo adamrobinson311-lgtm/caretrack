@@ -945,14 +945,17 @@ export default function App() {
   }, [form.hospital, form.location, inputMode]);
 
   // Auto-sum bed grid values into the form's metric fields
+  // Exclude whole-bed N/A (b.na) and per-metric N/A (b[m.id_na]) from both num and den
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0) return;
     const activeMetrics = getMetrics(form.hospital);
+    const activeBeds = bedGrid.filter(b => !b.na);
     const updates = {};
     activeMetrics.forEach(m => {
-      const totalQ = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
-      const totalA = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
-      const hasAny = bedGrid.some(b => b[`${m.id}_q`] !== "" || b[`${m.id}_a`] !== "");
+      const eligible = activeBeds.filter(b => !b[`${m.id}_na`]);
+      const totalQ = eligible.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
+      const totalA = eligible.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+      const hasAny = eligible.length > 0;
       updates[`${m.id}_den`] = hasAny ? String(totalQ) : "";
       updates[`${m.id}_num`] = hasAny ? String(totalA) : "";
     });
@@ -2690,7 +2693,10 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.7", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.7.1", date: "March 2026", badge: "LATEST", items: [
+                "Bug fix — Per Bed N/A beds now correctly excluded from denominator; previously an N/A bed was still counted in the total, inflating compliance rates",
+              ]},
+              { version: "2.7", date: "March 2026", badge: null, items: [
                 "Log Audit — form renamed from \"Log Session\" throughout the app",
                 "Kaiser Permanente metrics — opt-in Heel Boots On and Turn Clock compliance metrics for Kaiser hospitals",
                 "Deletion requests — reps can request a session be deleted; admins approve or deny from a new Admin tab panel",
