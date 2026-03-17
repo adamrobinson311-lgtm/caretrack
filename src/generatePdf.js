@@ -635,7 +635,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       const bucketOffset = 3;
       const bucketIdx = data.column.index - bucketOffset;
       if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
-      const isAlt = data.row.index % 2 !== 0;
+      const isAlt = (data.row.dataIndex ?? data.row.index) % 2 !== 0;
       data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
       // Clear text so autoTable doesn't draw it — we draw coloured version in didDrawCell
       data.cell.text = [];
@@ -646,7 +646,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       const bucketIdx = data.column.index - bucketOffset;
       if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
 
-      const rowData = cellData[data.row.index]?.[bucketIdx];
+      const rowData = cellData[data.row.dataIndex ?? data.row.index]?.[bucketIdx];
       if (!rowData) return;
 
       const bucket = HISTORY_BUCKETS[bucketIdx];
@@ -759,11 +759,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       margin: { left: 14, right: 14 },
       theme: "plain",
       willDrawCell: (data) => {
-        // Colour-code metric value cells (columns 5–11)
         if (data.section !== "body" || data.column.index < 5) return;
         const mIdx = data.column.index - 5;
-        const pVal = bedColorData[data.row.index]?.[mIdx];
-        data.cell.styles.fillColor = data.row.index % 2 !== 0 ? [240, 237, 234] : BRAND.white;
+        const absIdx = data.row.dataIndex ?? data.row.index;
+        const pVal = bedColorData[absIdx]?.[mIdx];
+        data.cell.styles.fillColor = absIdx % 2 !== 0 ? [240, 237, 234] : BRAND.white;
         if (pVal !== null) {
           data.cell.styles.textColor = pctColor(pVal);
           data.cell.styles.fontStyle = "bold";
