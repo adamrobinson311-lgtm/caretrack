@@ -628,14 +628,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
-    // Set correct fill for bucket cells before autoTable draws them
+    // Before autoTable draws bucket cells: fix fill color and suppress plain text
     willDrawCell: (data) => {
       const bucketOffset = 3;
       const bucketIdx = data.column.index - bucketOffset;
       if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
-      // Match alternateRowStyles: autoTable applies alternate to odd rows (1,3,5...)
       const isAlt = data.row.index % 2 !== 0;
       data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
+      // Clear text so autoTable doesn't draw it — we draw coloured version in didDrawCell
+      data.cell.text = [];
     },
     // Draw colour-coded metric text in bucket cells
     didDrawCell: (data) => {
