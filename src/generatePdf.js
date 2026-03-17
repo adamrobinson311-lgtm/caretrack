@@ -615,48 +615,47 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     startY: 40,
     head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By"]],
     body: tableRows,
-    styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top", textColor: BRAND.ink },
+    styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top", textColor: BRAND.ink, fillColor: BRAND.white },
     headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
+    alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
       0: { cellWidth: 18 },
       1: { cellWidth: 24 },
       2: { cellWidth: 18 },
-      3: { cellWidth: 26 }, // Matt (2 lines)
-      4: { cellWidth: 32 }, // Wedge (3 lines)
-      5: { cellWidth: 22 }, // Turning (single %)
-      6: { cellWidth: 22 }, // Air Supply (single %)
-      7: { cellWidth: 20 }, // Logged By
+      3: { cellWidth: 26 },
+      4: { cellWidth: 32 },
+      5: { cellWidth: 22 },
+      6: { cellWidth: 22 },
+      7: { cellWidth: 20 },
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
     willDrawCell: (data) => {
       if (data.section !== "body") return;
-      const absIdx = data.row.dataIndex ?? data.row.index;
-      const isAlt = absIdx % 2 !== 0;
-      data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
-      // For bucket columns: suppress plain text (coloured version drawn in didDrawCell)
-      const bucketOffset = 3;
-      const bucketIdx = data.column.index - bucketOffset;
+      const bucketIdx = data.column.index - 3;
       if (bucketIdx >= 0 && bucketIdx <= 3) {
         data.cell.text = [];
       }
     },
-    // Draw colour-coded metric text in bucket cells
     didDrawCell: (data) => {
-      const bucketOffset = 3;
-      const bucketIdx = data.column.index - bucketOffset;
+      const bucketIdx = data.column.index - 3;
       if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
 
-      const rowData = cellData[data.row.dataIndex ?? data.row.index]?.[bucketIdx];
+      const absIdx = data.row.dataIndex ?? data.row.index;
+      const rowData = cellData[absIdx]?.[bucketIdx];
       if (!rowData) return;
+
+      // Repaint background to match alternating rows (didDrawCell fires after autoTable drew the bg)
+      const isAlt = absIdx % 2 !== 0;
+      doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
+      doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
 
       const bucket = HISTORY_BUCKETS[bucketIdx];
       const { x, y } = data.cell;
       const lineH = 3.6;
       const pad = data.cell.padding("top") || 2;
       rowData.forEach(({ label, p }, i) => {
-        const color = pctColor(p);
-        doc.setTextColor(...color);
+        doc.setTextColor(...pctColor(p));
         doc.setFontSize(6.5);
         doc.setFont("helvetica", p !== null ? "bold" : "normal");
         const text = bucket.single
@@ -664,8 +663,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
           : `${label}: ${p !== null ? `${p}%` : "—"}`;
         doc.text(text, x + (data.cell.padding("left") || 2), y + pad + i * lineH + 2.2);
       });
-
-      // Reset text color
       doc.setTextColor(...BRAND.ink);
       doc.setFont("helvetica", "normal");
     },
@@ -748,8 +745,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       startY: 48,
       head: bedHead,
       body: bedRows,
-      styles: { fontSize: 6, cellPadding: 1.5, font: "helvetica", valign: "middle" },
+      styles: { fontSize: 6, cellPadding: 1.5, font: "helvetica", valign: "middle", fillColor: BRAND.white },
       headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 6 },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
       columnStyles: {
         0: { cellWidth: 18 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
@@ -758,24 +756,28 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       },
       margin: { left: 14, right: 14 },
       theme: "plain",
-      willDrawCell: (data) => {
-        if (data.section !== "body") return;
+      didDrawCell: (data) => {
+        if (data.section !== "body" || data.column.index < 5) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
+        const mIdx = data.column.index - 5;
+        const pVal = bedColorData[absIdx]?.[mIdx];
+        // Repaint background to match alternating rows
         const isAlt = absIdx % 2 !== 0;
-        // Apply alternating shading to ALL columns uniformly
-        data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
-        // Apply colour-coding to metric columns (5–11)
-        if (data.column.index >= 5) {
-          const mIdx = data.column.index - 5;
-          const pVal = bedColorData[absIdx]?.[mIdx];
-          if (pVal !== null) {
-            data.cell.styles.textColor = pctColor(pVal);
-            data.cell.styles.fontStyle = "bold";
-          } else {
-            data.cell.styles.textColor = BRAND.inkLight;
-            data.cell.styles.fontStyle = "normal";
-          }
+        doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
+        doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
+        // Draw colour-coded text
+        if (pVal !== null) {
+          doc.setTextColor(...pctColor(pVal));
+          doc.setFont("helvetica", "bold");
+        } else {
+          doc.setTextColor(...BRAND.inkLight);
+          doc.setFont("helvetica", "normal");
         }
+        doc.setFontSize(6);
+        const textVal = data.cell.raw || "";
+        doc.text(String(textVal), data.cell.x + (data.cell.padding("left") || 1.5), data.cell.y + data.cell.height / 2 + 1.5, { align: "left" });
+        doc.setTextColor(...BRAND.ink);
+        doc.setFont("helvetica", "normal");
       },
     });
   }
