@@ -628,9 +628,18 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
-    // Override bucket cells with colour-coded lines
+    // Set correct fill for bucket cells before autoTable draws them
+    willDrawCell: (data) => {
+      const bucketOffset = 3;
+      const bucketIdx = data.column.index - bucketOffset;
+      if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
+      // Match alternateRowStyles: autoTable applies alternate to odd rows (1,3,5...)
+      const isAlt = data.row.index % 2 !== 0;
+      data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
+    },
+    // Draw colour-coded metric text in bucket cells
     didDrawCell: (data) => {
-      const bucketOffset = 3; // columns 3-6 are bucket columns
+      const bucketOffset = 3;
       const bucketIdx = data.column.index - bucketOffset;
       if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
 
@@ -638,11 +647,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       if (!rowData) return;
 
       const bucket = HISTORY_BUCKETS[bucketIdx];
-      const { x, y, width, height } = data.cell;
-      const isAlt = data.row.index % 2 !== 0;
-      doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
-      doc.rect(x, y, width, height, "F");
-
+      const { x, y } = data.cell;
       const lineH = 3.6;
       const pad = data.cell.padding("top") || 2;
       rowData.forEach(({ label, p }, i) => {
