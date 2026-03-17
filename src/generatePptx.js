@@ -1,6 +1,6 @@
 import pptxgen from "pptxgenjs";
 
-export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null, chartData = []) {
+export async function generatePptx(entries, summary = "", hospitalFilter = "", preparedBy = "", branding = null) {
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "HoverTech CareTrack";
@@ -34,25 +34,11 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     { id: "air_supply",       label: "Air Supply in Room" },
   ];
 
-  const MAYO_METRICS   = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-  const KAISER_METRICS = [
-    { id: "heel_boots", label: "Heel Boots On" },
-    { id: "turn_clock", label: "Turn Clock" },
-  ];
-  const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-  const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
-  const getMetrics = (hospital) => [
-    ...METRICS,
-    ...(isMayo(hospital)   ? MAYO_METRICS   : []),
-    ...(isKaiser(hospital) ? KAISER_METRICS : []),
-  ];
-  const hasMayo   = entries.some(e => isMayo(e.hospital));
-  const hasKaiser = entries.some(e => isKaiser(e.hospital));
-  const summaryMetrics = [
-    ...METRICS,
-    ...(hasMayo   ? MAYO_METRICS   : []),
-    ...(hasKaiser ? KAISER_METRICS : []),
-  ];
+  const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+  const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+  const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const hasMayo = entries.some(e => isMayo(e.hospital));
+  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
 
   const pct = (n, d) => {
     const nv = parseFloat(n), dv = parseFloat(d);
@@ -106,8 +92,6 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s2.addText("Average Compliance by Metric", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
   s2.addText(`Across all ${entries.length} logged sessions`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
 
-  const cardW = 1.26, cardH = 2.8, cardY = 1.62, cardGap = 0.08;
-
   // SVG icon data URIs for each metric — rendered as images on cards
   const ICON_SVGS = {
     matt_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -121,30 +105,86 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const svgToDataUri = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
-  avgMetrics.forEach((m, i) => {
-    const cx = 0.38 + i * (cardW + cardGap);
+  // Build a lookup from metric id → computed avg
+  const metricLookup = {};
+  avgMetrics.forEach(m => { metricLookup[m.id] = m; });
+  summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
+
+  // National averages
+  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
+
+  // Grouped layout groups
+  const GROUPS = [
+    { label: null,               ids: ["turning_criteria"],                                   cols: 1 },
+    { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"],                        cols: 2 },
+    { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"],  cols: 3 },
+    { label: "AIR SUPPLY",       ids: ["air_supply"],                                         cols: 1 },
+  ];
+  if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"], cols: 1 });
+
+  const PL = 0.38, SLIDE_W = 9.3, CARD_H = 0.96, CARD_GAP = 0.1, SECTION_H = 0.22;
+  let curY = 1.55;
+
+  const addCard = (slide, m, cx, cy, cw) => {
     const col = pctColor(m.avg);
     const hexCol = `#${col}`;
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.08 } });
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: 0.12, fill: { color: col }, line: { color: col } });
-    // Icon
+    slide.addShape(pres.shapes.RECTANGLE, { x: cx, y: cy, w: cw, h: CARD_H, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 3, offset: 1, angle: 135, opacity: 0.07 } });
+    slide.addShape(pres.shapes.RECTANGLE, { x: cx, y: cy, w: cw, h: 0.07, fill: { color: col }, line: { color: col } });
+    // Icon top-right
     if (ICON_SVGS[m.id]) {
-      s2.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + (cardW - 0.45) / 2, y: cardY + 0.16, w: 0.45, h: 0.45 });
+      slide.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + cw - 0.46, y: cy + 0.07, w: 0.38, h: 0.38 });
     }
-    s2.addText(m.label, { x: cx + 0.1, y: cardY + 0.68, w: cardW - 0.2, h: 0.56, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
-    s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 1.22, w: cardW - 0.1, h: 0.65, fontSize: 26, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: cardW - 0.3, h: 0.14, fill: { color: BRAND.light }, line: { color: BRAND.light } });
+    // Label top-left
+    slide.addText(m.label, { x: cx + 0.1, y: cy + 0.08, w: cw - 0.62, h: 0.28, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, valign: "top", margin: 0 });
+    // Big % number
+    slide.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.08, y: cy + 0.33, w: cw * 0.55, h: 0.38, fontSize: 22, fontFace: "Georgia", color: col, bold: true, margin: 0 });
+    // Progress bar background
+    slide.addShape(pres.shapes.RECTANGLE, { x: cx + 0.1, y: cy + 0.74, w: cw - 0.2, h: 0.08, fill: { color: BRAND.light }, line: { color: BRAND.light } });
+    // Progress bar fill
     if (m.avg !== null) {
-      const barW = Math.max(0.04, ((cardW - 0.3) * m.avg) / 100);
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: barW, h: 0.14, fill: { color: col }, line: { color: col } });
+      const barW = Math.max(0.04, ((cw - 0.2) * m.avg) / 100);
+      slide.addShape(pres.shapes.RECTANGLE, { x: cx + 0.1, y: cy + 0.74, w: barW, h: 0.08, fill: { color: col }, line: { color: col } });
     }
-    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-    s2.addText(status, { x: cx + 0.05, y: cardY + 2.25, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
+    // National avg tick
+    const natl = NATL[m.id];
+    if (natl !== undefined) {
+      const tickX = cx + 0.1 + ((cw - 0.2) * natl) / 100;
+      slide.addShape(pres.shapes.RECTANGLE, { x: tickX - 0.015, y: cy + 0.70, w: 0.03, h: 0.16, fill: { color: BRAND.inkLight }, line: { color: BRAND.inkLight } });
+      // National avg label + delta
+      const delta = m.avg !== null ? m.avg - natl : null;
+      const deltaCol = delta === null ? BRAND.inkLight : delta >= 0 ? BRAND.green : BRAND.red;
+      const deltaStr = delta === null ? "" : `  ${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`;
+      slide.addText(`National avg: ${natl}%`, { x: cx + 0.1, y: cy + 0.85, w: cw * 0.6, h: 0.1, fontSize: 7, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+      if (delta !== null) {
+        slide.addText(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`, { x: cx + cw - 0.65, y: cy + 0.85, w: 0.55, h: 0.1, fontSize: 7, fontFace: "Calibri", color: deltaCol, bold: true, align: "right", margin: 0 });
+      }
+    }
+  };
+
+  GROUPS.forEach(group => {
+    if (group.label) {
+      s2.addText(group.label, { x: PL, y: curY, w: SLIDE_W, h: SECTION_H, fontSize: 7.5, fontFace: "Calibri", color: BRAND.inkLight, bold: true, charSpacing: 2, margin: 0 });
+      curY += SECTION_H;
+    } else {
+      curY += 0.06;
+    }
+    const n = group.cols;
+    const cardW = (SLIDE_W - CARD_GAP * (n - 1)) / n;
+    group.ids.forEach((id, idx) => {
+      const m = metricLookup[id];
+      if (!m) return;
+      const cx = PL + idx * (cardW + CARD_GAP);
+      addCard(s2, m, cx, curY, cardW);
+    });
+    curY += CARD_H + 0.14;
   });
+
+  // Legend
+  const legY = curY + 0.06;
   [["90%+", BRAND.green, "On Target"], ["70-89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
-    const lx = 0.38 + i * 3.1;
-    s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.1, w: 0.18, h: 0.18, fill: { color }, line: { color } });
-    s2.addText(`${range} — ${label}`, { x: lx + 0.25, y: 5.08, w: 2.6, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+    const lx = PL + i * 3.1;
+    s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: legY, w: 0.14, h: 0.14, fill: { color }, line: { color } });
+    s2.addText(`${range} — ${label}`, { x: lx + 0.2, y: legY - 0.02, w: 2.6, h: 0.18, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
   });
 
   // ── SLIDE 3: TREND CHART ──────────────────────────────────────────────────
@@ -169,44 +209,6 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s3.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.3, w: 0.14, h: 0.14, fill: { color }, line: { color } });
     s3.addText(label, { x: lx + 0.2, y: 5.28, w: 2.2, h: 0.18, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
   });
-
-  // ── SLIDE: COMPLIANCE TRENDS OVER TIME ───────────────────────────────────
-  if (chartData.length > 1) {
-    const sTrend = pres.addSlide();
-    sTrend.background = { color: BRAND.bg };
-    addSectionLabel(sTrend, "COMPLIANCE TRENDS OVER TIME");
-    sTrend.addText("Compliance Trends Over Time", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
-    sTrend.addText(`${chartData.length} audit points`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
-
-    const CHART_COLORS = ["4F6E77", "678093", "7C5366", "3a7d5c", "8a6a2a", "5b7fa6", "7C7270"];
-    const labels = chartData.map(d => d.date || "");
-    // Build one series per metric that has at least one non-null value
-    const trendSeries = METRICS
-      .map((m, i) => ({
-        name: m.label,
-        labels,
-        values: chartData.map(d => d[m.label] ?? 0),
-        color: CHART_COLORS[i % CHART_COLORS.length],
-      }))
-      .filter(s => s.values.some(v => v > 0));
-
-    if (trendSeries.length > 0) {
-      sTrend.addChart(pres.charts.LINE, trendSeries.map(s => ({ name: s.name, labels: s.labels, values: s.values })), {
-        x: 0.38, y: 1.52, w: 9.3, h: 3.75,
-        lineDataSymbol: "circle", lineDataSymbolSize: 5,
-        chartColors: trendSeries.map(s => s.color),
-        chartArea: { fill: { color: BRAND.white } },
-        plotArea: { fill: { color: BRAND.white } },
-        catAxisLabelColor: BRAND.inkLight, valAxisLabelColor: BRAND.inkLight,
-        catAxisLabelFontSize: 8, valAxisLabelFontSize: 9,
-        catAxisLabelRotate: chartData.length > 8 ? 45 : 0,
-        valAxisMaxVal: 100, valAxisMinVal: 0,
-        valGridLine: { color: "E8E4E0", size: 0.5 }, catGridLine: { style: "none" },
-        showValue: false,
-        showLegend: true, legendPos: "b", legendFontSize: 9, legendColor: BRAND.inkLight,
-      });
-    }
-  }
 
   // ── SLIDE 4: HOSPITAL COMPARISON (if multiple) ────────────────────────────
   if (hospitals.length > 1) {
@@ -241,20 +243,11 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const recentSessions = [...entries].reverse().slice(0, 12);
   const hdrOpts = (text) => ({ text, options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
-  // Build dynamic metric columns based on which hospitals appear
-  const tableMetrics = summaryMetrics;
-  const tableHeader = [
-    hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"),
-    ...tableMetrics.map(m => hdrOpts(m.label.length > 10 ? m.label.slice(0, 9) + "…" : m.label)),
-    hdrOpts("Logged By"),
-  ];
-  const fixedColW = [0.72, 1.05, 0.85];
-  const metricColW = tableMetrics.map(() => (9.3 - fixedColW.reduce((a,b)=>a+b,0) - 0.9) / tableMetrics.length);
+  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
+
   const tableRows = recentSessions.map((e, idx) => {
     const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
-    const metricCell = (id, hospital) => {
-      const eMetrics = getMetrics(hospital);
-      if (!eMetrics.find(x => x.id === id)) return { text: "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 9, fontFace: "Calibri", align: "center" } };
+    const metricCell = (id) => {
       const p = pct(e[`${id}_num`], e[`${id}_den`]);
       return { text: p !== null ? `${p}%` : "—", options: { fill: { color: rowBg }, color: p !== null ? pctColor(p) : BRAND.inkLight, fontSize: 9, fontFace: "Calibri", align: "center", bold: p !== null } };
     };
@@ -262,7 +255,8 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { text: e.date || "—", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 9, fontFace: "Calibri", align: "center" } },
       { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 9, fontFace: "Calibri", bold: true } },
       { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
-      ...tableMetrics.map(m => metricCell(m.id, e.hospital)),
+      metricCell("matt_applied"), metricCell("wedges_applied"), metricCell("turning_criteria"),
+      metricCell("matt_proper"), metricCell("wedges_in_room"), metricCell("wedge_offload"), metricCell("air_supply"),
       { text: e.logged_by || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
     ];
   });
@@ -270,7 +264,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s5.addTable([tableHeader, ...tableRows], {
     x: 0.38, y: 1.25, w: 9.3, rowH: 0.28,
     border: { pt: 0.5, color: BRAND.light },
-    colW: [...fixedColW, ...metricColW, 0.9],
+    colW: [0.75, 1.1, 0.9, 0.75, 0.75, 0.75, 0.85, 0.75, 0.75, 0.65, 1.1],
   });
   if (entries.length > 12) {
     s5.addText(`Showing most recent 12 of ${entries.length} sessions`, { x: 0.38, y: 5.3, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
@@ -287,52 +281,6 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s6.addText("✦  AI CLINICAL ANALYSIS", { x: 0.75, y: 1.42, w: 8.7, h: 0.28, fontSize: 9, fontFace: "Calibri", color: brandPrimary, bold: true, charSpacing: 2, margin: 0 });
     s6.addText(summary.slice(0, 900), { x: 0.75, y: 1.82, w: 8.7, h: 3.0, fontSize: 11, fontFace: "Calibri", color: BRAND.inkLight, lineSpacingMultiple: 1.4, valign: "top", margin: 0 });
     s6.addText(`Generated by HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, { x: 0.38, y: 5.28, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, align: "right", margin: 0 });
-  }
-
-  // ── SLIDE: PER BED BREAKDOWN ──────────────────────────────────────────────
-  const bedEntries = entries.filter(e => e.bed_data && Array.isArray(e.bed_data) && e.bed_data.length > 0);
-  if (bedEntries.length > 0) {
-    const sBed = pres.addSlide();
-    sBed.background = { color: BRAND.bg };
-    addSectionLabel(sBed, "PER BED DETAIL");
-    sBed.addText("Bed-Level Compliance", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
-    sBed.addText("Sessions recorded using Per Bed mode", { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
-    const bedMetricIds = [...new Set(bedEntries.flatMap(e => getMetrics(e.hospital).map(m => m.id)))];
-    const bedMetricLabels = bedMetricIds.map(id => [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].find(x => x.id === id)?.label || id);
-    const bedHdr = [
-      hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Unit"), hdrOpts("Bed"), hdrOpts("Room"),
-      ...bedMetricLabels.map(l => hdrOpts(l.length > 10 ? l.slice(0, 9) + "…" : l)),
-    ];
-    const fixedW = [0.65, 1.3, 0.9, 0.4, 0.55];
-    const metW = bedMetricIds.map(() => (9.3 - fixedW.reduce((a,b)=>a+b,0)) / bedMetricIds.length);
-    const bedTableRows = [];
-    bedEntries.slice(0, 10).forEach(e => {
-      e.bed_data.slice(0, 8).forEach((bed, idx) => {
-        const rowBg = bedTableRows.length % 2 === 0 ? BRAND.white : "F0EDEA";
-        const metricCells = bedMetricIds.map(id => {
-          if (bed.na || bed[`${id}_na`]) return { text: "N/A", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } };
-          const q = parseFloat(bed[`${id}_q`]) || 0;
-          const a = parseFloat(bed[`${id}_a`]) || 0;
-          const p = q > 0 ? Math.round((a / q) * 100) : null;
-          return { text: p !== null ? `${p}%` : "—", options: { fill: { color: rowBg }, color: p !== null ? pctColor(p) : BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center", bold: p !== null } };
-        });
-        bedTableRows.push([
-          { text: e.date || "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } },
-          { text: e.hospital || "", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 8, fontFace: "Calibri", bold: true } },
-          { text: e.location || "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
-          { text: String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", align: "center" } },
-          { text: bed.room || "", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 8, fontFace: "Calibri" } },
-          ...metricCells,
-        ]);
-      });
-    });
-    if (bedTableRows.length > 0) {
-      sBed.addTable([bedHdr, ...bedTableRows], {
-        x: 0.38, y: 1.52, w: 9.3, rowH: 0.24,
-        border: { pt: 0.5, color: BRAND.light },
-        colW: [...fixedW, ...metW],
-      });
-    }
   }
 
   // ── CLOSING SLIDE ─────────────────────────────────────────────────────────
