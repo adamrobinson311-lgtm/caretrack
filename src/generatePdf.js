@@ -25,9 +25,19 @@ const METRICS = [
   { id: "air_supply",       label: "Air Supply in Room" },
 ];
 
-const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+const MAYO_METRICS   = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+const KAISER_METRICS = [
+  { id: "heel_boots", label: "Heel Boots" },
+  { id: "turn_clock", label: "Turn Clock" },
+];
+const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const getMetrics = (hospital) => {
+  let m = [...METRICS];
+  if (isMayo(hospital))   m = [...m, ...MAYO_METRICS];
+  if (isKaiser(hospital)) m = [...m, ...KAISER_METRICS];
+  return m;
+};
 
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
@@ -81,7 +91,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     : BRAND.primary;
   const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
-  const hasMayo = entries.some(e => isMayo(e.hospital));
+  const hasMayo   = entries.some(e => isMayo(e.hospital));
+  const hasKaiser = entries.some(e => isKaiser(e.hospital));
   const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
 
   const avgMetrics = summaryMetrics.map(m => {
@@ -319,6 +330,63 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         doc.line(x(16.8), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21.5), y(2.2));
       }
       doc.setDrawColor(...rgb); doc.setFillColor(...rgb);
+
+    } else if (id === "heel_boots") {
+      // Side-profile boot: shaft + ankle curve + foot + toe + sole
+      // "M3 2 L3 18 Q3 20.5 1.5 22 L1.5 23 L22 23 Q24 23 24 21 Q24 19 22 19 L18 19 L18 2 Z"
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(3),  y(2),  x(3),  y(18));   // left shaft side down
+      doc.line(x(3),  y(18), x(1.5), y(22));  // ankle curve (approx)
+      doc.line(x(1.5),y(22), x(1.5), y(23));  // down to sole
+      doc.line(x(1.5),y(23), x(22), y(23));   // toe sole (drawn as thick line below)
+      doc.line(x(22), y(23), x(22), y(19));   // toe right side up
+      doc.line(x(22), y(19), x(18), y(19));   // top of toe box
+      doc.line(x(18), y(19), x(18), y(2));    // right shaft side down
+      doc.line(x(18), y(2),  x(3),  y(2));    // shaft top
+      // Sole underline
+      doc.setLineWidth(sc(1.7));
+      doc.line(x(1.5), y(23), x(22), y(23));
+      // Cuff line
+      doc.setLineWidth(sc(1.0));
+      doc.setDrawColor(...BRAND.inkLight);
+      doc.line(x(3), y(5), x(18), y(5));
+      doc.setDrawColor(...rgb);
+      // Ankle strap: "M3 15 Q10 13 18 15"
+      doc.setLineWidth(sc(1.1));
+      doc.line(x(3), y(15), x(10), y(13)); doc.line(x(10), y(13), x(18), y(15));
+      // Badge
+      doc.setLineWidth(0); doc.circle(x(19), y(2), sc(4), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(16.8), y(2), x(18.6), y(3.8)); doc.line(x(18.6), y(3.8), x(21.6), y(1));
+      doc.setDrawColor(...rgb); doc.setFillColor(...rgb);
+
+    } else if (id === "turn_clock") {
+      // Clock circle
+      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(12), sc(7.5), "S");
+      // Hands
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(12), x(12), y(7.5));
+      doc.line(x(12), y(12), x(15.5), y(14));
+      // Center dot
+      doc.setLineWidth(0); doc.circle(x(12), y(12), sc(1), "F");
+      // CCW arc top-left: approximate "M5.5 8 A8.5 8.5 0 0 1 12 3.5" as segments
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(5.5), y(8),   x(7),   y(5.5));
+      doc.line(x(7),   y(5.5), x(9),   y(4));
+      doc.line(x(9),   y(4),   x(12),  y(3.5));
+      // CCW arrowhead: "points 5.5,8 3.5,5.5 7,5"
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(5.5), y(8),   x(3.5), y(5.5));
+      doc.line(x(3.5), y(5.5), x(7),   y(5));
+      // CW arc bottom-right: approximate "M18.5 16 A8.5 8.5 0 0 1 12 20.5"
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(18.5), y(16),   x(17),   y(18.5));
+      doc.line(x(17),   y(18.5), x(15),   y(20));
+      doc.line(x(15),   y(20),   x(12),   y(20.5));
+      // CW arrowhead: "points 18.5,16 20.5,18.5 17,19"
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(18.5), y(16),   x(20.5), y(18.5));
+      doc.line(x(20.5), y(18.5), x(17),   y(19));
     }
   };
 
@@ -421,6 +489,68 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setFont("helvetica", "normal");
     doc.text(label, 22 + i * 64, legendY + 3.5);
   });
+
+  // ── KAISER SHELF ──────────────────────────────────────────────────────────
+  if (hasKaiser) {
+    const kaiserAvgs = KAISER_METRICS.map(m => {
+      const vals = entries
+        .filter(e => isKaiser(e.hospital))
+        .map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`]))
+        .filter(v => v !== null);
+      return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
+    });
+
+    const shelfY = legendY + 10;
+    const SHELF_H = 42;
+    const SHELF_CARD_H = 28;
+
+    // Shelf background band
+    doc.setFillColor(235, 232, 230);
+    doc.roundedRect(PAGE_LEFT, shelfY, PAGE_W, SHELF_H, 2, 2, "F");
+
+    // Section label
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.text("KAISER PERMANENTE", PAGE_LEFT + 4, shelfY + 5);
+
+    // Two cards side by side
+    const kCardW = (PAGE_W - GAP) / 2;
+    kaiserAvgs.forEach((m, idx) => {
+      const color = pctColor(m.avg);
+      const cx = PAGE_LEFT + idx * (kCardW + GAP);
+      const cy = shelfY + 8;
+
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, cy, kCardW, SHELF_CARD_H, 2, 2, "F");
+      doc.setFillColor(...color);
+      doc.rect(cx, cy, kCardW, 2, "F");
+
+      // Icon — top right
+      drawIcon(m.id, cx + kCardW - 7, cy + 8, 9, color);
+
+      // Label
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(m.label, cx + 4, cy + 7);
+
+      // Percentage
+      doc.setTextColor(...color);
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + 4, cy + 20);
+
+      // Progress bar
+      const barX = cx + 4, barY = cy + 23, barW = kCardW - 8;
+      doc.setFillColor(...BRAND.light);
+      doc.rect(barX, barY, barW, 2, "F");
+      if (m.avg !== null) {
+        doc.setFillColor(...color);
+        doc.rect(barX, barY, Math.max(0.5, barW * m.avg / 100), 2, "F");
+      }
+    });
+  }
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
