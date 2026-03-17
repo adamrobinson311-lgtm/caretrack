@@ -639,15 +639,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
       const bucket = HISTORY_BUCKETS[bucketIdx];
       const { x, y, width, height } = data.cell;
-      // Use the fill color autoTable already computed for this cell
-      const styles = data.cell.styles;
-      const fc = styles.fillColor;
-      if (fc && fc !== false) {
-        doc.setFillColor(...(Array.isArray(fc) ? fc : [fc, fc, fc]));
-      } else {
-        doc.setFillColor(...BRAND.white);
-      }
-      doc.rect(x + 0.5, y + 0.5, width - 1, height - 1, "F");
+      const isAlt = data.row.index % 2 !== 0;
+      doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
+      doc.rect(x, y, width, height, "F");
 
       const lineH = 3.6;
       const pad = data.cell.padding("top") || 2;
