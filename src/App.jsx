@@ -1026,7 +1026,7 @@ export default function App() {
     const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
-      protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: realUserName,
+      protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
       ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
       ...(inputMode === "grid" && bedGrid.length > 0 ? { bed_data: bedGrid } : {}),
     };
@@ -1576,7 +1576,7 @@ export default function App() {
           <div style={{ maxWidth: 720 }} className="mobile-full">
             <div style={{ marginBottom: 28 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
-              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{realUserName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
+              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE <span style={{ color: C.red }}>*</span></label>
