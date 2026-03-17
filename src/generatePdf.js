@@ -617,7 +617,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     body: tableRows,
     styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top", textColor: BRAND.ink },
     headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
-    alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
       0: { cellWidth: 18 },
       1: { cellWidth: 24 },
@@ -630,15 +629,17 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
-    // Before autoTable draws bucket cells: fix fill color and suppress plain text
     willDrawCell: (data) => {
+      if (data.section !== "body") return;
+      const absIdx = data.row.dataIndex ?? data.row.index;
+      const isAlt = absIdx % 2 !== 0;
+      data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
+      // For bucket columns: suppress plain text (coloured version drawn in didDrawCell)
       const bucketOffset = 3;
       const bucketIdx = data.column.index - bucketOffset;
-      if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
-      const isAlt = (data.row.dataIndex ?? data.row.index) % 2 !== 0;
-      data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
-      // Clear text so autoTable doesn't draw it — we draw coloured version in didDrawCell
-      data.cell.text = [];
+      if (bucketIdx >= 0 && bucketIdx <= 3) {
+        data.cell.text = [];
+      }
     },
     // Draw colour-coded metric text in bucket cells
     didDrawCell: (data) => {
@@ -749,7 +750,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       body: bedRows,
       styles: { fontSize: 6, cellPadding: 1.5, font: "helvetica", valign: "middle" },
       headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 6 },
-      alternateRowStyles: { fillColor: [240, 237, 234] },
       columnStyles: {
         0: { cellWidth: 18 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
@@ -759,17 +759,22 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       margin: { left: 14, right: 14 },
       theme: "plain",
       willDrawCell: (data) => {
-        if (data.section !== "body" || data.column.index < 5) return;
-        const mIdx = data.column.index - 5;
+        if (data.section !== "body") return;
         const absIdx = data.row.dataIndex ?? data.row.index;
-        const pVal = bedColorData[absIdx]?.[mIdx];
-        data.cell.styles.fillColor = absIdx % 2 !== 0 ? [240, 237, 234] : BRAND.white;
-        if (pVal !== null) {
-          data.cell.styles.textColor = pctColor(pVal);
-          data.cell.styles.fontStyle = "bold";
-        } else {
-          data.cell.styles.textColor = BRAND.inkLight;
-          data.cell.styles.fontStyle = "normal";
+        const isAlt = absIdx % 2 !== 0;
+        // Apply alternating shading to ALL columns uniformly
+        data.cell.styles.fillColor = isAlt ? [240, 237, 234] : BRAND.white;
+        // Apply colour-coding to metric columns (5–11)
+        if (data.column.index >= 5) {
+          const mIdx = data.column.index - 5;
+          const pVal = bedColorData[absIdx]?.[mIdx];
+          if (pVal !== null) {
+            data.cell.styles.textColor = pctColor(pVal);
+            data.cell.styles.fontStyle = "bold";
+          } else {
+            data.cell.styles.textColor = BRAND.inkLight;
+            data.cell.styles.fontStyle = "normal";
+          }
         }
       },
     });
