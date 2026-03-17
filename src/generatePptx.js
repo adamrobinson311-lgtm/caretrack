@@ -92,61 +92,93 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   s2.addText("Average Compliance by Metric", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
   s2.addText(`Across all ${entries.length} logged sessions`, { x: 0.38, y: 1.18, w: 9.3, h: 0.28, fontSize: 12, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
 
-  const cardW = 1.26, cardH = 2.8, cardY = 1.62, cardGap = 0.08;
-
-  // SVG icon data URIs for each metric — pixel-matched to app MetricIcons
+  // SVG icon data URIs — exact paths from MetricIcons.jsx
   const ICON_SVGS = {
-    // Clock face (circle + hands) with person silhouette below (head circle + shoulder arc)
-    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="9" r="7" stroke="${col}" stroke-width="1.6"/><line x1="12" y1="9" x2="12" y2="5.5" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="9" x2="15" y2="11" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="19" r="2.5" stroke="${col}" stroke-width="1.5" fill="none"/><path d="M7.5 24 Q7.5 22 12 22 Q16.5 22 16.5 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>`,
-
-    // Mattress: 3-column 2-row grid rectangle + filled check-circle badge top-right
-    matt_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="7" width="18" height="11" rx="2" stroke="${col}" stroke-width="1.6" fill="none"/><line x1="7" y1="7" x2="7" y2="18" stroke="${col}" stroke-width="1" stroke-opacity="0.5"/><line x1="13" y1="7" x2="13" y2="18" stroke="${col}" stroke-width="1" stroke-opacity="0.5"/><line x1="1" y1="12.5" x2="19" y2="12.5" stroke="${col}" stroke-width="1" stroke-opacity="0.5"/><circle cx="19" cy="7" r="5" fill="${col}"/><polyline points="16,7 18.2,9.2 22,5" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-
-    // Card with diamond logo inside + filled shield-check badge overlapping top-right
-    matt_proper: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="15" height="14" rx="2" stroke="${col}" stroke-width="1.5" fill="none"/><path d="M8.5 9 L11.5 12 L8.5 15 L5.5 12 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round" fill="none"/><path d="M17 1 L23 3.5 L23 8.5 Q23 13 17 15 Q11 13 11 8.5 L11 3.5 Z" fill="${col}" stroke="${col}" stroke-width="0.5" stroke-linejoin="round"/><polyline points="14.2,8.5 16.5,10.8 20.2,6" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-
-    // Map pin (teardrop) with filled upward arrow/chevron inside
-    wedges_in_room: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8 2 5 5.2 5 9 C5 14 12 22 12 22 C12 22 19 14 19 9 C19 5.2 16 2 12 2 Z" stroke="${col}" stroke-width="1.5" fill="none" stroke-linejoin="round"/><path d="M9 11 L12 6.5 L15 11 Z" fill="${col}" stroke="${col}" stroke-width="0.5" stroke-linejoin="round"/></svg>`,
-
-    // Two mountain triangles side-by-side + filled check-circle badge top-right
-    wedges_applied: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><polyline points="1,20 7,9 13,20" stroke="${col}" stroke-width="1.5" stroke-linejoin="round" fill="none"/><polyline points="11,20 17,9 23,20" stroke="${col}" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="1" y1="20" x2="23" y2="20" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/><circle cx="20" cy="6" r="5" fill="${col}"/><polyline points="17,6 19.2,8.2 23,4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-
-    // Two horizontal rails (top + bottom) with 3 vertical struts between — bed/offload device side view
-    wedge_offload: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="3" width="22" height="4.5" rx="2.2" stroke="${col}" stroke-width="1.5" fill="none"/><rect x="1" y="16.5" width="22" height="4.5" rx="2.2" stroke="${col}" stroke-width="1.5" fill="none"/><line x1="6" y1="7.5" x2="6" y2="16.5" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="7.5" x2="12" y2="16.5" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/><line x1="18" y1="7.5" x2="18" y2="16.5" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/></svg>`,
-
-    // Waveform (2 sine curves) inside a rectangular frame + filled check-circle badge top-right
-    air_supply: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="4" width="18" height="16" rx="2" stroke="${col}" stroke-width="1.5" fill="none"/><path d="M3 10 Q5.5 7 8 10 Q10.5 13 13 10 Q15.5 7 17 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M3 16 Q5.5 13 8 16 Q10.5 19 13 16 Q15.5 13 17 16" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="5" r="5" fill="${col}"/><polyline points="16,5 18.2,7.2 22,3" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-
-    // Air repositioning (Mayo only): same as air_supply but with repositioning arrows instead of check
-    air_reposition: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="4" width="18" height="16" rx="2" stroke="${col}" stroke-width="1.5" fill="none"/><path d="M3 10 Q5.5 7 8 10 Q10.5 13 13 10 Q15.5 7 17 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M3 16 Q5.5 13 8 16 Q10.5 19 13 16 Q15.5 13 17 16" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="5" r="5" fill="${col}"/><polyline points="17,5 19,3 21,5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="19" y1="3" x2="19" y2="7" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    matt_applied:     (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6" fill="none"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+    wedges_applied:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M2 19 L7 10 L12 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${col}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="10" r="8.5" stroke="${col}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${col}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${col}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
+    matt_proper:      (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${col}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${col}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+    wedges_in_room:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${col}" stroke-width="1.2" stroke-linejoin="round" fill="${col}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+    wedge_offload:    (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="3.5" cy="5" r="2.2" stroke="${col}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${col}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 L12.4 14 M13.6 16.5 L13.6 14.5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${col}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+    air_supply:       (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="4" r="4" fill="white"/><circle cx="19" cy="4" r="4" fill="${col}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+    air_reposition:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="4" r="4" fill="white"/><circle cx="19" cy="4" r="4" fill="${col}"/><line x1="19" y1="1.5" x2="19" y2="6.5" stroke="white" stroke-width="1.3" stroke-linecap="round"/><line x1="16.5" y1="4" x2="21.5" y2="4" stroke="white" stroke-width="1.3" stroke-linecap="round"/></svg>`,
   };
 
   const svgToDataUri = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
-  avgMetrics.forEach((m, i) => {
-    const cx = 0.38 + i * (cardW + cardGap);
-    const col = pctColor(m.avg);
-    const hexCol = `#${col}`;
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 4, offset: 1, angle: 135, opacity: 0.08 } });
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: cardY, w: cardW, h: 0.12, fill: { color: col }, line: { color: col } });
-    // Icon
-    if (ICON_SVGS[m.id]) {
-      s2.addImage({ data: svgToDataUri(ICON_SVGS[m.id](hexCol)), x: cx + (cardW - 0.45) / 2, y: cardY + 0.16, w: 0.45, h: 0.45 });
+  // National averages
+  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
+
+  // Metric lookup
+  const metricLookup = {};
+  avgMetrics.forEach(m => { metricLookup[m.id] = m; });
+  summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
+
+  // Grouped layout
+  const GROUPS = [
+    { label: null,               ids: ["turning_criteria"] },
+    { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"] },
+    { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "AIR SUPPLY",       ids: ["air_supply"] },
+  ];
+  if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"] });
+
+  const PL = 0.38, SW = 9.3, CARD_H = 0.88, CARD_GAP = 0.1, SEC_H = 0.2;
+  let curY = 1.55;
+
+  GROUPS.forEach(group => {
+    if (group.label) {
+      s2.addText(group.label, { x: PL, y: curY, w: SW, h: SEC_H, fontSize: 7, fontFace: "Calibri", color: BRAND.inkLight, bold: true, charSpacing: 2, margin: 0 });
+      curY += SEC_H;
+    } else {
+      curY += 0.05;
     }
-    s2.addText(m.label, { x: cx + 0.1, y: cardY + 0.68, w: cardW - 0.2, h: 0.56, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, align: "center", margin: 0 });
-    s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.05, y: cardY + 1.22, w: cardW - 0.1, h: 0.65, fontSize: 26, fontFace: "Georgia", color: m.avg !== null ? col : BRAND.inkLight, bold: true, align: "center", margin: 0 });
-    s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: cardW - 0.3, h: 0.14, fill: { color: BRAND.light }, line: { color: BRAND.light } });
-    if (m.avg !== null) {
-      const barW = Math.max(0.04, ((cardW - 0.3) * m.avg) / 100);
-      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.15, y: cardY + 1.95, w: barW, h: 0.14, fill: { color: col }, line: { color: col } });
-    }
-    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-    s2.addText(status, { x: cx + 0.05, y: cardY + 2.25, w: cardW - 0.1, h: 0.25, fontSize: 7, fontFace: "Calibri", color: m.avg !== null ? col : BRAND.inkLight, align: "center", bold: true, charSpacing: 1, margin: 0 });
+    const n = group.ids.length;
+    const cardW = (SW - CARD_GAP * (n - 1)) / n;
+    group.ids.forEach((id, idx) => {
+      const m = metricLookup[id];
+      if (!m) return;
+      const col = pctColor(m.avg);
+      const hexCol = `#${col}`;
+      const cx = PL + idx * (cardW + CARD_GAP);
+      // Card background + top colour bar
+      s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: curY, w: cardW, h: CARD_H, fill: { color: BRAND.white }, line: { color: BRAND.light }, shadow: { type: "outer", color: "000000", blur: 3, offset: 1, angle: 135, opacity: 0.07 } });
+      s2.addShape(pres.shapes.RECTANGLE, { x: cx, y: curY, w: cardW, h: 0.06, fill: { color: col }, line: { color: col } });
+      // Icon — top right
+      if (ICON_SVGS[id]) s2.addImage({ data: svgToDataUri(ICON_SVGS[id](hexCol)), x: cx + cardW - 0.42, y: curY + 0.06, w: 0.34, h: 0.34 });
+      // Label
+      s2.addText(m.label, { x: cx + 0.08, y: curY + 0.07, w: cardW - 0.52, h: 0.24, fontSize: 8, fontFace: "Calibri", color: BRAND.inkLight, valign: "top", margin: 0 });
+      // Big %
+      s2.addText(m.avg !== null ? `${m.avg}%` : "—", { x: cx + 0.08, y: curY + 0.29, w: cardW * 0.6, h: 0.3, fontSize: 18, fontFace: "Georgia", color: col, bold: true, margin: 0 });
+      // Progress bar bg
+      s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.08, y: curY + 0.63, w: cardW - 0.16, h: 0.07, fill: { color: BRAND.light }, line: { color: BRAND.light } });
+      // Progress bar fill
+      if (m.avg !== null) {
+        const bw = Math.max(0.02, (cardW - 0.16) * m.avg / 100);
+        s2.addShape(pres.shapes.RECTANGLE, { x: cx + 0.08, y: curY + 0.63, w: bw, h: 0.07, fill: { color: col }, line: { color: col } });
+      }
+      // National avg tick
+      const natl = NATL[id];
+      if (natl !== undefined) {
+        const tickX = cx + 0.08 + (cardW - 0.16) * natl / 100;
+        s2.addShape(pres.shapes.RECTANGLE, { x: tickX - 0.012, y: curY + 0.60, w: 0.024, h: 0.13, fill: { color: BRAND.inkLight }, line: { color: BRAND.inkLight } });
+        s2.addText(`National avg: ${natl}%`, { x: cx + 0.08, y: curY + 0.74, w: cardW * 0.65, h: 0.1, fontSize: 6.5, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+        if (m.avg !== null) {
+          const delta = m.avg - natl;
+          const dCol = delta >= 0 ? BRAND.green : BRAND.red;
+          s2.addText(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`, { x: cx + cardW - 0.6, y: curY + 0.74, w: 0.52, h: 0.1, fontSize: 6.5, fontFace: "Calibri", color: dCol, bold: true, align: "right", margin: 0 });
+        }
+      }
+    });
+    curY += CARD_H + 0.12;
   });
+
+  // Legend
+  const legY = curY + 0.05;
   [["90%+", BRAND.green, "On Target"], ["70-89%", BRAND.amber, "Monitor"], ["< 70%", BRAND.red, "Needs Attention"]].forEach(([range, color, label], i) => {
-    const lx = 0.38 + i * 3.1;
-    s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: 5.1, w: 0.18, h: 0.18, fill: { color }, line: { color } });
-    s2.addText(`${range} — ${label}`, { x: lx + 0.25, y: 5.08, w: 2.6, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
+    const lx = PL + i * 3.1;
+    s2.addShape(pres.shapes.RECTANGLE, { x: lx, y: legY, w: 0.14, h: 0.14, fill: { color }, line: { color } });
+    s2.addText(`${range} — ${label}`, { x: lx + 0.2, y: legY - 0.02, w: 2.6, h: 0.18, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, margin: 0 });
   });
 
   // ── SLIDE 3: TREND CHART ──────────────────────────────────────────────────
