@@ -571,10 +571,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const recentSessions = [...entries].reverse().slice(0, 20);
 
   const HISTORY_BUCKETS = [
-    { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"] },
-    { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "Turning",          ids: ["turning_criteria"] },
-    { label: "Air Supply",       ids: ["air_supply"] },
+    { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                    single: false },
+    { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], single: false },
+    { label: "Turning",          ids: ["turning_criteria"],                                single: true },
+    { label: "Air Supply",       ids: ["air_supply"],                                      single: true },
   ];
 
   const METRIC_SHORT = {
@@ -592,7 +592,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     ...HISTORY_BUCKETS.map(b =>
       b.ids.map(id => {
         const p = pct(e[`${id}_num`], e[`${id}_den`]);
-        return `${METRIC_SHORT[id]}: ${p !== null ? `${p}%` : "—"}`;
+        return b.single
+          ? (p !== null ? `${p}%` : "—")
+          : `${METRIC_SHORT[id]}: ${p !== null ? `${p}%` : "—"}`;
       }).join("\n")
     ),
     e.logged_by || "—",
@@ -617,11 +619,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       0: { cellWidth: 18 },
       1: { cellWidth: 24 },
       2: { cellWidth: 18 },
-      3: { cellWidth: 28 },
-      4: { cellWidth: 34 },
-      5: { cellWidth: 18 },
-      6: { cellWidth: 18 },
-      7: { cellWidth: 24 },
+      3: { cellWidth: 26 }, // Matt (2 lines)
+      4: { cellWidth: 32 }, // Wedge (3 lines)
+      5: { cellWidth: 22 }, // Turning (single %)
+      6: { cellWidth: 22 }, // Air Supply (single %)
+      7: { cellWidth: 20 }, // Logged By
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
@@ -634,13 +636,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       const rowData = cellData[data.row.index]?.[bucketIdx];
       if (!rowData) return;
 
-      // Clear the auto-drawn plain text by painting a fill rect over it
+      const bucket = HISTORY_BUCKETS[bucketIdx];
       const { x, y, width, height } = data.cell;
       const fillColor = data.row.index % 2 === 0 ? BRAND.white : [240, 237, 234];
       doc.setFillColor(...fillColor);
       doc.rect(x + 0.5, y + 0.5, width - 1, height - 1, "F");
 
-      // Draw each metric line with its colour
       const lineH = 3.6;
       const pad = data.cell.padding("top") || 2;
       rowData.forEach(({ label, p }, i) => {
@@ -648,7 +649,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         doc.setTextColor(...color);
         doc.setFontSize(6.5);
         doc.setFont("helvetica", p !== null ? "bold" : "normal");
-        doc.text(`${label}: ${p !== null ? `${p}%` : "—"}`, x + (data.cell.padding("left") || 2), y + pad + i * lineH + 2.2);
+        const text = bucket.single
+          ? (p !== null ? `${p}%` : "—")
+          : `${label}: ${p !== null ? `${p}%` : "—"}`;
+        doc.text(text, x + (data.cell.padding("left") || 2), y + pad + i * lineH + 2.2);
       });
 
       // Reset text color
