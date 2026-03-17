@@ -111,6 +111,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   let totalPages = 3; // title + summary + history
   if (hospitals.length > 1) totalPages++;
   if (summary && summary.length > 10) totalPages++;
+  const hasBedData = entries.some(e => e.bed_data && e.bed_data.length > 0);
+  if (hasBedData) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
   doc.setFillColor(...brandHeader);
@@ -675,8 +677,106 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.text(`Showing most recent 20 of ${entries.length} sessions`, 14, doc.lastAutoTable.finalY + 5);
   }
 
-  // ── PAGE 4: HOSPITAL COMPARISON (if multiple) ─────────────────────────────
-  let pageNum = 4;
+  // ── BED DETAIL PAGE (if any sessions have per-bed data) ──────────────────
+  const bedEntries = [...entries].reverse().filter(e => e.bed_data && e.bed_data.length > 0).slice(0, 10);
+  if (bedEntries.length > 0) {
+    doc.addPage();
+    addHeader(doc, 4, totalPages, preparedBy, brandHeader);
+
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("PER BED DETAIL", 14, 24);
+
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(20);
+    doc.text("Bed-Level Compliance", 14, 35);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...BRAND.inkLight);
+    doc.text("Sessions recorded using Per Bed mode — individual bed data", 14, 42);
+
+    // Flatten all beds from all bed-entry sessions into one table
+    const bedRows = [];
+    bedEntries.forEach(e => {
+      const dateStr = e.created_at
+        ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        : e.date;
+      e.bed_data.forEach((bed, idx) => {
+        if (bed.na) {
+          bedRows.push([dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
+            ...METRICS.map(() => "N/A")]);
+        } else {
+          bedRows.push([
+            dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
+            ...METRICS.map(m => {
+              if (bed[`${m.id}_na`]) return "N/A";
+              const q = parseInt(bed[`${m.id}_q`]) || 0;
+              const a = parseInt(bed[`${m.id}_a`]) || 0;
+              return q > 0 ? `${Math.round((a / q) * 100)}%` : "—";
+            }),
+          ]);
+        }
+      });
+    });
+
+    const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
+      ...METRICS.map(m => m.label.replace("Turning & Repositioning", "Turning").replace("Matt Applied Properly", "Matt Prop.").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Wedges in Room", "Wdg Room").replace("Wedges Applied", "Wdg App.").replace("Matt Applied", "Matt App."))]];
+
+    // Build color lookup for bed rows
+    const bedColorData = [];
+    bedEntries.forEach(e => {
+      e.bed_data.forEach((bed, idx) => {
+        if (bed.na) {
+          bedColorData.push(METRICS.map(() => null));
+        } else {
+          bedColorData.push(METRICS.map(m => {
+            if (bed[`${m.id}_na`]) return null;
+            const q = parseInt(bed[`${m.id}_q`]) || 0;
+            const a = parseInt(bed[`${m.id}_a`]) || 0;
+            return q > 0 ? Math.round((a / q) * 100) : null;
+          }));
+        }
+      });
+    });
+
+    autoTable(doc, {
+      startY: 48,
+      head: bedHead,
+      body: bedRows,
+      styles: { fontSize: 6, cellPadding: 1.5, font: "helvetica", valign: "middle" },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 6 },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      columnStyles: {
+        0: { cellWidth: 18 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
+        3: { cellWidth: 8 },  4: { cellWidth: 12 },
+        5: { cellWidth: 15 }, 6: { cellWidth: 15 }, 7: { cellWidth: 15 },
+        8: { cellWidth: 15 }, 9: { cellWidth: 15 }, 10: { cellWidth: 15 }, 11: { cellWidth: 15 },
+      },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+      willDrawCell: (data) => {
+        // Colour-code metric value cells (columns 5–11)
+        if (data.section !== "body" || data.column.index < 5) return;
+        const mIdx = data.column.index - 5;
+        const pVal = bedColorData[data.row.index]?.[mIdx];
+        data.cell.styles.fillColor = data.row.index % 2 !== 0 ? [240, 237, 234] : BRAND.white;
+        if (pVal !== null) {
+          data.cell.styles.textColor = pctColor(pVal);
+          data.cell.styles.fontStyle = "bold";
+        } else {
+          data.cell.styles.textColor = BRAND.inkLight;
+          data.cell.styles.fontStyle = "normal";
+        }
+      },
+    });
+  }
+
+  // ── PAGE 4/5: HOSPITAL COMPARISON (if multiple) ───────────────────────────
+  let pageNum = hasBedData ? 5 : 4;
   if (hospitals.length > 1) {
     doc.addPage();
     addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
