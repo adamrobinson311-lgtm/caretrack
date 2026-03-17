@@ -601,6 +601,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       }).join("\n")
     ),
     e.logged_by || "—",
+    e.notes || "",
   ]);
 
   // Lookup: [rowIdx][bucketColIdx] → array of { label, pct }
@@ -613,20 +614,21 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   autoTable(doc, {
     startY: 40,
-    head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By"]],
+    head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By", "Notes"]],
     body: tableRows,
     styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top", textColor: BRAND.ink, fillColor: BRAND.white },
     headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
-      0: { cellWidth: 18 },
-      1: { cellWidth: 24 },
-      2: { cellWidth: 18 },
-      3: { cellWidth: 26 },
-      4: { cellWidth: 32 },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 22 },
-      7: { cellWidth: 20 },
+      0: { cellWidth: 16 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 16 },
+      3: { cellWidth: 24 },
+      4: { cellWidth: 30 },
+      5: { cellWidth: 20 },
+      6: { cellWidth: 20 },
+      7: { cellWidth: 18 },
+      8: { cellWidth: 16, fontStyle: "italic" },
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
