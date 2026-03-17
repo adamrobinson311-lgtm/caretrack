@@ -570,7 +570,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   const recentSessions = [...entries].reverse().slice(0, 20);
 
-  // Category columns — each bucket gets its own column showing metric values stacked
   const HISTORY_BUCKETS = [
     { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"] },
     { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
@@ -578,40 +577,84 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     { label: "Air Supply",       ids: ["air_supply"] },
   ];
 
-  const bucketCell = (e, bucket) =>
-    bucket.ids.map(id => {
-      const p = pct(e[`${id}_num`], e[`${id}_den`]);
-      const label = METRICS.find(m => m.id === id)?.label.replace("Matt Applied Properly", "Properly").replace("Matt Applied", "Applied").replace("Wedges Applied", "Applied").replace("Wedges in Room", "In Room").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Turning & Repositioning", "Turning");
-      return `${label}: ${p !== null ? `${p}%` : "—"}`;
-    }).join("\n");
+  const METRIC_SHORT = {
+    matt_applied: "Applied", matt_proper: "Properly",
+    wedges_in_room: "In Room", wedges_applied: "Applied", wedge_offload: "Offloading",
+    turning_criteria: "Turning", air_supply: "Air Supply",
+  };
 
+  // Build plain-text rows (autoTable needs strings for layout/height calculation)
+  // Bucket columns: each line is "Label: XX%" joined by newline so autoTable sizes row height
   const tableRows = recentSessions.map(e => [
     e.created_at ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : e.date,
     e.hospital || "—",
     e.location || "—",
-    ...HISTORY_BUCKETS.map(b => bucketCell(e, b)),
+    ...HISTORY_BUCKETS.map(b =>
+      b.ids.map(id => {
+        const p = pct(e[`${id}_num`], e[`${id}_den`]);
+        return `${METRIC_SHORT[id]}: ${p !== null ? `${p}%` : "—"}`;
+      }).join("\n")
+    ),
     e.logged_by || "—",
   ]);
+
+  // Lookup: [rowIdx][bucketColIdx] → array of { label, pct }
+  // bucketColIdx 0=Matt(col3), 1=Wedge(col4), 2=Turning(col5), 3=Air(col6)
+  const cellData = recentSessions.map(e =>
+    HISTORY_BUCKETS.map(b =>
+      b.ids.map(id => ({ label: METRIC_SHORT[id], p: pct(e[`${id}_num`], e[`${id}_den`]) }))
+    )
+  );
 
   autoTable(doc, {
     startY: 40,
     head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By"]],
     body: tableRows,
-    styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top" },
+    styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top", textColor: BRAND.ink },
     headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
     columnStyles: {
       0: { cellWidth: 18 },
       1: { cellWidth: 24 },
       2: { cellWidth: 18 },
-      3: { cellWidth: 28 }, // Matt
-      4: { cellWidth: 34 }, // Wedge
-      5: { cellWidth: 18 }, // Turning
-      6: { cellWidth: 18 }, // Air
-      7: { cellWidth: 24 }, // Logged By
+      3: { cellWidth: 28 },
+      4: { cellWidth: 34 },
+      5: { cellWidth: 18 },
+      6: { cellWidth: 18 },
+      7: { cellWidth: 24 },
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
+    // Override bucket cells with colour-coded lines
+    didDrawCell: (data) => {
+      const bucketOffset = 3; // columns 3-6 are bucket columns
+      const bucketIdx = data.column.index - bucketOffset;
+      if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
+
+      const rowData = cellData[data.row.index]?.[bucketIdx];
+      if (!rowData) return;
+
+      // Clear the auto-drawn plain text by painting a fill rect over it
+      const { x, y, width, height } = data.cell;
+      const fillColor = data.row.index % 2 === 0 ? BRAND.white : [240, 237, 234];
+      doc.setFillColor(...fillColor);
+      doc.rect(x + 0.5, y + 0.5, width - 1, height - 1, "F");
+
+      // Draw each metric line with its colour
+      const lineH = 3.6;
+      const pad = data.cell.padding("top") || 2;
+      rowData.forEach(({ label, p }, i) => {
+        const color = pctColor(p);
+        doc.setTextColor(...color);
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", p !== null ? "bold" : "normal");
+        doc.text(`${label}: ${p !== null ? `${p}%` : "—"}`, x + (data.cell.padding("left") || 2), y + pad + i * lineH + 2.2);
+      });
+
+      // Reset text color
+      doc.setTextColor(...BRAND.ink);
+      doc.setFont("helvetica", "normal");
+    },
   });
 
   if (entries.length > 20) {
