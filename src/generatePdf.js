@@ -159,26 +159,167 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Icon SVGs — exact paths from MetricIcons.jsx, colour-parameterised
-  const ICON_SVGS = {
-    matt_applied:     (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="10" rx="2.5" stroke="${col}" stroke-width="1.6" fill="none"/><line x1="8" y1="7" x2="8" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="16" y1="7" x2="16" y2="17" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><line x1="2" y1="12" x2="22" y2="12" stroke="${col}" stroke-width="1" stroke-opacity="0.4"/><circle cx="18.5" cy="6.5" r="4" fill="${col}"/><polyline points="16.2,6.5 18,8.2 21,5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-    wedges_applied:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M2 19 L7 10 L12 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 19 L17 10 L22 19 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><line x1="2" y1="19" x2="22" y2="19" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="19" cy="7" r="4" fill="${col}"/><polyline points="16.8,7 18.5,8.8 21.5,5.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-    turning_criteria: (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="10" r="8.5" stroke="${col}" stroke-width="1.5"/><line x1="12" y1="10" x2="12" y2="5.5" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><line x1="12" y1="10" x2="15.5" y2="12" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="10" r="1" fill="${col}"/><circle cx="12" cy="17" r="3" fill="white" stroke="${col}" stroke-width="1.4"/><path d="M7 24 Q7 21 12 21 Q17 21 17 24" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="white"/><line x1="8.5" y1="20.2" x2="15.5" y2="20.2" stroke="white" stroke-width="1.5"/></svg>`,
-    matt_proper:      (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><rect x="1" y="5" width="17" height="14" rx="2" stroke="${col}" stroke-width="1.4"/><line x1="9.5" y1="9" x2="9.5" y2="15" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><line x1="6.5" y1="12" x2="12.5" y2="12" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/><polyline points="8.2,10.2 9.5,9 10.8,10.2" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="8.2,13.8 9.5,15 10.8,13.8" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="7.8,10.7 6.5,12 7.8,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="11.2,10.7 12.5,12 11.2,13.3" stroke="${col}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z" stroke="${col}" stroke-width="1.3" fill="white" stroke-linejoin="round"/><polyline points="17.2,7.5 18.8,9.2 21.2,5.8" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-    wedges_in_room:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2 Z" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 10 L12 5.5 L15.5 10 Z" stroke="${col}" stroke-width="1.2" stroke-linejoin="round" fill="${col}"/><line x1="8.5" y1="10" x2="15.5" y2="10" stroke="${col}" stroke-width="1.2" stroke-linecap="round"/></svg>`,
-    wedge_offload:    (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><circle cx="3.5" cy="5" r="2.2" stroke="${col}" stroke-width="1.3"/><rect x="7" y="3" width="14" height="4" rx="2" stroke="${col}" stroke-width="1.3"/><path d="M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M1 15 L1 17 L8 17 L8 13 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/><path d="M10 16.5 L10 14 M11.2 16.5 L11.2 13.5 M12.4 16.5 L12.4 14 M13.6 16.5 L13.6 14.5" stroke="${col}" stroke-width="0.9" stroke-linecap="round"/><path d="M10 16.5 Q9.5 18 10 18.5 L13.6 18.5 Q14.2 18 13.6 16.5" stroke="${col}" stroke-width="1" stroke-linejoin="round"/><path d="M15 13 L15 17 L22 17 L22 15 Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
-    air_supply:       (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="4" r="4" fill="white"/><circle cx="19" cy="4" r="4" fill="${col}"/><polyline points="16.8,4 18.5,5.8 21.5,2.2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-    air_reposition:   (col) => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M3 20 L3 4 L21 4 L21 20" stroke="${col}" stroke-width="1.6" stroke-linecap="round" fill="none"/><line x1="2" y1="20" x2="22" y2="20" stroke="${col}" stroke-width="1.6" stroke-linecap="round"/><path d="M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15" stroke="${col}" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="19" cy="4" r="4" fill="white"/><circle cx="19" cy="4" r="4" fill="${col}"/><line x1="19" y1="1.5" x2="19" y2="6.5" stroke="white" stroke-width="1.3" stroke-linecap="round"/><line x1="16.5" y1="4" x2="21.5" y2="4" stroke="white" stroke-width="1.3" stroke-linecap="round"/></svg>`,
-  };
-
-  // Render icon as SVG data URI via jsPDF addImage (sz in mm, centered at cx,cy)
+  // drawIcon — faithful jsPDF primitive translation of MetricIcons.jsx SVG paths
+  // Coords in 24-unit SVG space; x()/y() map to mm centered at (cx,cy); sc() scales stroke/radius
   const drawIcon = (id, cx, cy, sz, rgb) => {
-    const svgFn = ICON_SVGS[id];
-    if (!svgFn) return;
-    const hex = "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
-    doc.addImage("data:image/svg+xml;base64," + btoa(svgFn(hex)), "SVG", cx - sz / 2, cy - sz / 2, sz, sz);
+    const s = sz / 24;
+    const x = (v) => cx - sz / 2 + v * s;
+    const y = (v) => cy - sz / 2 + v * s;
+    const sc = (v) => v * s;
     doc.setDrawColor(...rgb);
     doc.setFillColor(...rgb);
+
+    if (id === "matt_applied") {
+      // <rect x="2" y="7" width="20" height="10" rx="2.5" stroke strokeWidth="1.6"/>
+      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(2), y(7), sc(20), sc(10), sc(2.5), sc(2.5), "S");
+      // quilting lines strokeOpacity="0.4" → use inkLight
+      doc.setDrawColor(...BRAND.inkLight); doc.setLineWidth(sc(1));
+      doc.line(x(8), y(7), x(8), y(17));
+      doc.line(x(16), y(7), x(16), y(17));
+      doc.line(x(2), y(12), x(22), y(12));
+      // badge circle filled
+      doc.setDrawColor(...rgb); doc.setFillColor(...rgb);
+      doc.setLineWidth(0); doc.circle(x(18.5), y(6.5), sc(4), "F");
+      // checkmark
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.4));
+      doc.line(x(16.2), y(6.5), x(18), y(8.2)); doc.line(x(18), y(8.2), x(21), y(5));
+
+    } else if (id === "wedges_applied") {
+      // two wedge triangles
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.4));
+      doc.line(x(2), y(19), x(7), y(10)); doc.line(x(7), y(10), x(12), y(19)); doc.line(x(2), y(19), x(12), y(19));
+      doc.line(x(12), y(19), x(17), y(10)); doc.line(x(17), y(10), x(22), y(19)); doc.line(x(12), y(19), x(22), y(19));
+      // badge
+      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(4), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      doc.line(x(16.8), y(7), x(18.5), y(8.8)); doc.line(x(18.5), y(8.8), x(21.5), y(5.2));
+
+    } else if (id === "turning_criteria") {
+      // clock circle
+      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(10), sc(8.5), "S");
+      // hands
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(10), x(12), y(5.5));
+      doc.line(x(12), y(10), x(15.5), y(12));
+      // center dot
+      doc.setLineWidth(0); doc.circle(x(12), y(10), sc(1), "F");
+      // patient head: white filled circle with stroke
+      doc.setFillColor(...BRAND.white); doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.4));
+      doc.circle(x(12), y(17), sc(3), "FD");
+      // shoulder arc (Q curve → 3-segment approximation)
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(7), y(24), x(8.5), y(21.5));
+      doc.line(x(8.5), y(21.5), x(15.5), y(21.5));
+      doc.line(x(15.5), y(21.5), x(17), y(24));
+      // cover gap line in white
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.5));
+      doc.line(x(8.5), y(20.2), x(15.5), y(20.2));
+      doc.setDrawColor(...rgb); doc.setFillColor(...rgb);
+
+    } else if (id === "matt_proper") {
+      // MATT pad rectangle
+      doc.setLineWidth(sc(1.4)); doc.roundedRect(x(1), y(5), sc(17), sc(14), sc(2), sc(2), "S");
+      // four-way arrow: vertical line
+      doc.setLineWidth(sc(1.2));
+      doc.line(x(9.5), y(9), x(9.5), y(15));
+      doc.line(x(6.5), y(12), x(12.5), y(12));
+      // arrowheads
+      doc.setLineWidth(sc(1.1));
+      doc.line(x(8.2), y(10.2), x(9.5), y(9));   doc.line(x(9.5), y(9),  x(10.8), y(10.2)); // up
+      doc.line(x(8.2), y(13.8), x(9.5), y(15));   doc.line(x(9.5), y(15), x(10.8), y(13.8)); // down
+      doc.line(x(7.8), y(10.7), x(6.5), y(12));   doc.line(x(6.5), y(12), x(7.8), y(13.3));  // left
+      doc.line(x(11.2), y(10.7), x(12.5), y(12)); doc.line(x(12.5), y(12), x(11.2), y(13.3)); // right
+      // shield badge: white fill then stroke, then checkmark in rgb
+      doc.setFillColor(...BRAND.white); doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.3));
+      // "M19 2 L23 4 L23 8 Q23 11.5 19 13 Q15 11.5 15 8 L15 4 Z"
+      doc.line(x(19), y(2),  x(23), y(4));
+      doc.line(x(23), y(4),  x(23), y(8));
+      doc.line(x(23), y(8),  x(21), y(11)); doc.line(x(21), y(11), x(19), y(13)); // approx Q
+      doc.line(x(19), y(13), x(17), y(11)); doc.line(x(17), y(11), x(15), y(8));  // approx Q
+      doc.line(x(15), y(8),  x(15), y(4));
+      doc.line(x(15), y(4),  x(19), y(2));
+      // check in rgb color
+      doc.setDrawColor(...rgb);
+      doc.line(x(17.2), y(7.5), x(18.8), y(9.2)); doc.line(x(18.8), y(9.2), x(21.2), y(5.8));
+
+    } else if (id === "wedges_in_room") {
+      // map pin outline: "M12 2 C8.5 2 6 4.8 6 8 C6 12.5 12 20 12 20 C12 20 18 12.5 18 8 C18 4.8 15.5 2 12 2"
+      // approximate bezier as polyline segments
+      doc.setLineWidth(sc(1.4));
+      doc.line(x(12), y(2),  x(9),  y(2.8));
+      doc.line(x(9),  y(2.8), x(6.5), y(4.8));
+      doc.line(x(6.5), y(4.8), x(6),  y(8));
+      doc.line(x(6),  y(8),   x(7.5), y(12));
+      doc.line(x(7.5), y(12), x(12), y(20));
+      doc.line(x(12), y(20), x(16.5), y(12));
+      doc.line(x(16.5), y(12), x(18), y(8));
+      doc.line(x(18), y(8),  x(17.5), y(4.8));
+      doc.line(x(17.5), y(4.8), x(15), y(2.8));
+      doc.line(x(15), y(2.8), x(12), y(2));
+      // wedge triangle inside, filled: "M8.5 10 L12 5.5 L15.5 10 Z"
+      doc.setLineWidth(0);
+      doc.triangle(x(8.5), y(10), x(12), y(5.5), x(15.5), y(10), "F");
+      // baseline
+      doc.setLineWidth(sc(1.2));
+      doc.line(x(8.5), y(10), x(15.5), y(10));
+
+    } else if (id === "wedge_offload") {
+      // heel circle
+      doc.setLineWidth(sc(1.3)); doc.circle(x(3.5), y(5), sc(2.2), "S");
+      // MATT pad pill
+      doc.roundedRect(x(7), y(3), sc(14), sc(4), sc(2), sc(2), "S");
+      // inner loop: "M18.5 5 Q17 3.6 15.5 5 Q17 6.4 18.5 5"
+      doc.setLineWidth(sc(0.9));
+      doc.line(x(18.5), y(5), x(17), y(3.8)); doc.line(x(17), y(3.8), x(15.5), y(5));
+      doc.line(x(15.5), y(5), x(17), y(6.2)); doc.line(x(17), y(6.2), x(18.5), y(5));
+      // left wedge: "M1 15 L1 17 L8 17 L8 13 Z"
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(1), y(15), x(1), y(17)); doc.line(x(1), y(17), x(8), y(17));
+      doc.line(x(8), y(17), x(8), y(13)); doc.line(x(8), y(13), x(1), y(15));
+      // stop hand fingers
+      doc.setLineWidth(sc(0.9));
+      doc.line(x(10),   y(16.5), x(10),   y(14));
+      doc.line(x(11.2), y(16.5), x(11.2), y(13.5));
+      doc.line(x(12.4), y(16.5), x(12.4), y(14));
+      doc.line(x(13.6), y(16.5), x(13.6), y(14.5));
+      // palm base arc approx
+      doc.setLineWidth(sc(1));
+      doc.line(x(10), y(16.5), x(10),   y(18.5)); doc.line(x(10),   y(18.5), x(13.6), y(18.5));
+      doc.line(x(13.6), y(18.5), x(13.6), y(16.5));
+      // right wedge: "M15 13 L15 17 L22 17 L22 15 Z"
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(15), y(13), x(15), y(17)); doc.line(x(15), y(17), x(22), y(17));
+      doc.line(x(22), y(17), x(22), y(15)); doc.line(x(22), y(15), x(15), y(13));
+
+    } else if (id === "air_supply" || id === "air_reposition") {
+      // room outline: "M3 20 L3 4 L21 4 L21 20" + base line
+      doc.setLineWidth(sc(1.6));
+      doc.line(x(3), y(20), x(3), y(4));
+      doc.line(x(3), y(4),  x(21), y(4));
+      doc.line(x(21), y(4), x(21), y(20));
+      doc.line(x(2), y(20), x(22), y(20));
+      // wave 1: "M6 10 Q8.5 7.5 11 10 Q13.5 12.5 16 10 Q18.5 7.5 20 10"
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(6), y(10), x(8.5), y(7.5)); doc.line(x(8.5), y(7.5), x(11), y(10));
+      doc.line(x(11), y(10), x(13.5), y(12.5)); doc.line(x(13.5), y(12.5), x(16), y(10));
+      doc.line(x(16), y(10), x(18.5), y(7.5)); doc.line(x(18.5), y(7.5), x(20), y(10));
+      // wave 2: "M6 15 Q8.5 12.5 11 15 Q13.5 17.5 16 15 Q18.5 12.5 20 15"
+      doc.line(x(6), y(15), x(8.5), y(12.5)); doc.line(x(8.5), y(12.5), x(11), y(15));
+      doc.line(x(11), y(15), x(13.5), y(17.5)); doc.line(x(13.5), y(17.5), x(16), y(15));
+      doc.line(x(16), y(15), x(18.5), y(12.5)); doc.line(x(18.5), y(12.5), x(20), y(15));
+      // badge: white circle then filled circle (matches SVG double-circle trick)
+      doc.setFillColor(...BRAND.white); doc.setLineWidth(0); doc.circle(x(19), y(4), sc(4), "F");
+      doc.setFillColor(...rgb); doc.circle(x(19), y(4), sc(4), "F");
+      // check or reposition cross
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
+      if (id === "air_reposition") {
+        doc.line(x(19), y(1.5), x(19), y(6.5));
+        doc.line(x(16.5), y(4), x(21.5), y(4));
+      } else {
+        doc.line(x(16.8), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21.5), y(2.2));
+      }
+      doc.setDrawColor(...rgb); doc.setFillColor(...rgb);
+    }
   };
 
   // ── GROUPED METRIC LAYOUT ─────────────────────────────────────────────────
@@ -205,14 +346,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setFillColor(...color);
     doc.rect(cx, cy, cw, 2, "F");
 
-    // Icon — top right, 10mm
-    drawIcon(m.id, cx + cw - 8, cy + 8, 10, color);
+    // Icon — top right, 10mm square
+    drawIcon(m.id, cx + cw - 8, cy + 9, 10, color);
 
     // Label — top left
     doc.setTextColor(...BRAND.inkLight);
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
-    doc.text(doc.splitTextToSize(m.label, cw - 16), cx + 4, cy + 7);
+    doc.text(doc.splitTextToSize(m.label, cw - 18), cx + 4, cy + 7);
 
     // Big percentage
     doc.setTextColor(...color);
@@ -229,7 +370,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.rect(barX, barY, Math.max(0.5, barW * m.avg / 100), 2.5, "F");
     }
 
-    // National avg tick
+    // National avg tick + label + delta
     const natl = NATL[m.id];
     if (natl !== undefined) {
       const tickX = barX + barW * natl / 100;
@@ -241,10 +382,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(`National avg: ${natl}%`, cx + 4, cy + 34);
       if (m.avg !== null) {
         const delta = m.avg - natl;
-        doc.setTextColor(...pctColor(delta >= 0 ? 90 : 60));
+        const dColor = delta >= 0 ? BRAND.green : BRAND.red;
+        doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
+        doc.text(`${delta >= 0 ? "\u25b2" : "\u25bc"} ${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
       }
     }
   };
@@ -271,7 +413,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // Legend
   const legendY = curY + 2;
-  [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
+  [[BRAND.green, "90%+ \u2014 On Target"], [BRAND.amber, "70-89% \u2014 Monitor"], [BRAND.red, "< 70% \u2014 Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
     doc.setTextColor(...BRAND.inkLight);
