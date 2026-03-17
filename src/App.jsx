@@ -1372,8 +1372,6 @@ export default function App() {
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
 
-  const userName = user?.user_metadata?.full_name || user?.email;
-
   return (
     <>
     <div style={{ background: C.bg, minHeight: "100vh", color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}>
