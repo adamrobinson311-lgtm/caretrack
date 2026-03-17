@@ -160,6 +160,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
   // Draw icons using jsPDF primitives only (no canvas, no SVG import)
+  // drawIcon — pixel-matched to app MetricIcons (jsPDF primitives)
+  // All coords in 24-unit space; s scales to rendered sz; x/y offset to center
   const drawIcon = (id, cx, cy, sz, rgb) => {
     const s = sz / 24;
     const x = (v) => cx - sz / 2 + v * s;
@@ -168,191 +170,165 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setDrawColor(...rgb);
     doc.setFillColor(...rgb);
 
-    if (id === "matt_applied") {
-      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(2), y(7), sc(20), sc(10), sc(2), sc(2), "S");
-      doc.setLineWidth(sc(0.8));
-      doc.line(x(8), y(7), x(8), y(17));
-      doc.line(x(16), y(7), x(16), y(17));
-      doc.line(x(2), y(12), x(22), y(12));
-      doc.setLineWidth(0); doc.circle(x(18.5), y(6.5), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(16.5), y(6.5), x(18), y(8)); doc.line(x(18), y(8), x(20.5), y(5.2));
+    if (id === "turning_criteria") {
+      // Clock face (circle + 2 hands) + person silhouette below (head circle + shoulder arc)
+      doc.setLineWidth(sc(1.6)); doc.circle(x(12), y(9), sc(7), "S");
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(12), y(9), x(12), y(5.5));
+      doc.line(x(12), y(9), x(15), y(11));
+      // Person: head circle
+      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(19), sc(2.5), "S");
+      // Person: shoulder arc approximated as 3-segment polyline
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(7.5), y(24), x(8.5), y(22));
+      doc.line(x(8.5), y(22), x(15.5), y(22));
+      doc.line(x(15.5), y(22), x(16.5), y(24));
 
-    } else if (id === "wedges_applied") {
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(2), y(19), x(7), y(10)); doc.line(x(7), y(10), x(12), y(19)); doc.line(x(2), y(19), x(12), y(19));
-      doc.line(x(12), y(19), x(17), y(10)); doc.line(x(17), y(10), x(22), y(19)); doc.line(x(12), y(19), x(22), y(19));
-      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(17), y(7), x(18.5), y(8.8)); doc.line(x(18.5), y(8.8), x(21), y(5.2));
-
-    } else if (id === "turning_criteria") {
-      doc.setLineWidth(sc(1.5)); doc.circle(x(12), y(10), sc(8), "S");
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(12), y(10), x(12), y(5.5));
-      doc.line(x(12), y(10), x(15.5), y(12));
-      doc.setLineWidth(0); doc.circle(x(12), y(10), sc(1), "F");
-      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.4));
-      doc.circle(x(12), y(17), sc(3), "FD");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.5));
-      doc.line(x(8.5), y(20.5), x(15.5), y(20.5));
+    } else if (id === "matt_applied") {
+      // Mattress: rounded rect + 3-column 2-row grid + filled check-circle badge
+      doc.setLineWidth(sc(1.6)); doc.roundedRect(x(1), y(7), sc(18), sc(11), sc(2), sc(2), "S");
+      doc.setLineWidth(sc(1.0));
+      doc.line(x(7),  y(7), x(7),  y(18));
+      doc.line(x(13), y(7), x(13), y(18));
+      doc.line(x(1), y(12.5), x(19), y(12.5));
+      // Badge
+      doc.setLineWidth(0); doc.circle(x(19), y(7), sc(5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.6));
+      doc.line(x(16), y(7), x(18.2), y(9.2)); doc.line(x(18.2), y(9.2), x(22), y(5));
 
     } else if (id === "matt_proper") {
-      doc.setLineWidth(sc(1.4)); doc.roundedRect(x(1), y(5), sc(17), sc(14), sc(1.5), sc(1.5), "S");
-      doc.setLineWidth(sc(1.2));
-      doc.line(x(9.5), y(9), x(9.5), y(15));
-      doc.line(x(6.5), y(12), x(12.5), y(12));
-      doc.setLineWidth(sc(1.1));
-      doc.line(x(8.2), y(10.2), x(9.5), y(9)); doc.line(x(9.5), y(9), x(10.8), y(10.2));
-      doc.line(x(8.2), y(13.8), x(9.5), y(15)); doc.line(x(9.5), y(15), x(10.8), y(13.8));
-      doc.line(x(7.8), y(10.7), x(6.5), y(12)); doc.line(x(6.5), y(12), x(7.8), y(13.3));
-      doc.line(x(11.2), y(10.7), x(12.5), y(12)); doc.line(x(12.5), y(12), x(11.2), y(13.3));
-      doc.setFillColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(15), y(4), x(23), y(4)); doc.line(x(23), y(4), x(19), y(13)); doc.line(x(19), y(13), x(15), y(4));
-      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.3));
-      doc.line(x(17.2), y(7.5), x(18.8), y(9.2)); doc.line(x(18.8), y(9.2), x(21.2), y(5.8));
+      // Card rectangle + diamond inside + filled shield-check badge overlapping top-right
+      doc.setLineWidth(sc(1.5)); doc.roundedRect(x(1), y(5), sc(15), sc(14), sc(2), sc(2), "S");
+      // Diamond / rhombus inside card
+      doc.setLineWidth(sc(1.3));
+      doc.line(x(8.5), y(9), x(11.5), y(12)); doc.line(x(11.5), y(12), x(8.5), y(15));
+      doc.line(x(8.5), y(15), x(5.5), y(12)); doc.line(x(5.5), y(12), x(8.5), y(9));
+      // Shield: filled polygon (pentagon-like), then white check on top
+      doc.setLineWidth(0); doc.setFillColor(...rgb);
+      // Draw shield as filled triangle-ish shape using lines approximation — use a filled rect for body + triangle top
+      // Pentagon: top-left, top-right, right, bottom-point, left
+      doc.lines([
+        [sc(6), 0],        // top-right  (17,1)
+        [sc(6), sc(7)],    // right      (23,8)
+        [-sc(3), sc(7)],   // bottom-right (20,15)
+        [-sc(3), 0],       // bottom-left (17,15) — mid
+        [-sc(6), -sc(4)],  // left       (11,11)
+        [0, -sc(7)],       // top-left   (11,4)
+      ], x(11), y(1), [1, 1], "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.7));
+      doc.line(x(14.2), y(8.5), x(16.5), y(10.8)); doc.line(x(16.5), y(10.8), x(20.2), y(6));
 
     } else if (id === "wedges_in_room") {
-      doc.setLineWidth(sc(1.4));
-      doc.line(x(12), y(2), x(6), y(8)); doc.line(x(6), y(8), x(6), y(12));
-      doc.line(x(6), y(12), x(12), y(20)); doc.line(x(12), y(20), x(18), y(12));
-      doc.line(x(18), y(12), x(18), y(8)); doc.line(x(18), y(8), x(12), y(2));
+      // Map pin (teardrop path) + filled upward triangle inside
+      doc.setLineWidth(sc(1.5));
+      // Approximate teardrop as lines: top arc segments
+      doc.line(x(12), y(2),  x(7),  y(5));
+      doc.line(x(7),  y(5),  x(5),  y(9));
+      doc.line(x(5),  y(9),  x(6),  y(13));
+      doc.line(x(6),  y(13), x(12), y(22));
+      doc.line(x(12), y(22), x(18), y(13));
+      doc.line(x(18), y(13), x(19), y(9));
+      doc.line(x(19), y(9),  x(17), y(5));
+      doc.line(x(17), y(5),  x(12), y(2));
+      // Filled upward arrow inside
       doc.setLineWidth(0); doc.setFillColor(...rgb);
-      doc.line(x(8.5), y(10), x(12), y(5.5)); doc.line(x(12), y(5.5), x(15.5), y(10)); doc.line(x(15.5), y(10), x(8.5), y(10));
-      doc.setDrawColor(...rgb); doc.setLineWidth(sc(1.2));
-      doc.line(x(8.5), y(10), x(15.5), y(10));
+      doc.lines([[sc(6), sc(4.5)], [-sc(6), sc(4.5)], [0, -sc(9)]], x(9), y(6.5), [1,1], "F");
+
+    } else if (id === "wedges_applied") {
+      // Two side-by-side mountain triangles + filled check-circle badge top-right
+      doc.setLineWidth(sc(1.5));
+      doc.line(x(1),  y(20), x(7),  y(9)); doc.line(x(7),  y(9), x(13), y(20));
+      doc.line(x(11), y(20), x(17), y(9)); doc.line(x(17), y(9), x(23), y(20));
+      doc.line(x(1), y(20), x(23), y(20));
+      // Badge
+      doc.setLineWidth(0); doc.circle(x(20), y(6), sc(5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.6));
+      doc.line(x(17), y(6), x(19.2), y(8.2)); doc.line(x(19.2), y(8.2), x(23), y(4));
 
     } else if (id === "wedge_offload") {
-      doc.setLineWidth(sc(1.3)); doc.circle(x(3.5), y(5), sc(2.2), "S");
-      doc.roundedRect(x(7), y(3), sc(14), sc(4), sc(1.5), sc(1.5), "S");
-      doc.line(x(1), y(13), x(1), y(17)); doc.line(x(1), y(17), x(8), y(17));
-      doc.line(x(8), y(17), x(8), y(13)); doc.line(x(8), y(13), x(1), y(13));
-      doc.setLineWidth(sc(0.9));
-      doc.line(x(10), y(14), x(10), y(16.5));
-      doc.line(x(11.5), y(13.5), x(11.5), y(16.5));
-      doc.line(x(13), y(14), x(13), y(16.5));
-      doc.setLineWidth(sc(1.3));
-      doc.line(x(15), y(13), x(15), y(17)); doc.line(x(15), y(17), x(22), y(17));
-      doc.line(x(22), y(17), x(22), y(15)); doc.line(x(22), y(15), x(15), y(13));
+      // Two horizontal rounded rails + 3 vertical struts between them
+      doc.setLineWidth(sc(1.5)); doc.roundedRect(x(1), y(3),  sc(22), sc(4.5), sc(2.2), sc(2.2), "S");
+      doc.setLineWidth(sc(1.5)); doc.roundedRect(x(1), y(16.5), sc(22), sc(4.5), sc(2.2), sc(2.2), "S");
+      doc.setLineWidth(sc(1.8));
+      doc.line(x(6),  y(7.5), x(6),  y(16.5));
+      doc.line(x(12), y(7.5), x(12), y(16.5));
+      doc.line(x(18), y(7.5), x(18), y(16.5));
 
-    } else if (id === "air_supply") {
-      doc.setLineWidth(sc(1.6));
-      doc.line(x(3), y(20), x(3), y(4));
-      doc.line(x(3), y(4), x(21), y(4));
-      doc.line(x(21), y(4), x(21), y(20));
-      doc.line(x(2), y(20), x(22), y(20));
+    } else if (id === "air_supply" || id === "air_reposition") {
+      // Waveform (2 sine curves) inside rounded rectangle + filled check-circle badge top-right
+      doc.setLineWidth(sc(1.5)); doc.roundedRect(x(1), y(4), sc(18), sc(16), sc(2), sc(2), "S");
+      // Wave 1 (upper): zigzag approximation of sine
       doc.setLineWidth(sc(1.5));
-      doc.line(x(6), y(10), x(8.5), y(7.5)); doc.line(x(8.5), y(7.5), x(11), y(10));
-      doc.line(x(11), y(10), x(13.5), y(12.5)); doc.line(x(13.5), y(12.5), x(16), y(10));
-      doc.line(x(16), y(10), x(18.5), y(7.5)); doc.line(x(18.5), y(7.5), x(20), y(10));
-      doc.line(x(6), y(15), x(8.5), y(12.5)); doc.line(x(8.5), y(12.5), x(11), y(15));
-      doc.line(x(11), y(15), x(13.5), y(17.5)); doc.line(x(13.5), y(17.5), x(16), y(15));
-      doc.line(x(16), y(15), x(18.5), y(12.5)); doc.line(x(18.5), y(12.5), x(20), y(15));
-      doc.setLineWidth(0); doc.setFillColor(...rgb); doc.circle(x(19), y(4), sc(3.5), "F");
-      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.3));
-      doc.line(x(17), y(4), x(18.5), y(5.8)); doc.line(x(18.5), y(5.8), x(21), y(2.2));
-    }
-  };
-
-  // ── GROUPED METRIC LAYOUT ────────────────────────────────────────────────
-  // Groups: Patient Met Criteria (Turning), Matt Compliance (2-up),
-  //         Wedge Compliance (3-up), Air Supply (full-width)
-  const GROUPS = [
-    { label: null,               ids: ["turning_criteria"],                              cols: 1 },
-    { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"],                   cols: 2 },
-    { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], cols: 3 },
-    { label: "AIR SUPPLY",       ids: ["air_supply"],                                    cols: 1 },
-  ];
-  if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"], cols: 1 });
-
-  // Build a lookup from metric id → computed avg
-  const metricLookup = {};
-  avgMetrics.forEach(m => { metricLookup[m.id] = m; });
-  summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
-
-  const PAGE_LEFT = 14, PAGE_W = 182, GAP = 3;
-  const SECTION_H = 5, CARD_H = 44;
-  let curY = 48;
-
-  const drawCard = (m, cx, cy, cw) => {
-    const color = pctColor(m.avg);
-    doc.setFillColor(...BRAND.white);
-    doc.roundedRect(cx, cy, cw, CARD_H, 2, 2, "F");
-    doc.setFillColor(...color);
-    doc.rect(cx, cy, cw, 2.5, "F");
-
-    // Icon — right-aligned inside card
-    drawIcon(m.id, cx + cw - 12, cy + 12, 10, color);
-
-    // Label top-left
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "normal");
-    const llines = doc.splitTextToSize(m.label, cw - 20);
-    doc.text(llines, cx + 4, cy + 9);
-
-    // Big pct
-    doc.setTextColor(...color);
-    doc.setFontSize(24);
-    doc.setFont("helvetica", "bold");
-    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + 4, cy + 25);
-
-    // Progress bar
-    doc.setFillColor(...BRAND.light);
-    doc.rect(cx + 4, cy + 29, cw - 8, 2.5, "F");
-    if (m.avg !== null) {
-      doc.setFillColor(...color);
-      doc.rect(cx + 4, cy + 29, Math.max(1, ((cw - 8) * m.avg) / 100), 2.5, "F");
-    }
-
-    // National avg benchmark tick (using hardcoded national avgs matching app)
-    const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
-    const natl = NATL[m.id];
-    if (natl !== undefined) {
-      const tickX = cx + 4 + ((cw - 8) * natl) / 100;
-      doc.setFillColor(...BRAND.inkLight);
-      doc.rect(tickX - 0.4, cy + 27.5, 0.8, 5.5, "F");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(`National avg: ${natl}%`, cx + 4, cy + 37);
-      // Delta
-      if (m.avg !== null) {
-        const delta = m.avg - natl;
-        const dColor = delta >= 0 ? BRAND.green : BRAND.red;
-        doc.setTextColor(...dColor);
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`, cx + cw - 4, cy + 37, { align: "right" });
+      doc.line(x(3),  y(10), x(5.5), y(7));
+      doc.line(x(5.5), y(7),  x(8),   y(10));
+      doc.line(x(8),   y(10), x(10.5),y(13));
+      doc.line(x(10.5),y(13), x(13),  y(10));
+      doc.line(x(13),  y(10), x(15.5),y(7));
+      doc.line(x(15.5),y(7),  x(17),  y(10));
+      // Wave 2 (lower)
+      doc.line(x(3),  y(16), x(5.5), y(13));
+      doc.line(x(5.5), y(13), x(8),   y(16));
+      doc.line(x(8),   y(16), x(10.5),y(19));
+      doc.line(x(10.5),y(19), x(13),  y(16));
+      doc.line(x(13),  y(16), x(15.5),y(13));
+      doc.line(x(15.5),y(13), x(17),  y(16));
+      // Badge (check for air_supply, up-arrow for air_reposition)
+      doc.setLineWidth(0); doc.setFillColor(...rgb); doc.circle(x(19), y(5), sc(5), "F");
+      doc.setDrawColor(...BRAND.white); doc.setLineWidth(sc(1.6));
+      if (id === "air_reposition") {
+        doc.line(x(17), y(5), x(19), y(3)); doc.line(x(19), y(3), x(21), y(5));
+        doc.line(x(19), y(3), x(19), y(7));
+      } else {
+        doc.line(x(16), y(5), x(18.2), y(7.2)); doc.line(x(18.2), y(7.2), x(22), y(3));
       }
     }
   };
 
-  GROUPS.forEach(group => {
-    // Section header label
-    if (group.label) {
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "bold");
-      doc.text(group.label, PAGE_LEFT, curY + 4);
-      curY += SECTION_H;
-    } else {
-      curY += 1;
+  // Metric cards — 2 rows of 4 + 3
+  const cardW = 44, cardH = 44, startY = 48, gap = 2;
+  avgMetrics.forEach((m, i) => {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const cx = 14 + col * (cardW + gap);
+    const cy = startY + row * (cardH + gap + 2);
+    const color = pctColor(m.avg);
+
+    doc.setFillColor(...BRAND.white);
+    doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
+    doc.setFillColor(...color);
+    doc.rect(cx, cy, cardW, 2, "F");
+
+    // Icon
+    drawIcon(m.id, cx + cardW / 2, cy + 12, 10, color);
+
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(m.label, cardW - 4);
+    doc.text(lines, cx + cardW / 2, cy + 18, { align: "center" });
+
+    doc.setTextColor(...color);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 29, { align: "center" });
+
+    // Progress bar
+    doc.setFillColor(...BRAND.light);
+    doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
+    if (m.avg !== null) {
+      doc.setFillColor(...color);
+      doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
     }
 
-    const n = group.cols;
-    const cardW = (PAGE_W - GAP * (n - 1)) / n;
-    group.ids.forEach((id, idx) => {
-      const m = metricLookup[id];
-      if (!m) return;
-      const cx = PAGE_LEFT + idx * (cardW + GAP);
-      drawCard(m, cx, curY, cardW);
-    });
-    curY += CARD_H + 5;
+    const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...color);
+    doc.text(status, cx + cardW / 2, cy + 41, { align: "center" });
   });
 
   // Legend
-  const legendY = curY + 2;
+  const legendY = 210;
   [[BRAND.green, "90%+ — On Target"], [BRAND.amber, "70-89% — Monitor"], [BRAND.red, "< 70% — Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
