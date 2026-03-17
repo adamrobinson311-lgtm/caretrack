@@ -659,9 +659,10 @@ export default function App() {
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [practiceBedGrid, setPracticeBedGrid] = useState(() =>
-    [1, 2, 3, 4].map(n => createEmptyBed(METRICS, n))
-  );
+  const [practiceBedGrid, setPracticeBedGrid] = useState(() => {
+    try { return [1, 2, 3, 4].map(n => createEmptyBed(METRICS, n)); }
+    catch { return []; }
+  });
   const [practiceSaving, setPracticeSaving] = useState(false);
   const [practiceError, setPracticeError] = useState(null);
   const [practiceSessionId, setPracticeSessionId] = useState(null);
@@ -2652,10 +2653,10 @@ export default function App() {
                 <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20, textAlign: "center" }}>Your tool for tracking wound care compliance across hospitals. Log an audit after every visit — your dashboard builds itself from there.</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
                   {[
-                    ["📋", "Log Audit",   "Record compliance data after each visit"],
-                    ["📊", "Dashboard",   "Trends, averages, and export tools"],
-                    ["📁", "History",     "Browse and edit past sessions"],
-                    ["🏆", "Performers",  "Hospital and unit rankings"],
+                    ["📋", "Log Audit",  "Record compliance data after each visit"],
+                    ["📊", "Dashboard",  "Trends, averages, and export tools"],
+                    ["📁", "History",    "Browse and edit past sessions"],
+                    ["🏆", "Performers", "Hospital and unit rankings"],
                   ].map(([icon, title, desc]) => (
                     <div key={title} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", background: C.bg, borderRadius: 10 }}>
                       <span style={{ fontSize: 22, flexShrink: 0 }}>{icon}</span>
@@ -2680,10 +2681,10 @@ export default function App() {
                 <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6, marginBottom: 20, textAlign: "center" }}>Fill in these four things after every hospital visit.</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
                   {[
-                    ["1", "Date",     "Today's date is filled in automatically — change it if you're logging retroactively."],
+                    ["1", "Date",     "Today's date is filled in automatically — change it if logging retroactively."],
                     ["2", "Hospital", "Type or select the hospital name. CareTrack remembers hospitals you've used before."],
                     ["3", "Unit",     "Enter the unit or location. Previously used units appear as a quick-pick list."],
-                    ["4", "Metrics",  "Use Per Bed mode to tap YES/NO for each metric per bed. The totals calculate automatically."],
+                    ["4", "Metrics",  "Use Per Bed mode to tap YES/NO for each metric per bed. Totals calculate automatically."],
                   ].map(([num, title, desc]) => (
                     <div key={num} style={{ display: "flex", gap: 14, padding: "14px", background: C.bg, borderRadius: 10 }}>
                       <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.primary, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, flexShrink: 0, marginTop: 1 }}>{num}</div>
@@ -2709,8 +2710,6 @@ export default function App() {
                   <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 400, marginBottom: 6 }}>Log your first audit</h2>
                   <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Tap YES or NO for each metric on each bed. We'll delete this practice entry automatically when you're done.</p>
                 </div>
-
-                {/* Pre-filled context (read-only) */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
                   <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
                     <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 3 }}>DATE</div>
@@ -2725,62 +2724,45 @@ export default function App() {
                     <div style={{ fontSize: 13, color: C.ink }}>Practice Hospital</div>
                   </div>
                 </div>
-
-                {/* Bed grid */}
                 <div style={{ marginBottom: 16 }}>
                   <BedGrid
                     metrics={METRICS}
                     beds={practiceBedGrid}
                     onChange={setPracticeBedGrid}
                     onAddBed={() => {
-                      const newCount = practiceBedGrid.length + 1;
-                      const newBed = createEmptyBed(METRICS, newCount);
-                      newBed.room = String(newCount);
-                      setPracticeBedGrid(prev => [...prev, newBed]);
+                      const n = practiceBedGrid.length + 1;
+                      const b = createEmptyBed(METRICS, n);
+                      b.room = String(n);
+                      setPracticeBedGrid(prev => [...prev, b]);
                     }}
                     onRemoveBed={(idx) => setPracticeBedGrid(prev => prev.filter((_, i) => i !== idx))}
                   />
                 </div>
-
                 {practiceError && (
                   <div style={{ background: C.redLight, border: `1px solid ${C.red}33`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 12 }}>{practiceError}</div>
                 )}
-
                 <div style={{ display: "flex", gap: 10 }}>
                   <button onClick={() => setOnboardingStep(1)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
-                  <button
-                    disabled={practiceSaving}
-                    onClick={async () => {
-                      // Compute num/den from bed grid
-                      const metricTotals = {};
-                      METRICS.forEach(m => {
-                        const activeBeds = practiceBedGrid.filter(b => !b.na && !b[`${m.id}_na`]);
-                        const totalQ = activeBeds.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0);
-                        const totalA = activeBeds.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0);
-                        metricTotals[`${m.id}_den`] = totalQ || null;
-                        metricTotals[`${m.id}_num`] = totalA || null;
-                      });
-                      const hasMetric = METRICS.some(m => metricTotals[`${m.id}_den`] > 0);
-                      if (!hasMetric) { setPracticeError("Tap YES or NO on at least one bed to continue."); return; }
-                      setPracticeError(null); setPracticeSaving(true);
-                      const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
-                      const payload = {
-                        date: new Date().toISOString().slice(0, 10),
-                        hospital: "Practice Hospital",
-                        location: "Practice Unit",
-                        protocol_for_use: null,
-                        notes: "Onboarding practice session — will be deleted automatically.",
-                        logged_by: userName,
-                        bed_data: practiceBedGrid,
-                        ...metricTotals,
-                      };
-                      const { data, error } = await supabase.from("sessions").insert([payload]).select().single();
-                      setPracticeSaving(false);
-                      if (error) { setPracticeError("Couldn't save. " + error.message); return; }
-                      setPracticeSessionId(data.id);
-                      setOnboardingStep(3);
-                    }}
-                    style={{ flex: 2, background: C.primary, border: "none", borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: practiceSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em", opacity: practiceSaving ? 0.7 : 1 }}>
+                  <button disabled={practiceSaving} onClick={async () => {
+                    const metricTotals = {};
+                    METRICS.forEach(m => {
+                      const active = practiceBedGrid.filter(b => !b.na && !b[`${m.id}_na`]);
+                      metricTotals[`${m.id}_den`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0) || null;
+                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0) || null;
+                    });
+                    if (!METRICS.some(m => metricTotals[`${m.id}_den`] > 0)) { setPracticeError("Tap YES or NO on at least one bed to continue."); return; }
+                    setPracticeError(null); setPracticeSaving(true);
+                    const { data, error } = await supabase.from("sessions").insert([{
+                      date: new Date().toISOString().slice(0, 10),
+                      hospital: "Practice Hospital", location: "Practice Unit",
+                      notes: "Onboarding practice session — will be deleted automatically.",
+                      logged_by: userName, bed_data: practiceBedGrid, ...metricTotals,
+                    }]).select().single();
+                    setPracticeSaving(false);
+                    if (error) { setPracticeError("Couldn't save. " + error.message); return; }
+                    setPracticeSessionId(data.id);
+                    setOnboardingStep(3);
+                  }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: practiceSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em", opacity: practiceSaving ? 0.7 : 1 }}>
                     {practiceSaving ? "SAVING…" : "SAVE AUDIT →"}
                   </button>
                 </div>
@@ -2794,17 +2776,15 @@ export default function App() {
                 <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, marginBottom: 10, textAlign: "center" }}>You've got it!</h2>
                 <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 8, textAlign: "center" }}>Your practice audit was saved. Tap below to start logging real sessions — we'll delete the practice entry in the background.</p>
                 <p style={{ fontSize: 12, color: C.inkLight, lineHeight: 1.6, marginBottom: 28, textAlign: "center" }}>You can revisit this guide anytime from the <strong>What's New</strong> button.</p>
-                <button
-                  onClick={async () => {
-                    setShowOnboarding(false);
-                    localStorage.setItem("caretrack_onboarded", "true");
-                    setTab("log");
-                    if (practiceSessionId) {
-                      await supabase.from("sessions").delete().eq("id", practiceSessionId);
-                      setEntries(prev => prev.filter(e => e.id !== practiceSessionId));
-                    }
-                  }}
-                  style={{ width: "100%", background: C.primary, border: "none", borderRadius: 10, padding: "16px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+                <button onClick={async () => {
+                  setShowOnboarding(false);
+                  localStorage.setItem("caretrack_onboarded", "true");
+                  setTab("log");
+                  if (practiceSessionId) {
+                    await supabase.from("sessions").delete().eq("id", practiceSessionId);
+                    setEntries(prev => prev.filter(e => e.id !== practiceSessionId));
+                  }
+                }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 10, padding: "16px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
                   START LOGGING →
                 </button>
               </>
@@ -2813,8 +2793,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
 
       {/* ── CHANGELOG MODAL ────────────────────────────────────────────────── */}
       {showChangelog && (
@@ -2926,7 +2904,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            <button onClick={() => { setShowChangelog(false); setShowOnboarding(true); setOnboardingStep(0); }} style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginTop: 8 }}>
+            <button onClick={() => { setShowChangelog(false); setShowOnboarding(true); setOnboardingStep(0); setPracticeBedGrid([1,2,3,4].map(n => createEmptyBed(METRICS, n))); setPracticeSaving(false); setPracticeError(null); setPracticeSessionId(null); }} style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginTop: 8 }}>
               REPLAY ONBOARDING TOUR
             </button>
           </div>
