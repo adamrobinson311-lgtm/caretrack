@@ -569,24 +569,47 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.text("Session Log", 14, 35);
 
   const recentSessions = [...entries].reverse().slice(0, 20);
+
+  // Category columns — each bucket gets its own column showing metric values stacked
+  const HISTORY_BUCKETS = [
+    { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"] },
+    { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "Turning",          ids: ["turning_criteria"] },
+    { label: "Air Supply",       ids: ["air_supply"] },
+  ];
+
+  const bucketCell = (e, bucket) =>
+    bucket.ids.map(id => {
+      const p = pct(e[`${id}_num`], e[`${id}_den`]);
+      const label = METRICS.find(m => m.id === id)?.label.replace("Matt Applied Properly", "Properly").replace("Matt Applied", "Applied").replace("Wedges Applied", "Applied").replace("Wedges in Room", "In Room").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Turning & Repositioning", "Turning");
+      return `${label}: ${p !== null ? `${p}%` : "—"}`;
+    }).join("\n");
+
   const tableRows = recentSessions.map(e => [
     e.created_at ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : e.date,
     e.hospital || "—",
     e.location || "—",
-    METRICS.slice(0, 4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
-    METRICS.slice(4).map(m => { const p = pct(e[`${m.id}_num`], e[`${m.id}_den`]); return p !== null ? `${p}%` : "—"; }).join(" / "),
+    ...HISTORY_BUCKETS.map(b => bucketCell(e, b)),
     e.logged_by || "—",
-    e.notes || "",
   ]);
 
   autoTable(doc, {
     startY: 40,
-    head: [["Timestamp", "Hospital", "Location", "Matt/Wedges/Turn/Prop", "Rm/Off/Air", "Logged By", "Notes"]],
+    head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By"]],
     body: tableRows,
-    styles: { fontSize: 7.5, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7.5 },
+    styles: { fontSize: 6.5, cellPadding: 2, font: "helvetica", valign: "top" },
+    headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 7 },
     alternateRowStyles: { fillColor: [240, 237, 234] },
-    columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 38 }, 4: { cellWidth: 24 }, 5: { cellWidth: 24 }, 6: { cellWidth: 22 } },
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 18 },
+      3: { cellWidth: 28 }, // Matt
+      4: { cellWidth: 34 }, // Wedge
+      5: { cellWidth: 18 }, // Turning
+      6: { cellWidth: 18 }, // Air
+      7: { cellWidth: 24 }, // Logged By
+    },
     margin: { left: 14, right: 14 },
     theme: "plain",
   });
