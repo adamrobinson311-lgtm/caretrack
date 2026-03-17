@@ -645,9 +645,13 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       const rowData = cellData[absIdx]?.[bucketIdx];
       if (!rowData) return;
 
-      // Repaint background to match alternating rows (didDrawCell fires after autoTable drew the bg)
-      const isAlt = absIdx % 2 !== 0;
-      doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
+      // Repaint background using the color autoTable already computed for this cell
+      const fc = data.cell.styles.fillColor;
+      if (Array.isArray(fc)) {
+        doc.setFillColor(...fc);
+      } else {
+        doc.setFillColor(...BRAND.white);
+      }
       doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
 
       const bucket = HISTORY_BUCKETS[bucketIdx];
@@ -761,9 +765,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         const absIdx = data.row.dataIndex ?? data.row.index;
         const mIdx = data.column.index - 5;
         const pVal = bedColorData[absIdx]?.[mIdx];
-        // Repaint background to match alternating rows
-        const isAlt = absIdx % 2 !== 0;
-        doc.setFillColor(...(isAlt ? [240, 237, 234] : BRAND.white));
+        // Repaint background using color autoTable already computed
+        const fc = data.cell.styles.fillColor;
+        doc.setFillColor(...(Array.isArray(fc) ? fc : BRAND.white));
         doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
         // Draw colour-coded text
         if (pVal !== null) {
