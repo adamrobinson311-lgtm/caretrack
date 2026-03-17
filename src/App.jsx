@@ -1,3 +1,4 @@
+// CareTrack v2.8 - build fix
 import { useState, useEffect, useRef, Fragment } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
