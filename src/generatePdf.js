@@ -457,7 +457,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "\u25b2" : "\u25bc"} ${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
+        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
       }
     }
   };
