@@ -1067,7 +1067,7 @@ export default function App() {
     saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
     setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
-    if (navigator.vibrate) navigator.vibrate([40, 30, 40]); // haptic success pattern
+    haptic("success"); // haptic on save
     setTimeout(() => setSaved(false), 4000);
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
   };
@@ -1332,7 +1332,23 @@ export default function App() {
   const touchStartY = useRef(null);
   const mainContentRef = useRef(null);
 
-  // Pull-to-refresh
+  // Cross-platform haptic feedback — navigator.vibrate on Android, AudioContext click on iOS
+  const haptic = (type = "light") => {
+    if (navigator.vibrate) {
+      navigator.vibrate(type === "success" ? [40, 30, 40] : type === "heavy" ? 60 : 15);
+    } else {
+      // iOS fallback: tiny AudioContext click simulates haptic feel
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.01, ctx.sampleRate);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start();
+        setTimeout(() => ctx.close(), 100);
+      } catch {}
+    }
+  };
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
@@ -1345,7 +1361,7 @@ export default function App() {
     // Pull down ≥80px, mostly vertical, at top of scroll
     if (dy > 80 && dx < 40 && scrollTop < 10 && (tab === "dashboard" || tab === "history")) {
       setPulling(true);
-      if (navigator.vibrate) navigator.vibrate(30);
+      haptic("light");
       // Refetch sessions
       const uName = user?.user_metadata?.full_name || user?.email;
       const { data } = await supabase.from("sessions").select("*").eq("logged_by", uName).order("created_at", { ascending: true });
@@ -1358,8 +1374,8 @@ export default function App() {
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     if (Math.abs(swipeX) > 60 && swipeY < 40) {
       const cur = tabs.indexOf(tab);
-      if (swipeX < 0 && cur < tabs.length - 1) { setTab(tabs[cur + 1]); if (navigator.vibrate) navigator.vibrate(15); }
-      if (swipeX > 0 && cur > 0) { setTab(tabs[cur - 1]); if (navigator.vibrate) navigator.vibrate(15); }
+      if (swipeX < 0 && cur < tabs.length - 1) { setTab(tabs[cur + 1]); haptic("light"); }
+      if (swipeX > 0 && cur > 0) { setTab(tabs[cur - 1]); haptic("light"); }
     }
     touchStartX.current = null;
     touchStartY.current = null;
@@ -1463,19 +1479,22 @@ export default function App() {
           /* Inputs */
           input, textarea, select { font-size: 16px !important; }
 
-          /* Sticky save button */
+          /* Sticky save button — log tab only */
           .savebtn {
             position: fixed !important;
-            bottom: 72px !important;
-            left: 16px !important;
-            right: 16px !important;
+            bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+            left: 12px !important;
+            right: 12px !important;
             width: auto !important;
             padding: 16px !important;
             font-size: 13px !important;
             z-index: 90 !important;
             border-radius: 12px !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+            box-shadow: 0 -2px 20px rgba(0,0,0,0.18) !important;
           }
+
+          /* Extra bottom padding on log tab so content isn't hidden behind sticky save */
+          .log-form-bottom { padding-bottom: 100px !important; }
 
           /* Dashboard */
           .dashboard-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
@@ -1640,7 +1659,7 @@ export default function App() {
 
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
-          <div style={{ maxWidth: 720 }} className="mobile-full">
+          <div style={{ maxWidth: 720 }} className="mobile-full log-form-bottom">
             <div style={{ marginBottom: 28 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
@@ -2251,7 +2270,7 @@ export default function App() {
                 })}
                 {filteredHistory.length > historyPage && (
                   <button
-                    onClick={() => { setHistoryPage(p => p + 20); if (navigator.vibrate) navigator.vibrate(15); }}
+                    onClick={() => { setHistoryPage(p => p + 20); haptic("light"); }}
                     style={{ width: "100%", padding: "14px", background: "none", border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.06em" }}>
                     LOAD MORE ({filteredHistory.length - historyPage} remaining)
                   </button>
@@ -3231,7 +3250,7 @@ export default function App() {
           { id: "performers", icon: "🏆", label: "Rank" },
           ...(isAdmin ? [{ id: "admin", icon: "⚙️", label: "Admin" }] : []),
         ].map(({ id, icon, label, badge }) => (
-          <button key={id} onClick={() => { setTab(id); if (navigator.vibrate) navigator.vibrate(15); }}
+          <button key={id} onClick={() => { setTab(id); haptic("light"); }}
             style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
               padding: "10px 4px 8px", background: "none", border: "none", cursor: "pointer",
