@@ -1445,6 +1445,12 @@ export default function App() {
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
         ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${C.borderDark}; border-radius: 3px; }
         .savebtn:hover { background: ${C.primary} !important; color: white !important; border-color: ${C.primary} !important; }
+        @keyframes savePulse {
+          0%   { transform: scale(1); box-shadow: 0 0 0 0 ${C.green}66; }
+          40%  { transform: scale(1.03); box-shadow: 0 0 0 8px ${C.green}00; }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 ${C.green}00; }
+        }
+        .savebtn-success { animation: savePulse 0.45s ease-out forwards; }
         .summarize:hover { background: ${C.primaryLight} !important; }
         .export-btn:hover { opacity: 0.85 !important; }
         .signout:hover { color: ${C.accent} !important; }
@@ -1813,8 +1819,8 @@ export default function App() {
             </div>
 
             {saveError && <div style={{ marginBottom: 16, padding: "10px 14px", background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, fontSize: 13, color: C.red }}>⚠ {saveError}</div>}
-            <button className="savebtn" onClick={handleSave} disabled={saving || !!dbError}
-              style={{ background: saved ? C.greenLight : !isOnline ? C.amberLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : !isOnline ? C.amber : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? C.green : !isOnline ? C.amber : C.ink, cursor: saving ? "not-allowed" : "pointer", transition: "all 0.2s", opacity: saving ? 0.6 : 1 }}>
+            <button className={`savebtn${saved ? " savebtn-success" : ""}`} onClick={handleSave} disabled={saving || !!dbError}
+              style={{ background: saved ? C.green : !isOnline ? C.amberLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : !isOnline ? C.amber : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? "white" : !isOnline ? C.amber : C.ink, cursor: saving ? "not-allowed" : "pointer", transition: "background 0.2s, color 0.2s, border-color 0.2s", opacity: saving ? 0.6 : 1 }}>
               {saved ? `✓ SAVED · ${savedAt ? new Date(savedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}` : saving ? "SAVING..." : !isOnline ? "SAVE OFFLINE →" : "SAVE SESSION →"}
             </button>
           </div>
