@@ -651,11 +651,15 @@ export default function App() {
   const [syncResult, setSyncResult] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [userProfiles, setUserProfiles] = useState([]);
-  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users
+  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals
   const [deletionRequestModal, setDeletionRequestModal] = useState(null); // { session } | null
   const [deletionRequestReason, setDeletionRequestReason] = useState("");
   const [reassignFrom, setReassignFrom] = useState(null);
   const [reassignTo, setReassignTo] = useState("");
+  const [hospitalRenameFrom, setHospitalRenameFrom] = useState("");
+  const [hospitalRenameTo, setHospitalRenameTo] = useState("");
+  const [hospitalRenaming, setHospitalRenaming] = useState(false);
+  const [hospitalRenameResult, setHospitalRenameResult] = useState(null); // { count, error }
 
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
@@ -2389,7 +2393,7 @@ export default function App() {
 
             {/* Admin sub-nav */}
             <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => {
+              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["hospitals","HOSPITALS"],["audit","AUDIT LOG"]].map(([id, label]) => {
                 const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : 0;
                 return (
                   <button key={id} onClick={() => setAdminSection(id)}
@@ -2571,6 +2575,113 @@ export default function App() {
                       );
                     })}
                     {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── HOSPITALS SECTION ── */}
+            {adminSection === "hospitals" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Rename Hospital card */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>RENAME HOSPITAL</div>
+                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Renames a hospital across all sessions. The new name will appear in rep dropdowns automatically.</p>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>CURRENT NAME</label>
+                      <select
+                        value={hospitalRenameFrom}
+                        onChange={e => { setHospitalRenameFrom(e.target.value); setHospitalRenameResult(null); }}
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: hospitalRenameFrom ? C.ink : C.inkLight, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                        <option value="">Select hospital...</option>
+                        {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NEW NAME</label>
+                      <input
+                        type="text"
+                        value={hospitalRenameTo}
+                        onChange={e => { setHospitalRenameTo(e.target.value); setHospitalRenameResult(null); }}
+                        placeholder="Enter new hospital name..."
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  {hospitalRenameFrom && hospitalRenameTo && hospitalRenameFrom !== hospitalRenameTo && (
+                    <div style={{ background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.amber }}>
+                      ⚠️ This will rename <strong>"{hospitalRenameFrom}"</strong> to <strong>"{hospitalRenameTo}"</strong> across{" "}
+                      <strong>{allEntriesFull.filter(e => e.hospital === hospitalRenameFrom).length} sessions</strong>. This cannot be undone.
+                    </div>
+                  )}
+
+                  {/* Result */}
+                  {hospitalRenameResult && (
+                    <div style={{ background: hospitalRenameResult.error ? C.redLight : C.greenLight, border: `1px solid ${hospitalRenameResult.error ? C.red : C.green}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: hospitalRenameResult.error ? C.red : C.green }}>
+                      {hospitalRenameResult.error
+                        ? `Error: ${hospitalRenameResult.error}`
+                        : `✓ Successfully renamed ${hospitalRenameResult.count} session${hospitalRenameResult.count !== 1 ? "s" : ""}.`}
+                    </div>
+                  )}
+
+                  <button
+                    disabled={!hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo || hospitalRenaming}
+                    onClick={async () => {
+                      if (!window.confirm(`Rename "${hospitalRenameFrom}" to "${hospitalRenameTo}" across all sessions?`)) return;
+                      setHospitalRenaming(true);
+                      setHospitalRenameResult(null);
+                      const { data, error } = await supabase
+                        .from("sessions")
+                        .update({ hospital: hospitalRenameTo })
+                        .eq("hospital", hospitalRenameFrom)
+                        .select();
+                      setHospitalRenaming(false);
+                      if (error) {
+                        setHospitalRenameResult({ error: error.message });
+                      } else {
+                        setHospitalRenameResult({ count: data.length });
+                        // Refresh entries
+                        setAllEntriesFull(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                        setEntries(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                        await logAudit("HOSPITAL_RENAMED", { from: hospitalRenameFrom, to: hospitalRenameTo, count: data.length });
+                        setHospitalRenameFrom("");
+                        setHospitalRenameTo("");
+                      }
+                    }}
+                    style={{ background: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.surfaceAlt : C.primary, color: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.inkLight : "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? "not-allowed" : "pointer", letterSpacing: "0.06em" }}>
+                    {hospitalRenaming ? "RENAMING..." : "RENAME HOSPITAL"}
+                  </button>
+                </div>
+
+                {/* Hospital list */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>
+                    ALL HOSPITALS ({[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(h => {
+                      const count = allEntriesFull.filter(e => e.hospital === h).length;
+                      const reps = [...new Set(allEntriesFull.filter(e => e.hospital === h).map(e => e.logged_by))].filter(Boolean);
+                      return (
+                        <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
+                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{reps.join(", ")}</div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.primary, fontWeight: 600 }}>{count}</div>
+                            <div style={{ fontSize: 10, color: C.inkLight }}>sessions</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
