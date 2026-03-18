@@ -34,11 +34,19 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     { id: "air_supply",       label: "Air Supply in Room" },
   ];
 
-  const MAYO_METRICS = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
-  const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-  const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
-  const hasMayo = entries.some(e => isMayo(e.hospital));
-  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const MAYO_METRICS   = [{ id: "air_reposition", label: "Air Used to Reposition Patient" }];
+  const KAISER_METRICS = [{ id: "heel_boots", label: "Heel Boots" }, { id: "turn_clock", label: "Turn Clock" }];
+  const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+  const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+  const getMetrics = (hospital) => {
+    let m = [...METRICS];
+    if (isMayo(hospital))   m = [...m, ...MAYO_METRICS];
+    if (isKaiser(hospital)) m = [...m, ...KAISER_METRICS];
+    return m;
+  };
+  const hasMayo   = entries.some(e => isMayo(e.hospital));
+  const hasKaiser = entries.some(e => isKaiser(e.hospital));
+  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : [])];
 
   const pct = (n, d) => {
     const nv = parseFloat(n), dv = parseFloat(d);
@@ -107,7 +115,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
   const svgToDataUri = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
   // National averages
-  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
+  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75, heel_boots: null, turn_clock: null };
 
   // Metric lookup
   const metricLookup = {};
@@ -121,7 +129,8 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
     { label: "AIR SUPPLY",       ids: ["air_supply"] },
   ];
-  if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"] });
+  if (hasMayo)   GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"] });
+  if (hasKaiser) GROUPS.push({ label: "KAISER METRICS", ids: ["heel_boots", "turn_clock"] });
 
   const PL = 0.38, SW = 9.3, CARD_H = 0.88, CARD_GAP = 0.1, SEC_H = 0.2;
   let curY = 1.55;
@@ -237,7 +246,18 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
   const recentSessions = [...entries].reverse().slice(0, 12);
   const hdrOpts = (text) => ({ text, options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "center" } });
-  const tableHeader = [hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"), hdrOpts("Matt"), hdrOpts("Wedges"), hdrOpts("Turning"), hdrOpts("Matt Prop."), hdrOpts("Wdg Rm"), hdrOpts("Offload"), hdrOpts("Air"), hdrOpts("Logged By")];
+
+  // Dynamic metric columns based on what's present in the data
+  const METRIC_SHORT = {
+    matt_applied: "Matt", wedges_applied: "Wedges", turning_criteria: "Turning",
+    matt_proper: "Matt Prop.", wedges_in_room: "Wdg Rm", wedge_offload: "Offload",
+    air_supply: "Air", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock",
+  };
+  const tableHeader = [
+    hdrOpts("Date"), hdrOpts("Hospital"), hdrOpts("Location"),
+    ...summaryMetrics.map(m => hdrOpts(METRIC_SHORT[m.id] || m.label)),
+    hdrOpts("Logged By"),
+  ];
 
   const tableRows = recentSessions.map((e, idx) => {
     const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
@@ -249,16 +269,20 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { text: e.date || "—", options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 9, fontFace: "Calibri", align: "center" } },
       { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 9, fontFace: "Calibri", bold: true } },
       { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
-      metricCell("matt_applied"), metricCell("wedges_applied"), metricCell("turning_criteria"),
-      metricCell("matt_proper"), metricCell("wedges_in_room"), metricCell("wedge_offload"), metricCell("air_supply"),
+      ...summaryMetrics.map(m => metricCell(m.id)),
       { text: e.logged_by || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri" } },
     ];
   });
 
+  // Column widths: date + hospital + location + one per metric + logged by
+  const metricColW = 9.3 - 0.75 - 1.1 - 0.9 - 1.1; // remaining width for metrics
+  const mColW = parseFloat((metricColW / summaryMetrics.length).toFixed(2));
+  const colW = [0.75, 1.1, 0.9, ...summaryMetrics.map(() => mColW), 1.1];
+
   s5.addTable([tableHeader, ...tableRows], {
     x: 0.38, y: 1.25, w: 9.3, rowH: 0.28,
     border: { pt: 0.5, color: BRAND.light },
-    colW: [0.75, 1.1, 0.9, 0.75, 0.75, 0.75, 0.85, 0.75, 0.75, 0.65, 1.1],
+    colW,
   });
   if (entries.length > 12) {
     s5.addText(`Showing most recent 12 of ${entries.length} sessions`, { x: 0.38, y: 5.3, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });

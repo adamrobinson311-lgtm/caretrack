@@ -94,7 +94,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
-  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
+  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : [])];
 
   const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
@@ -574,16 +574,19 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const recentSessions = [...entries].reverse().slice(0, 20);
 
   const HISTORY_BUCKETS = [
-    { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                    single: false },
+    { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                      single: false },
     { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], single: false },
-    { label: "Turning",          ids: ["turning_criteria"],                                single: true },
-    { label: "Air Supply",       ids: ["air_supply"],                                      single: true },
+    { label: "Turning",          ids: ["turning_criteria"],                                  single: true },
+    ...(hasMayo   ? [{ label: "Air Repos.",     ids: ["air_reposition"], single: true }] : []),
+    { label: "Air Supply",       ids: ["air_supply"],                                        single: true },
+    ...(hasKaiser ? [{ label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"], single: false }] : []),
   ];
 
   const METRIC_SHORT = {
     matt_applied: "Applied", matt_proper: "Properly",
     wedges_in_room: "In Room", wedges_applied: "Applied", wedge_offload: "Offloading",
     turning_criteria: "Turning", air_supply: "Air Supply",
+    air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock",
   };
 
   // Build plain-text rows (autoTable needs strings for layout/height calculation)
@@ -612,6 +615,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     )
   );
 
+  // Dynamic column widths: fixed cols = 16+22+16+18+16 = 88mm, remaining split among buckets
+  const fixedColsW = 88;
+  const bucketTotalW = 182 - fixedColsW;
+  const bucketW = Math.floor(bucketTotalW / HISTORY_BUCKETS.length);
+  const bucketColStyles = Object.fromEntries(HISTORY_BUCKETS.map((_, i) => [i + 3, { cellWidth: bucketW }]));
+
   autoTable(doc, {
     startY: 40,
     head: [["Date", "Hospital", "Unit", ...HISTORY_BUCKETS.map(b => b.label), "Logged By", "Notes"]],
@@ -623,25 +632,22 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       0: { cellWidth: 16 },
       1: { cellWidth: 22 },
       2: { cellWidth: 16 },
-      3: { cellWidth: 24 },
-      4: { cellWidth: 30 },
-      5: { cellWidth: 20 },
-      6: { cellWidth: 20 },
-      7: { cellWidth: 18 },
-      8: { cellWidth: 16, fontStyle: "italic" },
+      ...bucketColStyles,
+      [HISTORY_BUCKETS.length + 3]: { cellWidth: 18 },
+      [HISTORY_BUCKETS.length + 4]: { cellWidth: 16, fontStyle: "italic" },
     },
     margin: { left: 14, right: 14 },
     theme: "plain",
     willDrawCell: (data) => {
       if (data.section !== "body") return;
       const bucketIdx = data.column.index - 3;
-      if (bucketIdx >= 0 && bucketIdx <= 3) {
+      if (bucketIdx >= 0 && bucketIdx < HISTORY_BUCKETS.length) {
         data.cell.text = [];
       }
     },
     didDrawCell: (data) => {
       const bucketIdx = data.column.index - 3;
-      if (data.section !== "body" || bucketIdx < 0 || bucketIdx > 3) return;
+      if (data.section !== "body" || bucketIdx < 0 || bucketIdx >= HISTORY_BUCKETS.length) return;
 
       const absIdx = data.row.dataIndex ?? data.row.index;
       const rowData = cellData[absIdx]?.[bucketIdx];
@@ -712,11 +718,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       e.bed_data.forEach((bed, idx) => {
         if (bed.na) {
           bedRows.push([dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...METRICS.map(() => "N/A")]);
+            ...summaryMetrics.map(() => "N/A")]);
         } else {
           bedRows.push([
             dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...METRICS.map(m => {
+            ...summaryMetrics.map(m => {
               if (bed[`${m.id}_na`]) return "N/A";
               const q = parseInt(bed[`${m.id}_q`]) || 0;
               const a = parseInt(bed[`${m.id}_a`]) || 0;
@@ -728,16 +734,16 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     });
 
     const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
-      ...METRICS.map(m => m.label.replace("Turning & Repositioning", "Turning").replace("Matt Applied Properly", "Matt Prop.").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Wedges in Room", "Wdg Room").replace("Wedges Applied", "Wdg App.").replace("Matt Applied", "Matt App."))]];
+      ...summaryMetrics.map(m => m.label.replace("Turning & Repositioning", "Turning").replace("Matt Applied Properly", "Matt Prop.").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Wedges in Room", "Wdg Room").replace("Wedges Applied", "Wdg App.").replace("Matt Applied", "Matt App.").replace("Air Used to Reposition Patient", "Air Repos.").replace("Heel Boots", "Heel Boots").replace("Turn Clock", "Trn Clock"))]];
 
     // Build color lookup for bed rows
     const bedColorData = [];
     bedEntries.forEach(e => {
-      e.bed_data.forEach((bed, idx) => {
+      e.bed_data.forEach((bed) => {
         if (bed.na) {
-          bedColorData.push(METRICS.map(() => null));
+          bedColorData.push(summaryMetrics.map(() => null));
         } else {
-          bedColorData.push(METRICS.map(m => {
+          bedColorData.push(summaryMetrics.map(m => {
             if (bed[`${m.id}_na`]) return null;
             const q = parseInt(bed[`${m.id}_q`]) || 0;
             const a = parseInt(bed[`${m.id}_a`]) || 0;
@@ -746,6 +752,13 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         }
       });
     });
+
+    // Dynamic metric column widths: 18+22+16+8+12 = 76mm fixed, remaining split among metrics
+    const bedFixedW = 76;
+    const bedMetricW = Math.floor((182 - bedFixedW) / summaryMetrics.length);
+    const bedMetricColStyles = Object.fromEntries(summaryMetrics.map((_, i) => [i + 5, { cellWidth: bedMetricW }]));
+
+    const BED_METRIC_OFFSET = 5;
 
     autoTable(doc, {
       startY: 48,
@@ -757,21 +770,19 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       columnStyles: {
         0: { cellWidth: 18 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
-        5: { cellWidth: 15 }, 6: { cellWidth: 15 }, 7: { cellWidth: 15 },
-        8: { cellWidth: 15 }, 9: { cellWidth: 15 }, 10: { cellWidth: 15 }, 11: { cellWidth: 15 },
+        ...bedMetricColStyles,
       },
       margin: { left: 14, right: 14 },
       theme: "plain",
       didDrawCell: (data) => {
-        if (data.section !== "body" || data.column.index < 5) return;
+        if (data.section !== "body" || data.column.index < BED_METRIC_OFFSET) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
-        const mIdx = data.column.index - 5;
+        const mIdx = data.column.index - BED_METRIC_OFFSET;
+        if (mIdx >= summaryMetrics.length) return;
         const pVal = bedColorData[absIdx]?.[mIdx];
-        // Repaint background using color autoTable already computed
         const fc = data.cell.styles.fillColor;
         doc.setFillColor(...(Array.isArray(fc) ? fc : BRAND.white));
         doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
-        // Draw colour-coded text
         if (pVal !== null) {
           doc.setTextColor(...pctColor(pVal));
           doc.setFont("helvetica", "bold");
