@@ -1,4 +1,4 @@
-// CareTrack v2.8 - build fix
+// CareTrack v2.8
 import { useState, useEffect, useRef, Fragment } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
@@ -697,7 +697,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.7";
+  const CURRENT_VERSION = "2.8";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -2915,7 +2915,16 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.7", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.8", date: "March 2026", badge: "LATEST", items: [
+                "Onboarding redesign — new mobile bottom-sheet walkthrough with a live bed grid practice session that auto-deletes on completion",
+                "PDF session log — metrics now shown in grouped category columns (Matt Compliance, Wedge Compliance, Turning, Air Supply) with colour-coded values",
+                "PDF bed detail page — per-bed compliance breakdown added after the session log when Per Bed data is present",
+                "PDF AI summary — markdown formatting stripped, 1,200-character limit removed, overflow pages added for long summaries",
+                "Mayo and Kaiser metrics — air_reposition, heel_boots, and turn_clock now included dynamically in PDF and PowerPoint exports when present",
+                "Admin: Hospital rename tool — bulk-rename a hospital across all sessions from a new Hospitals tab, with audit logging",
+                "Security: RLS policies tightened — users can only read and write their own sessions; audit log restricted to admins only",
+              ]},
+              { version: "2.7", date: "March 2026", badge: null, items: [
                 "Log Audit — form renamed from \"Log Session\" throughout the app",
                 "Kaiser Permanente metrics — opt-in Heel Boots On and Turn Clock compliance metrics for Kaiser hospitals",
                 "Deletion requests — reps can request a session be deleted; admins approve or deny from a new Admin tab panel",
