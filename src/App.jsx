@@ -2020,7 +2020,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 {/* Action buttons */}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }} className="export-row">
