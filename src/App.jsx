@@ -1067,6 +1067,7 @@ export default function App() {
     saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
     setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
+    if (navigator.vibrate) navigator.vibrate([40, 30, 40]); // haptic success pattern
     setTimeout(() => setSaved(false), 4000);
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
   };
@@ -1324,6 +1325,46 @@ export default function App() {
     setSummarizing(false);
   };
 
+  // Mobile UX
+  const [historyPage, setHistoryPage] = useState(20); // virtualised history — show N at a time
+  const [pulling, setPulling] = useState(false);       // pull-to-refresh indicator
+  const touchStartX = useRef(null);
+  const touchStartY = useRef(null);
+  const mainContentRef = useRef(null);
+
+  // Pull-to-refresh
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchEnd = async (e) => {
+    if (touchStartY.current === null) return;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    const dx = Math.abs(e.changedTouches[0].clientX - touchStartX.current);
+    const scrollTop = mainContentRef.current?.scrollTop ?? window.scrollY;
+    // Pull down ≥80px, mostly vertical, at top of scroll
+    if (dy > 80 && dx < 40 && scrollTop < 10 && (tab === "dashboard" || tab === "history")) {
+      setPulling(true);
+      if (navigator.vibrate) navigator.vibrate(30);
+      // Refetch sessions
+      const uName = user?.user_metadata?.full_name || user?.email;
+      const { data } = await supabase.from("sessions").select("*").eq("logged_by", uName).order("created_at", { ascending: true });
+      if (data) setEntries(data);
+      setPulling(false);
+    }
+    // Swipe left/right to change tab
+    const tabs = ["log", "dashboard", "history", "performers", ...(isAdmin ? ["admin"] : [])];
+    const swipeX = e.changedTouches[0].clientX - touchStartX.current;
+    const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+    if (Math.abs(swipeX) > 60 && swipeY < 40) {
+      const cur = tabs.indexOf(tab);
+      if (swipeX < 0 && cur < tabs.length - 1) { setTab(tabs[cur + 1]); if (navigator.vibrate) navigator.vibrate(15); }
+      if (swipeX > 0 && cur > 0) { setTab(tabs[cur - 1]); if (navigator.vibrate) navigator.vibrate(15); }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
   const Tab = ({ id, label, badge }) => (
     <button onClick={() => setTab(id)} style={{ padding: "10px 22px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.08em", color: tab === id ? C.primary : C.inkLight, borderBottom: tab === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", position: "relative" }}>
       {label}
@@ -1403,8 +1444,11 @@ export default function App() {
         }
         /* Mobile optimisation */
         @media (max-width: 640px) {
+          /* Hide top nav tabs — replaced by bottom nav */
+          .nav-tabs { display: none !important; }
+
           /* Layout */
-          .mobile-pad { padding: 16px !important; }
+          .mobile-pad { padding: 16px 16px 100px !important; }
           .mobile-full { max-width: 100% !important; padding: 0 !important; }
 
           /* Header */
@@ -1416,13 +1460,22 @@ export default function App() {
           .header-user-name { display: none !important; }
           .header-right { gap: 8px !important; }
 
-          /* Nav tabs */
-          .nav-tabs { padding: 0 4px !important; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-          .nav-tabs button { padding: 10px 12px !important; font-size: 10px !important; }
-
           /* Inputs */
           input, textarea, select { font-size: 16px !important; }
-          .savebtn { width: 100% !important; padding: 16px !important; font-size: 13px !important; }
+
+          /* Sticky save button */
+          .savebtn {
+            position: fixed !important;
+            bottom: 72px !important;
+            left: 16px !important;
+            right: 16px !important;
+            width: auto !important;
+            padding: 16px !important;
+            font-size: 13px !important;
+            z-index: 90 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+          }
 
           /* Dashboard */
           .dashboard-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
@@ -1458,6 +1511,9 @@ export default function App() {
           .user-card-row { flex-wrap: wrap !important; }
           .user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
           .user-actions button { flex: 1; }
+
+          /* Bottom nav */
+          .bottom-nav { display: flex !important; }
         }
         /* Print styles */
         @media print {
@@ -1573,7 +1629,14 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 64px" }} className="mobile-pad">
+      <div ref={mainContentRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 120px" }} className="mobile-pad">
+
+        {/* Pull-to-refresh indicator */}
+        {pulling && (
+          <div style={{ textAlign: "center", padding: "8px 0 16px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.08em" }}>
+            ↻ REFRESHING...
+          </div>
+        )}
 
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
@@ -1932,7 +1995,7 @@ export default function App() {
                   </div>
                   {filteredDashboard.length === 0 ? (
                     <div style={{ padding: "40px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions for this filter.</div>
-                  ) : (
+                  ) : tab === "dashboard" ? (
                     <div className="chart-container">
                       <ResponsiveContainer width="100%" height={260}>
                         <LineChart data={chartDataWithNational} margin={{ top: 5, right: 20, bottom: 5, left: -15 }}>
@@ -2000,7 +2063,7 @@ export default function App() {
                 <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={setHistoryHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
+                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
                 <DateRangeFilter />
               </div>
             </div>
@@ -2010,7 +2073,7 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions found for this filter.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {[...filteredHistory].reverse().map(e => {
+                {[...filteredHistory].reverse().slice(0, historyPage).map(e => {
                   const isOfflinePending = e.id && String(e.id).startsWith("offline_");
                   const isEditing = editingId === e.id;
                   const ef = isEditing ? editForm : e;
@@ -2186,6 +2249,13 @@ export default function App() {
                     </div>
                   );
                 })}
+                {filteredHistory.length > historyPage && (
+                  <button
+                    onClick={() => { setHistoryPage(p => p + 20); if (navigator.vibrate) navigator.vibrate(15); }}
+                    style={{ width: "100%", padding: "14px", background: "none", border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.06em" }}>
+                    LOAD MORE ({filteredHistory.length - historyPage} remaining)
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -3145,6 +3215,39 @@ export default function App() {
         </div>
       )}
     </div>
+
+      {/* ── BOTTOM NAV (mobile only) ─────────────────────────────────────────── */}
+      <div className="bottom-nav" style={{
+        display: "none", // shown via CSS on mobile
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
+        background: C.surface, borderTop: `1px solid ${C.border}`,
+        boxShadow: "0 -2px 12px rgba(0,0,0,0.08)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        {[
+          { id: "log",        icon: "✏️", label: "Log" },
+          { id: "dashboard",  icon: "📊", label: "Dash" },
+          { id: "history",    icon: "📁", label: "History", badge: entries.length > 0 ? entries.length : null },
+          { id: "performers", icon: "🏆", label: "Rank" },
+          ...(isAdmin ? [{ id: "admin", icon: "⚙️", label: "Admin" }] : []),
+        ].map(({ id, icon, label, badge }) => (
+          <button key={id} onClick={() => { setTab(id); if (navigator.vibrate) navigator.vibrate(15); }}
+            style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              padding: "10px 4px 8px", background: "none", border: "none", cursor: "pointer",
+              color: tab === id ? C.primary : C.inkLight, position: "relative",
+            }}>
+            <span style={{ fontSize: 20, lineHeight: 1, marginBottom: 3 }}>{icon}</span>
+            <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", fontWeight: tab === id ? 600 : 400 }}>{label}</span>
+            {tab === id && (
+              <span style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 24, height: 2, background: C.primary, borderRadius: "0 0 2px 2px" }} />
+            )}
+            {badge != null && (
+              <span style={{ position: "absolute", top: 6, right: "calc(50% - 16px)", background: C.primary, color: "white", borderRadius: 8, padding: "1px 5px", fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{badge}</span>
+            )}
+          </button>
+        ))}
+      </div>
     </>
   );
 }
