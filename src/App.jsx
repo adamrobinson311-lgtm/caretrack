@@ -659,7 +659,10 @@ export default function App() {
   const [hospitalRenameFrom, setHospitalRenameFrom] = useState("");
   const [hospitalRenameTo, setHospitalRenameTo] = useState("");
   const [hospitalRenaming, setHospitalRenaming] = useState(false);
-  const [hospitalRenameResult, setHospitalRenameResult] = useState(null); // { count, error }
+  const [hospitalRenameResult, setHospitalRenameResult] = useState(null);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
+  const [editingNameSaving, setEditingNameSaving] = useState(false); // { count, error }
 
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
@@ -2622,9 +2625,67 @@ export default function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
-                                {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
-                                {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                                {editingNameId === profile.id ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                                    <input
+                                      autoFocus
+                                      value={editingNameValue}
+                                      onChange={e => setEditingNameValue(e.target.value)}
+                                      onKeyDown={async e => {
+                                        if (e.key === "Escape") { setEditingNameId(null); setEditingNameValue(""); }
+                                        if (e.key === "Enter") {
+                                          if (!editingNameValue.trim() || editingNameValue.trim() === profile.full_name) { setEditingNameId(null); return; }
+                                          setEditingNameSaving(true);
+                                          const oldName = profile.full_name || profile.email;
+                                          const newName = editingNameValue.trim();
+                                          // Update user_profiles
+                                          const { error: profErr } = await supabase.from("user_profiles").update({ full_name: newName }).eq("id", profile.id);
+                                          if (profErr) { alert("Failed: " + profErr.message); setEditingNameSaving(false); return; }
+                                          // Bulk update sessions logged_by
+                                          await supabase.from("sessions").update({ logged_by: newName }).eq("logged_by", oldName);
+                                          // Update local state
+                                          setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, full_name: newName } : p));
+                                          setAllEntriesFull(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                          setEntries(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                          await logAudit("USER_RENAMED", { email: profile.email, from: oldName, to: newName }, profile.email);
+                                          setEditingNameId(null); setEditingNameValue(""); setEditingNameSaving(false);
+                                        }
+                                      }}
+                                      style={{ flex: 1, background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "3px 8px", fontSize: 13, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif", minWidth: 0, outline: "none" }}
+                                    />
+                                    <button onClick={async () => {
+                                      if (!editingNameValue.trim() || editingNameValue.trim() === profile.full_name) { setEditingNameId(null); return; }
+                                      setEditingNameSaving(true);
+                                      const oldName = profile.full_name || profile.email;
+                                      const newName = editingNameValue.trim();
+                                      const { error: profErr } = await supabase.from("user_profiles").update({ full_name: newName }).eq("id", profile.id);
+                                      if (profErr) { alert("Failed: " + profErr.message); setEditingNameSaving(false); return; }
+                                      await supabase.from("sessions").update({ logged_by: newName }).eq("logged_by", oldName);
+                                      setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, full_name: newName } : p));
+                                      setAllEntriesFull(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                      setEntries(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                      await logAudit("USER_RENAMED", { email: profile.email, from: oldName, to: newName }, profile.email);
+                                      setEditingNameId(null); setEditingNameValue(""); setEditingNameSaving(false);
+                                    }} disabled={editingNameSaving}
+                                      style={{ background: C.green, border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                      {editingNameSaving ? "..." : "SAVE"}
+                                    </button>
+                                    <button onClick={() => { setEditingNameId(null); setEditingNameValue(""); }}
+                                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
+                                    {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
+                                    {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                                    <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
+                                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
+                                      ✎ RENAME
+                                    </button>
+                                  </>
+                                )}
                               </div>
                               <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {profile.email} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}
