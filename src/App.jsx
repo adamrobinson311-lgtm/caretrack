@@ -903,6 +903,14 @@ export default function App() {
 
   const realIsAdmin = user && ADMIN_EMAILS.includes(user.email);
   const isAdmin = realIsAdmin && !viewAsUser;
+
+  // Director role — derived from user_profiles once loaded
+  const myProfile = userProfiles.find(p => p.email === user?.email);
+  const isDirector = !isAdmin && myProfile?.role === "director";
+  const myRegion = myProfile?.region || "";
+  const regionReps = userProfiles.filter(p => p.region === myRegion && p.role !== "director" && p.email !== user?.email);
+  const [regionEntries, setRegionEntries] = useState([]);
+  const [regionLoading, setRegionLoading] = useState(false);
   // When impersonating, override the display name and filter entries to that user only
   const userName = viewAsUser
     ? (viewAsUser.full_name || viewAsUser.email)
@@ -961,7 +969,8 @@ export default function App() {
       if (e.key === "2") setTab("dashboard");
       if (e.key === "3") setTab("history");
       if (e.key === "4") setTab("performers");
-      if (e.key === "5" && isAdmin) setTab("admin");
+      if (e.key === "5" && isDirector) setTab("region");
+      if ((e.key === "5" && isAdmin) || (e.key === "6" && isAdmin)) setTab("admin");
       if (e.key === "?" ) setShowChangelog(true);
       if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); setShowBrandingEditor(false); }
     };
@@ -1081,6 +1090,12 @@ export default function App() {
         setUserProfiles(profileData || []);
       }
 
+      // All users get full user_profiles so director/region info is available
+      if (!isAdminUser) {
+        const { data: profileData } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: true });
+        setUserProfiles(profileData || []);
+      }
+
       // Register/update user profile on login
       await supabase.from("user_profiles").upsert([{
         email: user.email,
@@ -1089,6 +1104,20 @@ export default function App() {
       setLoading(false);
     })();
   }, [user]);
+
+  // Fetch all sessions for reps in director's region
+  useEffect(() => {
+    if (!isDirector || !myRegion || regionReps.length === 0) return;
+    (async () => {
+      setRegionLoading(true);
+      const repNames = regionReps.map(r => r.full_name || r.email).filter(Boolean);
+      const { data } = await supabase.from("sessions").select("*")
+        .in("logged_by", repNames)
+        .order("created_at", { ascending: true });
+      setRegionEntries(data || []);
+      setRegionLoading(false);
+    })();
+  }, [isDirector, myRegion, regionReps.length]);
 
   // Initialize bed grid when hospital/unit changes (grid mode)
   useEffect(() => {
@@ -1533,7 +1562,7 @@ export default function App() {
       setPulling(false);
     }
     // Swipe left/right to change tab
-    const tabs = ["log", "dashboard", "history", "performers", ...(isAdmin ? ["admin"] : [])];
+    const tabs = ["log", "dashboard", "history", "performers", ...(isDirector ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
     const swipeX = e.changedTouches[0].clientX - touchStartX.current;
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     if (Math.abs(swipeX) > 60 && swipeY < 40) {
@@ -1819,6 +1848,7 @@ export default function App() {
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
+            {isDirector && <Tab id="region" label="MY REGION" />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
         </div>
@@ -2655,6 +2685,144 @@ export default function App() {
           </div>
         )}
 
+        {tab === "region" && isDirector && (
+          <div>
+            {/* Header */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>MY REGION</div>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{myRegion || "Region"}</h1>
+              <p style={{ color: C.inkMid, fontSize: 13 }}>{regionReps.length} rep{regionReps.length !== 1 ? "s" : ""} · {regionEntries.length} sessions logged</p>
+            </div>
+
+            {regionLoading ? (
+              <div style={{ fontSize: 13, color: C.inkLight, padding: "40px 0", textAlign: "center" }}>Loading region data...</div>
+            ) : regionReps.length === 0 ? (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No reps in your region yet</div>
+                <div style={{ fontSize: 13, color: C.inkMid }}>Ask your admin to assign reps to the <strong>{myRegion}</strong> region.</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* ── Rep Roster ── */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>REP ROSTER</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {regionReps.map(rep => {
+                      const repSessions = regionEntries.filter(e => e.logged_by === (rep.full_name || rep.email));
+                      const repVals = METRICS.flatMap(m => repSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                      const repAvg = repVals.length ? Math.round(repVals.reduce((a, b) => a + b, 0) / repVals.length) : null;
+                      const lastSess = repSessions[repSessions.length - 1];
+                      const isActive = rep.is_active !== false;
+                      return (
+                        <div key={rep.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, opacity: isActive ? 1 : 0.5 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.primaryLight, border: `1px solid ${C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: C.primary, flexShrink: 0 }}>
+                            {(rep.full_name || rep.email).charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{rep.full_name || rep.email}</div>
+                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {rep.email} · {repSessions.length} session{repSessions.length !== 1 ? "s" : ""}
+                              {lastSess && ` · Last: ${formatTimestamp(lastSess.created_at, lastSess.date)}`}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: repAvg !== null ? pctColor(repAvg) : C.inkFaint }}>{repAvg !== null ? `${repAvg}%` : "—"}</div>
+                            <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
+                          </div>
+                          <button onClick={() => { setViewAsUser({ email: rep.email, full_name: rep.full_name }); setTab("dashboard"); }}
+                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+                            👁 VIEW
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ── Regional Aggregated Metrics ── */}
+                {regionEntries.length > 0 && (() => {
+                  const regionAvgByMetric = METRICS.map(m => {
+                    const vals = regionEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                    return { ...m, avg };
+                  });
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>REGIONAL COMPLIANCE — ALL REPS</div>
+                      {METRIC_BUCKETS.map(bucket => {
+                        const bucketMetrics = regionAvgByMetric.filter(m => bucket.ids.includes(m.id));
+                        if (bucketMetrics.length === 0) return null;
+                        return (
+                          <div key={bucket.label} style={{ marginBottom: 20 }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8 }}>{bucket.label.toUpperCase()}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 10 }} className="metric-grid">
+                              {bucketMetrics.map(m => {
+                                const natVals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                                const natAvg = natVals.length ? Math.round(natVals.reduce((a,b)=>a+b,0)/natVals.length) : null;
+                                return (
+                                <div key={m.id} style={{ background: m.avg !== null ? (m.avg >= 90 ? C.greenLight : m.avg >= 70 ? C.amberLight : C.redLight) : C.bg, border: `1px solid ${m.avg !== null ? pctColor(m.avg) + "44" : C.border}`, borderRadius: 10, padding: "14px 16px" }}>
+                                  <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, marginBottom: 8 }}>{m.label}</div>
+                                  <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>{m.avg !== null ? `${m.avg}%` : "—"}</div>
+                                  <div style={{ marginTop: 6, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: `${m.avg ?? 0}%`, background: m.avg !== null ? pctColor(m.avg) : C.inkFaint, borderRadius: 2, transition: "width 0.6s ease" }} />
+                                  </div>
+                                  {natAvg !== null && (
+                                    <div style={{ marginTop: 6, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>
+                                      National avg: {natAvg}%
+                                      {m.avg !== null && <span style={{ marginLeft: 6, fontWeight: 600, color: m.avg >= natAvg ? C.green : C.red }}>{m.avg >= natAvg ? "▲" : "▼"}{Math.abs(m.avg - natAvg)}%</span>}
+                                    </div>
+                                  )}
+                                </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Hospital Rankings across region ── */}
+                {regionEntries.length > 0 && (() => {
+                  const hospMap = {};
+                  regionEntries.forEach(e => {
+                    if (!e.hospital) return;
+                    if (!hospMap[e.hospital]) hospMap[e.hospital] = [];
+                    hospMap[e.hospital].push(e);
+                  });
+                  const rankings = Object.entries(hospMap).map(([hosp, sess]) => {
+                    const vals = METRICS.flatMap(m => sess.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                    return { name: hosp, avg, sessions: sess.length };
+                  }).filter(h => h.avg !== null).sort((a, b) => b.avg - a.avg);
+                  if (rankings.length === 0) return null;
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>HOSPITAL RANKINGS — REGION</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {rankings.map((h, i) => (
+                          <div key={h.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < rankings.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                            <div style={{ width: 24, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint, flexShrink: 0 }}>#{i + 1}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
+                              <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{h.sessions} session{h.sessions !== 1 ? "s" : ""}</div>
+                            </div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(h.avg), flexShrink: 0 }}>{h.avg}%</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "admin" && isAdmin && (
           <div>
             <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
@@ -2910,6 +3078,8 @@ export default function App() {
                                   <>
                                     <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
                                     {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
+                                    {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
+                                    {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
                                     {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
                                     <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
                                       style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
@@ -2957,6 +3127,45 @@ export default function App() {
                                 </button>
                               </div>
                             )}
+                          </div>
+                          {/* Role + Region row */}
+                          {!isAdminUser && (
+                            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>ROLE</label>
+                                <select value={profile.role || "rep"}
+                                  onChange={async e => {
+                                    const newRole = e.target.value;
+                                    const { error } = await supabase.from("user_profiles").update({ role: newRole }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: newRole } : p));
+                                    await logAudit("USER_ROLE_CHANGED", { email: profile.email, role: newRole }, profile.email);
+                                  }}
+                                  style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
+                                  <option value="rep">Rep</option>
+                                  <option value="director">Director</option>
+                                </select>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REGION</label>
+                                <input
+                                  defaultValue={profile.region || ""}
+                                  placeholder="e.g. Northeast"
+                                  onBlur={async e => {
+                                    const newRegion = e.target.value.trim();
+                                    if (newRegion === (profile.region || "")) return;
+                                    const { error } = await supabase.from("user_profiles").update({ region: newRegion }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, region: newRegion } : p));
+                                    await logAudit("USER_REGION_CHANGED", { email: profile.email, region: newRegion }, profile.email);
+                                  }}
+                                  style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                                  onFocus={e => e.target.style.borderColor = C.primary}
+                                  onKeyDown={e => e.key === "Enter" && e.target.blur()}
+                                />
+                              </div>
+                            </div>
+                          )}
                           </div>
                         </div>
                       );
@@ -3587,6 +3796,7 @@ export default function App() {
           { id: "dashboard",  icon: "📊", label: "Dash" },
           { id: "history",    icon: "📁", label: "History", badge: entries.length > 0 ? entries.length : null },
           { id: "performers", icon: "🏆", label: "Rank" },
+          ...(isDirector ? [{ id: "region", icon: "🗺️", label: "Region" }] : []),
           ...(isAdmin ? [{ id: "admin", icon: "⚙️", label: "Admin" }] : []),
         ].map(({ id, icon, label, badge }) => (
           <button key={id} onClick={() => { setTab(id); haptic("light"); }}
