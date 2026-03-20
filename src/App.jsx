@@ -78,6 +78,8 @@ const defaultForm = () => ({
 
 const pct = (n, d) => { const nv = parseFloat(n), dv = parseFloat(d); if (!dv || isNaN(nv) || isNaN(dv)) return null; return Math.round((nv / dv) * 100); };
 const pctColor = (v) => { if (v === null) return C.inkLight; if (v >= 90) return C.green; if (v >= 70) return C.amber; return C.red; };
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 const pctBg = (v) => { if (v === null) return C.surfaceAlt; if (v >= 90) return C.greenLight; if (v >= 70) return C.amberLight; return C.redLight; };
 const LINE_COLORS = ["#4F6E77", "#678093", "#7C5366", "#3a7d5c", "#8a6a2a", "#5b7fa6", "#7C7270"];
 
@@ -155,9 +157,7 @@ const LoginScreen = ({ onLogin }) => {
             {loading ? "PLEASE WAIT..." : mode === "login" ? "SIGN IN →" : "CREATE ACCOUNT →"}
           </button>
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: C.inkLight }}>
-            {mode === "login"
-              ? <span>Don't have an account? <button onClick={() => { setMode("signup"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Sign up</button></span>
-              : <span>Already have an account? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Sign in</button></span>}
+            Contact your CareTrack administrator to request access.
           </div>
         </div>
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
@@ -236,6 +236,11 @@ const createEmptyBed = (metrics, roomNum) => {
 
 const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
   const [activeBed, setActiveBed] = useState(0);
+  const [scanning, setScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState(""); // "", "starting", "ready", "reading", "error"
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const canvasRef = useRef(null);
 
   // Keep activeBed in bounds if beds shrink
   const safeIdx = Math.min(activeBed, beds.length - 1);
@@ -263,6 +268,76 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     totals[`${m.id}_q`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
     totals[`${m.id}_a`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
   });
+
+  const openCamera = async () => {
+    setScanning(true);
+    setScanStatus("starting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      setScanStatus("ready");
+      // Attach stream to video element after modal renders
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }, 100);
+    } catch (err) {
+      setScanStatus("error");
+    }
+  };
+
+  const closeCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+    setScanStatus("");
+  };
+
+  const captureAndRead = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setScanStatus("reading");
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    try {
+      // Load Tesseract from CDN if not already loaded
+      if (!window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const { data: { text } } = await window.Tesseract.recognize(canvas, "eng", {
+        tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz- ",
+      });
+      // Extract the most prominent number/room from OCR result
+      const cleaned = text.trim().replace(/\n+/g, " ");
+      // Look for patterns like "3997", "Room 12", "3N", "4 South", etc.
+      const roomMatch = cleaned.match(/\b(\d{3,4}[A-Za-z]?|[A-Za-z]+[\s-]?\d+|\d+[A-Za-z]{1,2})\b/);
+      const result = roomMatch ? roomMatch[1] : cleaned.replace(/[^0-9A-Za-z\s-]/g, "").trim().slice(0, 10);
+      if (result) {
+        updateCell("room", result);
+        closeCamera();
+      } else {
+        setScanStatus("ready"); // no match — let them try again
+      }
+    } catch {
+      setScanStatus("ready");
+    }
+  };
 
   const bed = beds[safeIdx] || {};
   const isNa = !!bed.na;
@@ -307,6 +382,10 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
               style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.primary, outline: "none" }}
               onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell("room", String(safeIdx + 1)); }}
               onBlur={e => e.target.style.borderColor = C.border} />
+            <button onClick={openCamera} title="Scan room number"
+              style={{ width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, padding: 0, flexShrink: 0 }}>
+              📷
+            </button>
             <button onClick={toggleNa}
               style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${isNa ? C.amber : C.border}`, background: isNa ? C.amberLight : "none", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: isNa ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", fontWeight: isNa ? 700 : 400, transition: "all 0.15s" }}>
               {isNa ? "✓ N/A" : "N/A"}
@@ -409,6 +488,61 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
           })}
         </div>
       </div>
+
+      {/* ── Camera scan modal ── */}
+      {scanning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1100, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: 440, background: C.surface, borderRadius: "20px 20px 0 0", position: "absolute", bottom: 0, padding: "20px 20px 36px" }}>
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Scan Room Number</div>
+                <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Point camera at the room placard</div>
+              </div>
+              <button onClick={closeCamera} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: C.inkLight, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+
+            {/* Viewfinder */}
+            <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", background: "#000", aspectRatio: "4/3", marginBottom: 16 }}>
+              {scanStatus === "starting" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13 }}>Starting camera...</div>
+              )}
+              {scanStatus === "error" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 20 }}>
+                  <span style={{ fontSize: 28 }}>🚫</span>
+                  <div style={{ color: "white", fontSize: 13, textAlign: "center" }}>Camera access denied. Please allow camera permission in your browser settings.</div>
+                </div>
+              )}
+              <video ref={videoRef} autoPlay playsInline muted
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: scanStatus === "error" ? "none" : "block" }} />
+              {/* Targeting overlay */}
+              {(scanStatus === "ready" || scanStatus === "reading") && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                  <div style={{ width: "60%", height: "35%", border: `2px solid ${C.primary}`, borderRadius: 8, boxShadow: `0 0 0 2000px rgba(0,0,0,0.35)` }} />
+                </div>
+              )}
+              {scanStatus === "reading" && (
+                <div style={{ position: "absolute", bottom: 12, left: 0, right: 0, textAlign: "center" }}>
+                  <span style={{ background: "rgba(0,0,0,0.7)", color: "white", fontSize: 12, padding: "4px 12px", borderRadius: 20, fontFamily: "'IBM Plex Mono', monospace" }}>Reading...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Hidden canvas for OCR */}
+            <canvas ref={canvasRef} style={{ display: "none" }} />
+
+            {/* Capture button */}
+            {(scanStatus === "ready" || scanStatus === "reading") && (
+              <button onClick={captureAndRead} disabled={scanStatus === "reading"}
+                style={{ width: "100%", padding: "14px", background: scanStatus === "reading" ? C.surfaceAlt : C.primary, border: "none", borderRadius: 10, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: scanStatus === "reading" ? C.inkLight : "white", cursor: scanStatus === "reading" ? "not-allowed" : "pointer", letterSpacing: "0.08em" }}>
+                {scanStatus === "reading" ? "READING ROOM NUMBER..." : "📷  CAPTURE"}
+              </button>
+            )}
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -664,6 +798,17 @@ export default function App() {
   const [editingNameValue, setEditingNameValue] = useState("");
   const [editingNameSaving, setEditingNameSaving] = useState(false); // { count, error }
 
+  // PWA install prompt
+  const [pwaPrompt, setPwaPrompt] = useState(null); // deferred BeforeInstallPromptEvent
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [installDismissed, setInstallDismissed] = useState(() => !!localStorage.getItem("caretrack_install_dismissed"));
+
+  // User invite (admin)
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null); // { ok, message }
+
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -841,7 +986,19 @@ export default function App() {
     const goOffline = () => setIsOnline(false);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
-    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+
+    // Android PWA install prompt
+    const handleInstallPrompt = (e) => {
+      e.preventDefault();
+      setPwaPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
+
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+    };
   }, []);
 
   // Auto-sync when coming back online
@@ -1072,6 +1229,10 @@ export default function App() {
     setSavedAt(data.created_at || new Date().toISOString());
     haptic("success"); // haptic on save
     setTimeout(() => setSaved(false), 4000);
+    // Show PWA install prompt after first session if not dismissed
+    if (!installDismissed && (pwaPrompt || isIOS())) {
+      setTimeout(() => setShowInstallBanner(true), 1500);
+    }
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
   };
 
@@ -1444,6 +1605,20 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        /* ── Mobile touch optimisations (global) ── */
+        button, [role="button"], a {
+          -webkit-tap-highlight-color: transparent;
+          touch-action: manipulation;
+        }
+        /* Prevent accidental text selection during swipe gestures */
+        .bottom-nav, .nav-tabs, .filter-bar, .metric-card-hover,
+        .history-card-top, .history-actions, .admin-sub-nav {
+          user-select: none;
+          -webkit-user-select: none;
+        }
+        /* Minimum tap target 44×44px for all interactive elements */
+        button { min-height: 36px; }
+        input, textarea { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
         input,textarea { font-family: 'IBM Plex Sans', sans-serif; outline: none; }
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
         ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${C.borderDark}; border-radius: 3px; }
@@ -1459,6 +1634,10 @@ export default function App() {
         .signout:hover { color: ${C.accent} !important; }
         .metric-card-hover:hover .hide-metric-btn { opacity: 1 !important; }
         .metric-card-hover:hover .hide-metric-btn:hover { background: ${C.surfaceAlt} !important; color: ${C.inkMid} !important; }
+        .metric-card-hover { touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: default; }
+        @media (max-width: 640px) {
+          .metric-card-hover:active { opacity: 0.85; transform: scale(0.98); transition: transform 0.1s, opacity 0.1s; }
+        }
         @media (max-width: 640px) {
           .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
           .admin-user-card { flex-direction: column !important; }
@@ -2606,6 +2785,58 @@ export default function App() {
             {/* ── USER MANAGEMENT SECTION ── */}
             {adminSection === "users" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Invite User card */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>INVITE USER</div>
+                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Send an invitation email with a sign-in link. The user will be prompted to set their password on first login.</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FULL NAME</label>
+                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Jane Smith"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL ADDRESS</label>
+                      <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="jane@hospital.com"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                  </div>
+                  {inviteResult && (
+                    <div style={{ background: inviteResult.ok ? C.greenLight : C.redLight, border: `1px solid ${inviteResult.ok ? C.green : C.red}44`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: inviteResult.ok ? C.green : C.red, marginBottom: 16 }}>
+                      {inviteResult.ok ? "✓" : "⚠"} {inviteResult.message}
+                    </div>
+                  )}
+                  <button disabled={inviting || !inviteEmail.trim() || !inviteName.trim()}
+                    onClick={async () => {
+                      if (!inviteEmail.trim() || !inviteName.trim()) return;
+                      setInviting(true); setInviteResult(null);
+                      try {
+                        // Use Supabase Edge Function to call auth.admin.inviteUserByEmail with service role
+                        const { data: { session } } = await supabase.auth.getSession();
+                        const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/invite-user`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                          body: JSON.stringify({ email: inviteEmail.trim(), full_name: inviteName.trim() }),
+                        });
+                        const json = await res.json();
+                        if (!res.ok) throw new Error(json.error || "Invitation failed");
+                        setInviteResult({ ok: true, message: `Invitation sent to ${inviteEmail.trim()}` });
+                        await logAudit("USER_INVITED", { email: inviteEmail.trim(), name: inviteName.trim() }, inviteEmail.trim());
+                        const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+                        if (freshAudit) setAuditLog(freshAudit);
+                        setInviteEmail(""); setInviteName("");
+                      } catch (err) {
+                        setInviteResult({ ok: false, message: err.message });
+                      }
+                      setInviting(false);
+                    }}
+                    style={{ background: inviting || !inviteEmail.trim() || !inviteName.trim() ? C.surfaceAlt : C.primary, border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: inviting || !inviteEmail.trim() || !inviteName.trim() ? C.inkLight : "white", cursor: inviting || !inviteEmail.trim() || !inviteName.trim() ? "not-allowed" : "pointer", letterSpacing: "0.08em" }}>
+                    {inviting ? "SENDING..." : "SEND INVITATION →"}
+                  </button>
+                </div>
                 {/* Per-user breakdown */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
@@ -2900,6 +3131,47 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* ── PWA INSTALL BANNER ────────────────────────────────────────────── */}
+      {showInstallBanner && !installDismissed && !isInStandaloneMode() && (
+        <div style={{ position: "fixed", bottom: 72, left: 12, right: 12, zIndex: 900, maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.primary}44`, borderRadius: 14, padding: "16px 18px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", display: "flex", alignItems: "flex-start", gap: 14 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <span style={{ fontSize: 20 }}>📲</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Add CareTrack to Home Screen</div>
+              {isIOS()
+                ? <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                    Tap <strong style={{ color: C.primary }}>Share</strong> then <strong style={{ color: C.primary }}>"Add to Home Screen"</strong> for instant one-tap access.
+                  </div>
+                : <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                    Install CareTrack for instant one-tap access — no app store needed.
+                  </div>
+              }
+              {!isIOS() && pwaPrompt && (
+                <button onClick={async () => {
+                  pwaPrompt.prompt();
+                  const { outcome } = await pwaPrompt.userChoice;
+                  if (outcome === "accepted") {
+                    setShowInstallBanner(false);
+                    setInstallDismissed(true);
+                    localStorage.setItem("caretrack_install_dismissed", "1");
+                  }
+                  setPwaPrompt(null);
+                }} style={{ marginTop: 10, background: C.primary, border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.06em" }}>
+                  INSTALL APP
+                </button>
+              )}
+            </div>
+            <button onClick={() => {
+              setShowInstallBanner(false);
+              setInstallDismissed(true);
+              localStorage.setItem("caretrack_install_dismissed", "1");
+            }} style={{ background: "none", border: "none", color: C.inkLight, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2, flexShrink: 0 }}>✕</button>
+          </div>
+        </div>
+      )}
 
       {/* ── ONBOARDING MODAL ───────────────────────────────────────────────── */}
       {showOnboarding && user && (
