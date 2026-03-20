@@ -1957,6 +1957,25 @@ export default function App() {
                   {/* Bed count input */}
                   {form.hospital && form.location ? (
                     <>
+                      {/* Early duplicate warning */}
+                      {(() => {
+                        const earlyDup = form.date && entries.find(e =>
+                          e.date === form.date &&
+                          e.hospital?.toLowerCase().trim() === form.hospital.toLowerCase().trim() &&
+                          e.location?.toLowerCase().trim() === form.location.toLowerCase().trim()
+                        );
+                        return earlyDup ? (
+                          <div style={{ background: C.amberLight, border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
+                            <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.amber, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", marginBottom: 3 }}>DUPLICATE SESSION</div>
+                              <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                                A session for <strong>{form.hospital} — {form.location}</strong> on <strong>{form.date}</strong> already exists. You can still save, but check if this is intentional.
+                              </div>
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ flex: "0 0 auto" }}>
                           <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>NUMBER OF BEDS</label>
