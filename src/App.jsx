@@ -1276,7 +1276,7 @@ export default function App() {
   });
 
   const proxyEntries = viewAsUser
-    ? allEntriesFull.filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
+    ? (isDirector ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
     : entries;
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
@@ -1776,7 +1776,7 @@ export default function App() {
               — read-only view of their data
             </span>
           </div>
-          <button onClick={() => { setViewAsUser(null); setTab("admin"); }}
+          <button onClick={() => { setViewAsUser(null); setTab(realIsAdmin ? "admin" : "region"); }}
             style={{ background: "white", border: "none", borderRadius: 6, padding: "5px 16px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, fontWeight: 700, cursor: "pointer", letterSpacing: "0.06em" }}>
             EXIT VIEW ✕
           </button>
