@@ -1153,14 +1153,14 @@ export default function App() {
             </div>
           )}
 
-          {/* Nav tabs */}
-          <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
+          {/* Nav tabs — desktop only, replaced by bottom nav on mobile */}
+          {!isMobile && <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
             <Tab id="log" label="LOG SESSION" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -1176,7 +1176,7 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 64px" }} className="mobile-pad">
+      <div style={{ maxWidth: 1120, margin: "0 auto", padding: isMobile ? "24px 16px 90px" : "32px 32px 64px" }} className="mobile-pad">
 
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
@@ -2329,6 +2329,64 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* ── Mobile Bottom Nav ── */}
+      {isMobile && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
+          background: C.surface, borderTop: `1px solid ${C.border}`,
+          display: "flex", alignItems: "stretch",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}>
+          {[
+            { id: "log",        label: "Log",     icon: (active) => (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+            )},
+            { id: "dashboard",  label: "Dash",    icon: (active) => (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/>
+              </svg>
+            )},
+            { id: "history",    label: "History", icon: (active) => (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+            ), badge: entries.length > 0 ? entries.length : null },
+            { id: "performers", label: "Rank",    icon: (active) => (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
+              </svg>
+            )},
+            ...(isAdmin ? [{ id: "admin", label: "Admin", icon: (active) => (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            )}] : []),
+          ].map(({ id, label, icon, badge }) => {
+            const active = tab === id;
+            return (
+              <button key={id} onClick={() => setTab(id)} style={{
+                flex: 1, background: "none", border: "none", cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                padding: "8px 4px 6px", gap: 3, position: "relative",
+              }}>
+                {/* Active indicator */}
+                {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: C.primary, borderRadius: "0 0 2px 2px" }} />}
+                {/* Badge */}
+                {badge && (
+                  <div style={{ position: "absolute", top: 6, left: "50%", marginLeft: 6, background: C.primary, color: "white", borderRadius: 8, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, padding: "0 4px", fontFamily: "'IBM Plex Mono', monospace" }}>
+                    {badge > 99 ? "99+" : badge}
+                  </div>
+                )}
+                {icon(active)}
+                <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: active ? C.primary : C.inkLight, letterSpacing: "0.04em" }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
     </div>
     </>
   );
