@@ -410,6 +410,14 @@ export default function App() {
   const [reassignFrom, setReassignFrom] = useState(null);
   const [reassignTo, setReassignTo] = useState("");
 
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -1041,76 +1049,78 @@ export default function App() {
 
       {/* Header */}
       <div className="header-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
-        <div className="header-inner" style={{ maxWidth: 1120, margin: "0 auto", padding: "0 32px" }}>
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 16px" : "0 32px" }}>
 
           {/* Row 1: logo left / controls right */}
-          <div className="header-row1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 0" }}>
-            {/* Left: logo + divider + label */}
-            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-              <img src="/hovertech-logo.png" alt="HoverTech" className="header-logo" style={{ height: 36, objectFit: "contain" }} />
-              <div style={{ width: 1, height: 28, background: C.border }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "8px 0 6px" : "14px 0 0" }}>
+            {/* Left: logo + divider + CARETRACK label */}
+            <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 20 }}>
+              <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: isMobile ? 26 : 36, objectFit: "contain" }} />
+              <div style={{ width: 1, height: isMobile ? 20 : 28, background: C.border }} />
               <div>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.15em" }}>CARETRACK</div>
-                <div className="header-subtitle" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkFaint, letterSpacing: "0.1em" }}>WOUND CARE COMPLIANCE</div>
+                {!isMobile && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkFaint, letterSpacing: "0.1em" }}>WOUND CARE COMPLIANCE</div>}
               </div>
             </div>
 
-            {/* Right: status + streak + avatar + dark mode + sign out */}
-            <div className="header-right" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {/* Status — dot always visible, text hidden on mobile */}
+            {/* Right controls */}
+            <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 16 }}>
+
+              {/* Status indicator */}
               {!isOnline
                 ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber }}>
-                    <span className="header-status-dot" style={{ display: "none" }}>●</span>
-                    <span className="header-status-text"> OFFLINE{offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}</span>
+                    {isMobile ? "●" : `● OFFLINE${offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}`}
                   </span>
                 : syncing
                   ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>
-                      <span className="header-status-dot" style={{ display: "none" }}>●</span>
-                      <span className="header-status-text"> SYNCING...</span>
+                      {isMobile ? "●" : "● SYNCING..."}
                     </span>
                   : !loading && !dbError
                     ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>
-                        <span className="header-status-dot" style={{ display: "none" }}>●</span>
-                        <span className="header-status-text"> CONNECTED</span>
+                        {isMobile ? "●" : "● CONNECTED"}
                       </span>
                     : dbError
                       ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>
-                          <span className="header-status-dot" style={{ display: "none" }}>●</span>
-                          <span className="header-status-text"> DB ERROR</span>
+                          {isMobile ? "●" : "● DB ERROR"}
                         </span>
                       : null
               }
-              {syncResult && <span className="header-status-text" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
+              {syncResult && !isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
 
-              {/* WHAT'S NEW — hidden on mobile, shown in secondary strip */}
-              <button className="header-sessions-count" onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
-                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
-                WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
-              </button>
+              {/* WHAT'S NEW — desktop only, secondary strip on mobile */}
+              {!isMobile && (
+                <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
+                  WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
+                </button>
+              )}
 
-              {/* Session count + streak — count hidden on mobile, streak text hidden */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div className="header-sessions-count" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
+              {/* Session count + streak */}
+              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 12 }}>
+                {!isMobile && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>}
                 {streak > 0 && (
                   <div title={`${streak} consecutive week${streak !== 1 ? "s" : ""} with sessions logged`}
                     style={{ display: "flex", alignItems: "center", gap: 4, background: streak >= 4 ? C.amberLight : C.surfaceAlt, border: `1px solid ${streak >= 4 ? C.amber : C.border}`, borderRadius: 12, padding: "2px 8px" }}>
                     <span style={{ fontSize: 12 }}>{streak >= 8 ? "🔥" : streak >= 4 ? "⚡" : "✦"}</span>
-                    <span className="header-streak-text" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight, letterSpacing: "0.05em" }}>{streak}W STREAK</span>
+                    {!isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight, letterSpacing: "0.05em" }}>{streak}W STREAK</span>}
+                    {isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight }}>{streak}W</span>}
                   </div>
                 )}
               </div>
 
-              <div className="header-divider" style={{ width: 1, height: 20, background: C.border }} />
+              {!isMobile && <div style={{ width: 1, height: 20, background: C.border }} />}
 
-              {/* Avatar + username + dark mode + sign out */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {/* Avatar + username (desktop) + dark mode + sign out (desktop) */}
+              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
                   {userName.charAt(0).toUpperCase()}
                 </div>
-                <div className="header-username">
-                  <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
-                  {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
-                </div>
+                {!isMobile && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
+                    {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
+                  </div>
+                )}
                 <button onClick={() => {
                     const next = !darkMode;
                     setDarkMode(next);
@@ -1122,23 +1132,26 @@ export default function App() {
                   title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
                   {darkMode ? "☀️" : "🌙"}
                 </button>
-                <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>
+                {!isMobile && <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>}
               </div>
             </div>
           </div>
 
-          {/* Secondary strip — hidden on desktop, shown on mobile */}
-          <div className="header-secondary" style={{ display: "none", alignItems: "center", justifyContent: "space-between", padding: "4px 0 6px", borderTop: `0.5px solid ${C.border}` }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight }}>
-              {entries.length} SESSIONS{offlineQueue.length > 0 ? ` · ${offlineQueue.length} PENDING` : ""}
+          {/* Secondary strip — mobile only */}
+          {isMobile && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0 6px", borderTop: `0.5px solid ${C.border}` }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight }}>
+                {entries.length} SESSIONS{offlineQueue.length > 0 ? ` · ${offlineQueue.length} PENDING` : ""}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
+                  WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -3, right: -3, width: 6, height: 6, borderRadius: "50%", background: C.red }} />}
+                </button>
+                <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em" }}>SIGN OUT</button>
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
-                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
-                WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -3, right: -3, width: 6, height: 6, borderRadius: "50%", background: C.red }} />}
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* Nav tabs */}
           <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
