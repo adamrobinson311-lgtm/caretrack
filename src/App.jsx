@@ -2549,9 +2549,10 @@ export default function App() {
             </div>
 
             {(() => {
-              // Build hospital rankings
+              // Build hospital rankings — use proxyEntries so director sees all region reps
+              const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
               const hospitalMap = {};
-              entries.forEach(e => {
+              perfEntries.forEach(e => {
                 if (!e.hospital) return;
                 if (!hospitalMap[e.hospital]) hospitalMap[e.hospital] = [];
                 hospitalMap[e.hospital].push(e);
@@ -2571,7 +2572,7 @@ export default function App() {
 
               // Build location rankings
               const locationMap = {};
-              entries.forEach(e => {
+              perfEntries.forEach(e => {
                 if (!e.location) return;
                 const key = e.hospital ? `${e.location} · ${e.hospital}` : e.location;
                 if (!locationMap[key]) locationMap[key] = [];
