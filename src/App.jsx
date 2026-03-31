@@ -1688,6 +1688,9 @@ export default function App() {
 
           /* Header */
           .header-wrap { padding-top: env(safe-area-inset-top, 0px) !important; }
+          .header-whats-new { display: none !important; }
+          .header-signout { display: none !important; }
+          .header-secondary-strip { display: flex !important; }
           .header-outer { padding: 0 16px !important; }
           .header-subtitle { display: none !important; }
           .header-meta { display: none !important; }
@@ -1809,7 +1812,7 @@ export default function App() {
                       : null
               }</span>
               {syncResult && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
-              <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+              <button className="header-whats-new" onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
                 style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
                 WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
               </button>
@@ -1843,7 +1846,7 @@ export default function App() {
                   title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
                   {darkMode ? "☀️" : "🌙"}
                 </button>
-                <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>
+                <button className="signout header-signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>
               </div>
             </div>
           </div>
@@ -1854,6 +1857,20 @@ export default function App() {
             <Tab id="performers" label="PERFORMERS" />
             {isDirector && <Tab id="region" label="MY REGION" />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
+          </div>
+
+          {/* Secondary strip — mobile only, shows items hidden from main header row */}
+          <div className="header-secondary-strip" style={{ display: "none", alignItems: "center", justifyContent: "space-between", padding: "4px 0 6px", borderTop: `0.5px solid ${C.border}` }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight }}>
+              {entries.length} SESSIONS{offlineQueue.length > 0 ? ` · ${offlineQueue.length} PENDING` : ""}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative", whiteSpace: "nowrap" }}>
+                WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -3, right: -3, width: 6, height: 6, borderRadius: "50%", background: C.red }} />}
+              </button>
+              <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em" }}>SIGN OUT</button>
+            </div>
           </div>
         </div>
       </div>
