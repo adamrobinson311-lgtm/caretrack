@@ -1601,7 +1601,7 @@ export default function App() {
       setPulling(false);
     }
     // Swipe left/right to change tab
-    const tabs = ["log", "dashboard", "history", "performers", ...(isDirector ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
+    const tabs = ["log", "dashboard", "history", "performers", "planner", ...(isDirector ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
     const swipeX = e.changedTouches[0].clientX - touchStartX.current;
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     if (Math.abs(swipeX) > 60 && swipeY < 40) {
@@ -1892,6 +1892,7 @@ export default function App() {
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
+            <Tab id="planner" label="PLANNER" />
             {isDirector && <Tab id="region" label="MY REGION" />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
@@ -2653,137 +2654,13 @@ export default function App() {
         {/* ── ADMIN ── */}
         {tab === "performers" && (
           <div>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-              <div>
-                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>
-                  {performersView === "rankings" ? "Performers" : "Visit Planner"}
-                </h1>
-                <p style={{ color: C.inkMid, fontSize: 13 }}>
-                  {performersView === "rankings" ? "Ranked by overall average compliance across all metrics." : "Hospitals due for a visit, sorted by days since last session."}
-                </p>
-              </div>
-              {/* Toggle */}
-              <div style={{ display: "flex", background: C.surfaceAlt, borderRadius: 8, padding: 3, gap: 2, flexShrink: 0 }}>
-                {[["rankings", "Rankings"], ["planner", "Planner"]].map(([id, label]) => (
-                  <button key={id} onClick={() => setPerformersView(id)} style={{ background: performersView === id ? C.surface : "none", border: performersView === id ? `1px solid ${C.border}` : "1px solid transparent", borderRadius: 6, padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: performersView === id ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", transition: "all 0.15s" }}>
-                    {label.toUpperCase()}
-                  </button>
-                ))}
-              </div>
+            <div style={{ marginBottom: 28 }}>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Performers</h1>
+              <p style={{ color: C.inkMid, fontSize: 13 }}>Ranked by overall average compliance across all metrics.</p>
             </div>
 
-            {/* ── PLANNER VIEW ── */}
-            {performersView === "planner" && (() => {
-              const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
-              const myName = user?.user_metadata?.full_name || user?.email || "";
-              // For reps use own sessions; for directors use all region sessions
-              const relevantEntries = isDirector ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
-              const today = new Date();
-
-              const hospitalData = hospitals.map(hospital => {
-                const sessions = relevantEntries.filter(e => e.hospital === hospital && e.date);
-                const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
-                const lastSession = sorted[0];
-                const days = lastSession ? Math.floor((today - new Date(lastSession.date)) / 86400000) : null;
-                const avgCompliance = (() => {
-                  const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-                  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-                })();
-                const dueDate = lastSession ? new Date(new Date(lastSession.date).getTime() + 30 * 86400000) : null;
-                return { hospital, days, lastDate: lastSession?.date || null, avgCompliance, sessionCount: sessions.length, dueDate };
-              }).sort((a, b) => {
-                if (a.days === null) return -1;
-                if (b.days === null) return 1;
-                return b.days - a.days;
-              });
-
-              const statusOf = (days) => {
-                if (days === null) return { label: "NEVER VISITED", color: C.red, bg: C.redLight };
-                if (days > 30) return { label: "OVERDUE", color: C.red, bg: C.redLight };
-                if (days >= 20) return { label: "DUE SOON", color: C.amber, bg: C.amberLight };
-                return { label: "ON TRACK", color: C.green, bg: C.greenLight };
-              };
-
-              const overdue = hospitalData.filter(h => h.days === null || h.days > 30);
-              const dueSoon = hospitalData.filter(h => h.days !== null && h.days >= 20 && h.days <= 30);
-              const onTrack = hospitalData.filter(h => h.days !== null && h.days < 20);
-
-              const HospitalPlannerCard = ({ h }) => {
-                const status = statusOf(h.days);
-                return (
-                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
-                    <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: status.color, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.hospital}</div>
-                      <div style={{ fontSize: 11, color: C.inkLight }}>
-                        {h.lastDate
-                          ? `Last visit: ${new Date(h.lastDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${h.sessionCount} session${h.sessionCount !== 1 ? "s" : ""}`
-                          : "No sessions logged yet"}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                      <div style={{ background: status.bg, color: status.color, border: `1px solid ${status.color}33`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em" }}>{status.label}</div>
-                      <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: h.days !== null ? status.color : C.red, fontWeight: 600 }}>
-                        {h.days === null ? "—" : h.days === 0 ? "today" : h.days === 1 ? "yesterday" : `${h.days}d ago`}
-                      </div>
-                      {h.avgCompliance !== null && <div style={{ fontSize: 10, color: pctColor(h.avgCompliance), fontFamily: "'IBM Plex Mono', monospace" }}>{h.avgCompliance}% avg</div>}
-                    </div>
-                    <button onClick={() => { setForm(f => ({ ...f, hospital: h.hospital })); setTab("log"); }} style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "8px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
-                      LOG →
-                    </button>
-                  </div>
-                );
-              };
-
-              return (
-                <div>
-                  {/* Summary strip */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
-                    {[
-                      { label: "Overdue", value: overdue.length, color: C.red, bg: C.redLight },
-                      { label: "Due Soon", value: dueSoon.length, color: C.amber, bg: C.amberLight },
-                      { label: "On Track", value: onTrack.length, color: C.green, bg: C.greenLight },
-                    ].map(({ label, value, color, bg }) => (
-                      <div key={label} style={{ background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
-                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
-                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color, letterSpacing: "0.1em", marginTop: 4 }}>{label.toUpperCase()}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {overdue.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red, letterSpacing: "0.1em", marginBottom: 10 }}>OVERDUE · {overdue.length}</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {overdue.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
-                      </div>
-                    </div>
-                  )}
-                  {dueSoon.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.1em", marginBottom: 10 }}>DUE SOON · {dueSoon.length}</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {dueSoon.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
-                      </div>
-                    </div>
-                  )}
-                  {onTrack.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green, letterSpacing: "0.1em", marginBottom: 10 }}>ON TRACK · {onTrack.length}</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {onTrack.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
-                      </div>
-                    </div>
-                  )}
-                  {hospitalData.length === 0 && (
-                    <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No hospitals logged yet.</div>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* ── RANKINGS VIEW ── */}
-            {performersView === "rankings" && (() => {
+            {(() => {
               // Build hospital rankings — use proxyEntries so director sees all region reps
               const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
               const hospitalMap = {};
@@ -2962,6 +2839,114 @@ export default function App() {
             })()}
           </div>
         )}
+
+        {/* ── PLANNER ── */}
+        {tab === "planner" && (() => {
+          const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+          const myName = user?.user_metadata?.full_name || user?.email || "";
+          const relevantEntries = isDirector ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
+          const today = new Date();
+
+          const hospitalData = hospitals.map(hospital => {
+            const sessions = relevantEntries.filter(e => e.hospital === hospital && e.date);
+            const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+            const lastSession = sorted[0];
+            const days = lastSession ? Math.floor((today - new Date(lastSession.date)) / 86400000) : null;
+            const avgCompliance = (() => {
+              const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+              return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+            })();
+            return { hospital, days, lastDate: lastSession?.date || null, avgCompliance, sessionCount: sessions.length };
+          }).sort((a, b) => {
+            if (a.days === null) return -1;
+            if (b.days === null) return 1;
+            return b.days - a.days;
+          });
+
+          const statusOf = (days) => {
+            if (days === null) return { label: "NEVER VISITED", color: C.red, bg: C.redLight };
+            if (days > 30) return { label: "OVERDUE", color: C.red, bg: C.redLight };
+            if (days >= 20) return { label: "DUE SOON", color: C.amber, bg: C.amberLight };
+            return { label: "ON TRACK", color: C.green, bg: C.greenLight };
+          };
+
+          const overdue = hospitalData.filter(h => h.days === null || h.days > 30);
+          const dueSoon = hospitalData.filter(h => h.days !== null && h.days >= 20 && h.days <= 30);
+          const onTrack = hospitalData.filter(h => h.days !== null && h.days < 20);
+
+          const PlannerCard = ({ h }) => {
+            const status = statusOf(h.days);
+            return (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: status.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.hospital}</div>
+                  <div style={{ fontSize: 11, color: C.inkLight }}>
+                    {h.lastDate
+                      ? `Last visit ${new Date(h.lastDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${h.sessionCount} session${h.sessionCount !== 1 ? "s" : ""}`
+                      : "No sessions logged yet"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
+                  <div style={{ background: status.bg, color: status.color, border: `1px solid ${status.color}33`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em" }}>{status.label}</div>
+                  <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: status.color, fontWeight: 600 }}>
+                    {h.days === null ? "—" : h.days === 0 ? "today" : h.days === 1 ? "yesterday" : `${h.days}d ago`}
+                  </div>
+                  {h.avgCompliance !== null && <div style={{ fontSize: 10, color: pctColor(h.avgCompliance), fontFamily: "'IBM Plex Mono', monospace" }}>{h.avgCompliance}% avg</div>}
+                </div>
+                <button onClick={() => { setForm(f => ({ ...f, hospital: h.hospital })); setTab("log"); haptic("light"); }}
+                  style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "8px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
+                  LOG →
+                </button>
+              </div>
+            );
+          };
+
+          return (
+            <div>
+              <div style={{ marginBottom: 24 }}>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Visit Planner</h1>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>Hospitals sorted by days since last visit. Tap LOG → to start a session.</p>
+              </div>
+
+              {/* Summary strip */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 28 }}>
+                {[
+                  { label: "Overdue", value: overdue.length, color: C.red, bg: C.redLight },
+                  { label: "Due Soon", value: dueSoon.length, color: C.amber, bg: C.amberLight },
+                  { label: "On Track", value: onTrack.length, color: C.green, bg: C.greenLight },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} style={{ background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                    <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color, letterSpacing: "0.1em", marginTop: 4 }}>{label.toUpperCase()}</div>
+                  </div>
+                ))}
+              </div>
+
+              {overdue.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red, letterSpacing: "0.1em", marginBottom: 10 }}>OVERDUE · {overdue.length}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{overdue.map(h => <PlannerCard key={h.hospital} h={h} />)}</div>
+                </div>
+              )}
+              {dueSoon.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.1em", marginBottom: 10 }}>DUE SOON · {dueSoon.length}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{dueSoon.map(h => <PlannerCard key={h.hospital} h={h} />)}</div>
+                </div>
+              )}
+              {onTrack.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green, letterSpacing: "0.1em", marginBottom: 10 }}>ON TRACK · {onTrack.length}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{onTrack.map(h => <PlannerCard key={h.hospital} h={h} />)}</div>
+                </div>
+              )}
+              {hospitalData.length === 0 && (
+                <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No hospitals logged yet.</div>
+              )}
+            </div>
+          );
+        })()}
 
         {tab === "region" && isDirector && (
           <div>
@@ -4088,6 +4073,12 @@ export default function App() {
           { id: "performers", label: "Rank", icon: (active) => (
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
+            </svg>
+          )},
+          { id: "planner", label: "Plan", icon: (active) => (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              <circle cx="8" cy="15" r="1" fill={active ? C.primary : C.inkLight}/><circle cx="12" cy="15" r="1" fill={active ? C.primary : C.inkLight}/><circle cx="16" cy="15" r="1" fill={active ? C.primary : C.inkLight}/>
             </svg>
           )},
           ...(isDirector ? [{ id: "region", label: "Region", icon: (active) => (
