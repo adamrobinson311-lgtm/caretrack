@@ -550,7 +550,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
   );
 };
 
-const HospitalInput = ({ value, onChange, hospitals }) => {
+const HospitalInput = ({ value, onChange, hospitals, entries = [] }) => {
   const [open, setOpen] = useState(false);
   const [filtered, setFiltered] = useState([]);
   const ref = useRef(null);
@@ -559,6 +559,23 @@ const HospitalInput = ({ value, onChange, hospitals }) => {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+
+  const lastVisited = (hospital) => {
+    const sessions = entries.filter(e => e.hospital === hospital && e.date);
+    if (!sessions.length) return null;
+    const latest = sessions.map(e => e.date).sort().reverse()[0];
+    const days = Math.floor((new Date() - new Date(latest)) / 86400000);
+    return days;
+  };
+
+  const dayLabel = (days) => {
+    if (days === 0) return { text: "today", color: C.green };
+    if (days === 1) return { text: "yesterday", color: C.green };
+    if (days <= 19) return { text: `${days}d ago`, color: C.green };
+    if (days <= 30) return { text: `${days}d ago`, color: C.amber };
+    return { text: `${days}d ago`, color: C.red };
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>HOSPITAL NAME <span style={{ color: C.red }}>*</span></label>
@@ -572,12 +589,19 @@ const HospitalInput = ({ value, onChange, hospitals }) => {
       </div>
       {open && filtered.length > 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.08)", zIndex: 100, marginTop: 4, overflow: "hidden" }}>
-          {filtered.map(h => (
-            <div key={h} onClick={() => { onChange(h); setOpen(false); }}
-              style={{ padding: "10px 14px", fontSize: 14, color: C.ink, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
-              onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
-              onMouseLeave={e => e.currentTarget.style.background = "none"}>{h}</div>
-          ))}
+          {filtered.map(h => {
+            const days = lastVisited(h);
+            const dl = days !== null ? dayLabel(days) : null;
+            return (
+              <div key={h} onClick={() => { onChange(h); setOpen(false); }}
+                style={{ padding: "10px 14px", fontSize: 14, color: C.ink, cursor: "pointer", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
+                onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                <span>{h}</span>
+                {dl && <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: dl.color, letterSpacing: "0.05em", flexShrink: 0, marginLeft: 10 }}>{dl.text}</span>}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -894,7 +918,10 @@ export default function App() {
     });
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
+  const [repFilter, setRepFilter] = useState("All");
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
+  const [historySearch, setHistorySearch] = useState("");
+  const [performersView, setPerformersView] = useState("rankings"); // "rankings" | "planner"
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
@@ -1270,6 +1297,7 @@ export default function App() {
   // Apply all filters
   const applyFilters = (list, hFilter) => list.filter(e => {
     if (hFilter !== "All" && e.hospital !== hFilter) return false;
+    if (repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (dateFrom && e.date < dateFrom) return false;
     if (dateTo && e.date > dateTo) return false;
     return true;
@@ -1278,12 +1306,19 @@ export default function App() {
   const proxyEntries = viewAsUser
     ? (isDirector ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
     : isDirector
-      ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) // own + all region reps, deduplicated
+      ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
       : entries;
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
+  const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
-  const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter);
+  const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter).filter(e => {
+    if (!historySearch.trim()) return true;
+    const q = historySearch.toLowerCase();
+    return (e.notes || "").toLowerCase().includes(q)
+      || (e.hospital || "").toLowerCase().includes(q)
+      || (e.location || "").toLowerCase().includes(q);
+  });
 
   const chartData = filteredDashboard.map(e => {
     const row = { date: e.date?.slice(5) };
@@ -1901,10 +1936,67 @@ export default function App() {
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
           <div style={{ maxWidth: 720 }} className="mobile-full log-form-bottom">
-            <div style={{ marginBottom: 28 }}>
+            <div style={{ marginBottom: 20 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
               <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
             </div>
+
+            {/* Monthly summary strip */}
+            {(() => {
+              const now = new Date();
+              const thisMonth = now.getMonth();
+              const thisYear = now.getFullYear();
+              const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+              const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
+              const myName = user?.user_metadata?.full_name || user?.email || "";
+              const myEntries = entries.filter(e => e.logged_by === myName);
+              const thisMonthSessions = myEntries.filter(e => {
+                const d = new Date(e.date);
+                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+              });
+              const lastMonthSessions = myEntries.filter(e => {
+                const d = new Date(e.date);
+                return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+              });
+              const thisMonthHospitals = new Set(thisMonthSessions.map(e => e.hospital).filter(Boolean)).size;
+              const delta = thisMonthSessions.length - lastMonthSessions.length;
+              const monthName = now.toLocaleString("en-US", { month: "long" });
+              const avgCompliance = (() => {
+                const vals = METRICS.flatMap(m => thisMonthSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+              })();
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
+                  {[
+                    {
+                      label: `${monthName} Sessions`,
+                      value: thisMonthSessions.length,
+                      sub: delta === 0 ? "same as last month" : `${delta > 0 ? "+" : ""}${delta} vs last month`,
+                      subColor: delta > 0 ? C.green : delta < 0 ? C.red : C.inkLight,
+                    },
+                    {
+                      label: "Hospitals",
+                      value: thisMonthHospitals,
+                      sub: `this month`,
+                      subColor: C.inkLight,
+                    },
+                    {
+                      label: "Avg Compliance",
+                      value: avgCompliance !== null ? `${avgCompliance}%` : "—",
+                      sub: "this month",
+                      subColor: avgCompliance !== null ? pctColor(avgCompliance) : C.inkLight,
+                      valueColor: avgCompliance !== null ? pctColor(avgCompliance) : C.inkFaint,
+                    },
+                  ].map(({ label, value, sub, subColor, valueColor }) => (
+                    <div key={label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 8, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 6 }}>{label.toUpperCase()}</div>
+                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color: valueColor || C.ink, lineHeight: 1 }}>{value}</div>
+                      <div style={{ fontSize: 10, color: subColor, marginTop: 4 }}>{sub}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE <span style={{ color: C.red }}>*</span></label>
               <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
@@ -1912,7 +2004,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={hospitals} />
+              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={hospitals} entries={entries} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -2118,10 +2210,13 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }} className="dashboard-header">
               <div>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }} className="dashboard-title">Compliance Dashboard</h1>
-                <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
                 {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
+                {isDirector && regionRepNames.length > 0 && (
+                  <FilterBar value={repFilter} onChange={setRepFilter} label="REP" hospitals={regionRepNames} />
+                )}
                 <DateRangeFilter />
               </div>
             </div>
@@ -2344,6 +2439,21 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
                 {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
                 <DateRangeFilter />
+                <div style={{ position: "relative", width: "100%" }}>
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={e => { setHistorySearch(e.target.value); setHistoryPage(20); }}
+                    placeholder="Search notes, hospital, unit..."
+                    style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 32px 8px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                    onFocus={e => e.target.style.borderColor = C.primary}
+                    onBlur={e => e.target.style.borderColor = C.border}
+                  />
+                  {historySearch
+                    ? <button onClick={() => setHistorySearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.inkLight, fontSize: 14, lineHeight: 1 }}>✕</button>
+                    : <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.inkFaint, fontSize: 13, pointerEvents: "none" }}>⌕</span>
+                  }
+                </div>
               </div>
             </div>
             {loading ? (
@@ -2543,12 +2653,137 @@ export default function App() {
         {/* ── ADMIN ── */}
         {tab === "performers" && (
           <div>
-            <div style={{ marginBottom: 28 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Performers</h1>
-              <p style={{ color: C.inkMid, fontSize: 13 }}>Ranked by overall average compliance across all metrics.</p>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>
+                  {performersView === "rankings" ? "Performers" : "Visit Planner"}
+                </h1>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>
+                  {performersView === "rankings" ? "Ranked by overall average compliance across all metrics." : "Hospitals due for a visit, sorted by days since last session."}
+                </p>
+              </div>
+              {/* Toggle */}
+              <div style={{ display: "flex", background: C.surfaceAlt, borderRadius: 8, padding: 3, gap: 2, flexShrink: 0 }}>
+                {[["rankings", "Rankings"], ["planner", "Planner"]].map(([id, label]) => (
+                  <button key={id} onClick={() => setPerformersView(id)} style={{ background: performersView === id ? C.surface : "none", border: performersView === id ? `1px solid ${C.border}` : "1px solid transparent", borderRadius: 6, padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: performersView === id ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", transition: "all 0.15s" }}>
+                    {label.toUpperCase()}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {(() => {
+            {/* ── PLANNER VIEW ── */}
+            {performersView === "planner" && (() => {
+              const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+              const myName = user?.user_metadata?.full_name || user?.email || "";
+              // For reps use own sessions; for directors use all region sessions
+              const relevantEntries = isDirector ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
+              const today = new Date();
+
+              const hospitalData = hospitals.map(hospital => {
+                const sessions = relevantEntries.filter(e => e.hospital === hospital && e.date);
+                const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+                const lastSession = sorted[0];
+                const days = lastSession ? Math.floor((today - new Date(lastSession.date)) / 86400000) : null;
+                const avgCompliance = (() => {
+                  const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                })();
+                const dueDate = lastSession ? new Date(new Date(lastSession.date).getTime() + 30 * 86400000) : null;
+                return { hospital, days, lastDate: lastSession?.date || null, avgCompliance, sessionCount: sessions.length, dueDate };
+              }).sort((a, b) => {
+                if (a.days === null) return -1;
+                if (b.days === null) return 1;
+                return b.days - a.days;
+              });
+
+              const statusOf = (days) => {
+                if (days === null) return { label: "NEVER VISITED", color: C.red, bg: C.redLight };
+                if (days > 30) return { label: "OVERDUE", color: C.red, bg: C.redLight };
+                if (days >= 20) return { label: "DUE SOON", color: C.amber, bg: C.amberLight };
+                return { label: "ON TRACK", color: C.green, bg: C.greenLight };
+              };
+
+              const overdue = hospitalData.filter(h => h.days === null || h.days > 30);
+              const dueSoon = hospitalData.filter(h => h.days !== null && h.days >= 20 && h.days <= 30);
+              const onTrack = hospitalData.filter(h => h.days !== null && h.days < 20);
+
+              const HospitalPlannerCard = ({ h }) => {
+                const status = statusOf(h.days);
+                return (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: status.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 14, color: C.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.hospital}</div>
+                      <div style={{ fontSize: 11, color: C.inkLight }}>
+                        {h.lastDate
+                          ? `Last visit: ${new Date(h.lastDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${h.sessionCount} session${h.sessionCount !== 1 ? "s" : ""}`
+                          : "No sessions logged yet"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                      <div style={{ background: status.bg, color: status.color, border: `1px solid ${status.color}33`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em" }}>{status.label}</div>
+                      <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: h.days !== null ? status.color : C.red, fontWeight: 600 }}>
+                        {h.days === null ? "—" : h.days === 0 ? "today" : h.days === 1 ? "yesterday" : `${h.days}d ago`}
+                      </div>
+                      {h.avgCompliance !== null && <div style={{ fontSize: 10, color: pctColor(h.avgCompliance), fontFamily: "'IBM Plex Mono', monospace" }}>{h.avgCompliance}% avg</div>}
+                    </div>
+                    <button onClick={() => { setForm(f => ({ ...f, hospital: h.hospital })); setTab("log"); }} style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "8px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
+                      LOG →
+                    </button>
+                  </div>
+                );
+              };
+
+              return (
+                <div>
+                  {/* Summary strip */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
+                    {[
+                      { label: "Overdue", value: overdue.length, color: C.red, bg: C.redLight },
+                      { label: "Due Soon", value: dueSoon.length, color: C.amber, bg: C.amberLight },
+                      { label: "On Track", value: onTrack.length, color: C.green, bg: C.greenLight },
+                    ].map(({ label, value, color, bg }) => (
+                      <div key={label} style={{ background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color, letterSpacing: "0.1em", marginTop: 4 }}>{label.toUpperCase()}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {overdue.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red, letterSpacing: "0.1em", marginBottom: 10 }}>OVERDUE · {overdue.length}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {overdue.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
+                      </div>
+                    </div>
+                  )}
+                  {dueSoon.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.1em", marginBottom: 10 }}>DUE SOON · {dueSoon.length}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {dueSoon.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
+                      </div>
+                    </div>
+                  )}
+                  {onTrack.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green, letterSpacing: "0.1em", marginBottom: 10 }}>ON TRACK · {onTrack.length}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {onTrack.map(h => <HospitalPlannerCard key={h.hospital} h={h} />)}
+                      </div>
+                    </div>
+                  )}
+                  {hospitalData.length === 0 && (
+                    <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No hospitals logged yet.</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── RANKINGS VIEW ── */}
+            {performersView === "rankings" && (() => {
               // Build hospital rankings — use proxyEntries so director sees all region reps
               const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
               const hospitalMap = {};
