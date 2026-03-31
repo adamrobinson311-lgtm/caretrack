@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+// CareTrack v2.8
+import { useState, useEffect, useRef, Fragment } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
 import { generatePptx } from "./generatePptx";
@@ -29,11 +30,11 @@ const DARK = {
 let C = { ...LIGHT };
 
 const METRICS = [
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
-  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
   { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had Matt applied properly" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
+  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
   { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
   { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
 ];
@@ -42,17 +43,43 @@ const MAYO_METRICS = [
   { id: "air_reposition",   label: "Air Used to Reposition Patient", desc: "Patients where air was used to assist repositioning" },
 ];
 
-const isMayo = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
-const getMetrics = (hospital) => isMayo(hospital) ? [...METRICS, ...MAYO_METRICS] : METRICS;
+const KAISER_METRICS = [
+  { id: "heel_boots",       label: "Heel Boots On",                  desc: "Qualifying patients that had heel boots applied" },
+  { id: "turn_clock",       label: "Turn Clock",                     desc: "Qualifying patients with Turn Clock compliance" },
+];
+
+const METRIC_BUCKETS = [
+  { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+  { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
+  { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+  { label: "Air Supply", ids: ["air_supply"] },
+];
+const MAYO_BUCKET   = { label: "Air Supply",      ids: ["air_supply", "air_reposition"] };
+const KAISER_BUCKET = { label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"] };
+const getBuckets = (hospital) => {
+  let buckets = METRIC_BUCKETS.map(b => b.label === "Air Supply" && isMayo(hospital) ? MAYO_BUCKET : b);
+  if (isKaiser(hospital)) buckets = [...buckets, KAISER_BUCKET];
+  return buckets;
+};
+
+const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
+const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const getMetrics = (hospital) => [
+  ...METRICS,
+  ...(isMayo(hospital)   ? MAYO_METRICS   : []),
+  ...(isKaiser(hospital) ? KAISER_METRICS : []),
+];
 
 const defaultForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   hospital: "", protocol_for_use: "", location: "", notes: "",
-  ...Object.fromEntries([...METRICS, ...MAYO_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
+  ...Object.fromEntries([...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
 });
 
 const pct = (n, d) => { const nv = parseFloat(n), dv = parseFloat(d); if (!dv || isNaN(nv) || isNaN(dv)) return null; return Math.round((nv / dv) * 100); };
 const pctColor = (v) => { if (v === null) return C.inkLight; if (v >= 90) return C.green; if (v >= 70) return C.amber; return C.red; };
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 const pctBg = (v) => { if (v === null) return C.surfaceAlt; if (v >= 90) return C.greenLight; if (v >= 70) return C.amberLight; return C.redLight; };
 const LINE_COLORS = ["#4F6E77", "#678093", "#7C5366", "#3a7d5c", "#8a6a2a", "#5b7fa6", "#7C7270"];
 
@@ -196,6 +223,333 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+// ── Bed-Level Grid Input ──────────────────────────────────────────────────────
+const METRIC_SHORT = {
+  matt_applied: "Matt App", wedges_applied: "Wedges App", turning_criteria: "Turn & Repo",
+  matt_proper: "Matt Proper", wedges_in_room: "Wedge Room", wedge_offload: "Wedge Off",
+  air_supply: "Air Supply", air_reposition: "Air Repo",
+};
+
+const createEmptyBed = (metrics, roomNum) => {
+  const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "", na: false };
+  metrics.forEach(m => { bed[`${m.id}_q`] = "1"; bed[`${m.id}_a`] = "0"; bed[`${m.id}_na`] = false; });
+  return bed;
+};
+
+const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
+  const [activeBed, setActiveBed] = useState(0);
+  const [scanning, setScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState(""); // "", "starting", "ready", "reading", "error"
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // Keep activeBed in bounds if beds shrink
+  const safeIdx = Math.min(activeBed, beds.length - 1);
+  useEffect(() => { if (safeIdx !== activeBed) setActiveBed(safeIdx); }, [beds.length]);
+
+  const updateCell = (field, value) => {
+    const updated = beds.map((b, i) => i === safeIdx ? { ...b, [field]: value } : b);
+    onChange(updated);
+  };
+
+  const goTo = (idx) => setActiveBed(Math.max(0, Math.min(idx, beds.length - 1)));
+
+  const addAndGo = () => { onAddBed(); setActiveBed(beds.length); };
+
+  const toggleNa = () => {
+    const updated = beds.map((b, i) => i === safeIdx ? { ...b, na: !b.na } : b);
+    onChange(updated);
+  };
+
+  // Per-metric totals — exclude N/A beds and per-metric N/A flags
+  const totals = {};
+  const activeBeds = beds.filter(b => !b.na);
+  metrics.forEach(m => {
+    const eligible = activeBeds.filter(b => !b[`${m.id}_na`]);
+    totals[`${m.id}_q`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
+    totals[`${m.id}_a`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
+  });
+
+  const openCamera = async () => {
+    setScanning(true);
+    setScanStatus("starting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      setScanStatus("ready");
+      // Attach stream to video element after modal renders
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }, 100);
+    } catch (err) {
+      setScanStatus("error");
+    }
+  };
+
+  const closeCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+    setScanStatus("");
+  };
+
+  const captureAndRead = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setScanStatus("reading");
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    try {
+      // Load Tesseract from CDN if not already loaded
+      if (!window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const { data: { text } } = await window.Tesseract.recognize(canvas, "eng", {
+        tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz- ",
+      });
+      // Extract the most prominent number/room from OCR result
+      const cleaned = text.trim().replace(/\n+/g, " ");
+      // Look for patterns like "3997", "Room 12", "3N", "4 South", etc.
+      const roomMatch = cleaned.match(/\b(\d{3,4}[A-Za-z]?|[A-Za-z]+[\s-]?\d+|\d+[A-Za-z]{1,2})\b/);
+      const result = roomMatch ? roomMatch[1] : cleaned.replace(/[^0-9A-Za-z\s-]/g, "").trim().slice(0, 10);
+      if (result) {
+        updateCell("room", result);
+        closeCamera();
+      } else {
+        setScanStatus("ready"); // no match — let them try again
+      }
+    } catch {
+      setScanStatus("ready");
+    }
+  };
+
+  const bed = beds[safeIdx] || {};
+  const isNa = !!bed.na;
+
+  // Compliance colour for a pct value
+  const pctCol = (p) => p === null ? C.inkFaint : p >= 90 ? C.green : p >= 70 ? C.amber : C.red;
+  const pctBg2 = (p) => p === null ? C.surfaceAlt : p >= 90 ? C.greenLight : p >= 70 ? C.amberLight : C.redLight;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Navigation bar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => goTo(safeIdx - 1)} disabled={safeIdx === 0}
+          style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: safeIdx === 0 ? "not-allowed" : "pointer", color: safeIdx === 0 ? C.inkFaint : C.primary, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          ‹
+        </button>
+
+        {/* Progress dots */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+          {beds.map((b, i) => (
+            <button key={i} onClick={() => goTo(i)}
+              style={{ width: i === safeIdx ? 24 : 8, height: 8, borderRadius: 4, border: "none", cursor: "pointer", background: i === safeIdx ? C.primary : b.na ? C.amber : C.border, transition: "all 0.2s", padding: 0, flexShrink: 0 }} />
+          ))}
+        </div>
+
+        <button onClick={() => goTo(safeIdx + 1)} disabled={safeIdx === beds.length - 1}
+          style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: safeIdx === beds.length - 1 ? "not-allowed" : "pointer", color: safeIdx === beds.length - 1 ? C.inkFaint : C.primary, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          ›
+        </button>
+      </div>
+
+      {/* ── Bed card ── */}
+      <div style={{ background: C.surface, border: `1px solid ${isNa ? C.border : C.primary + "44"}`, borderRadius: 14, overflow: "hidden", opacity: isNa ? 0.6 : 1, transition: "opacity 0.2s" }}>
+
+        {/* Card header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: C.primaryLight, borderBottom: `1px solid ${C.primary}22` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.08em" }}>ROOM / BED</span>
+            <input type="text" value={bed.room || ""} placeholder={String(safeIdx + 1)}
+              onChange={e => updateCell("room", e.target.value)}
+              style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.primary, outline: "none" }}
+              onFocus={e => { e.target.style.borderColor = C.primary; if (!bed.room) updateCell("room", String(safeIdx + 1)); }}
+              onBlur={e => e.target.style.borderColor = C.border} />
+            <button onClick={openCamera} title="Scan room number"
+              style={{ width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, padding: 0, flexShrink: 0 }}>
+              📷
+            </button>
+            <button onClick={toggleNa}
+              style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${isNa ? C.amber : C.border}`, background: isNa ? C.amberLight : "none", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: isNa ? C.amber : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", fontWeight: isNa ? 700 : 400, transition: "all 0.15s" }}>
+              {isNa ? "✓ N/A" : "N/A"}
+            </button>
+          </div>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.06em" }}>{safeIdx + 1} of {beds.length}</span>
+        </div>
+
+        {/* Metric rows — checkbox mode */}
+        <div style={{ padding: "8px 16px 16px" }}>
+          {metrics.map((m, mi) => {
+            const metricNa = !!bed[`${m.id}_na`];
+            const rawQ = bed[`${m.id}_q`];
+            const rawA = bed[`${m.id}_a`];
+            // Two states: compliant (a=1) or non-compliant (a=0, default)
+            const compliant = rawA === "1" || rawA === 1;
+
+            const toggleCompliant = () => {
+              if (metricNa) return;
+              updateCell(`${m.id}_q`, "1");
+              updateCell(`${m.id}_a`, compliant ? "0" : "1");
+            };
+
+            const btnBg     = metricNa ? C.surfaceAlt : compliant ? C.greenLight : C.redLight;
+            const btnBorder = metricNa ? C.border : compliant ? C.green + "66" : C.red + "66";
+            const btnColor  = metricNa ? C.inkFaint : compliant ? C.green : C.red;
+            const btnIcon   = compliant ? "✓" : "✗";
+            const btnLabel  = compliant ? "YES" : "NO";
+
+            return (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none", opacity: metricNa ? 0.4 : 1, transition: "opacity 0.15s" }}>
+                {/* Metric name */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{m.label}</div>
+                  {m.desc && <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{m.desc}</div>}
+                </div>
+
+                {/* Big tap checkbox button */}
+                <button onClick={toggleCompliant} disabled={metricNa}
+                  style={{ flexShrink: 0, width: 72, height: 56, borderRadius: 10, border: `2px solid ${btnBorder}`, background: btnBg, cursor: metricNa ? "not-allowed" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, transition: "all 0.15s", WebkitTapHighlightColor: "transparent" }}>
+                  <span style={{ fontSize: 22, lineHeight: 1, color: btnColor, fontWeight: 700 }}>{btnIcon}</span>
+                  <span style={{ fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", color: btnColor, fontWeight: 700 }}>{btnLabel}</span>
+                </button>
+
+                {/* N/A toggle */}
+                <button onClick={() => updateCell(`${m.id}_na`, !metricNa)}
+                  style={{ flexShrink: 0, padding: "4px 8px", borderRadius: 6, border: `1px solid ${metricNa ? C.amber : C.border}`, background: metricNa ? C.amberLight : "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, fontWeight: metricNa ? 700 : 400, color: metricNa ? C.amber : C.inkFaint, cursor: "pointer", transition: "all 0.15s", letterSpacing: "0.04em" }}>
+                  N/A
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Card footer — actions */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => goTo(safeIdx - 1)} disabled={safeIdx === 0}
+              style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: safeIdx === 0 ? C.inkFaint : C.inkMid, cursor: safeIdx === 0 ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+              ← PREV
+            </button>
+            {safeIdx < beds.length - 1 ? (
+              <button onClick={() => goTo(safeIdx + 1)}
+                style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: C.primary, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.04em" }}>
+                NEXT →
+              </button>
+            ) : (
+              <button onClick={addAndGo}
+                style={{ padding: "7px 16px", borderRadius: 8, border: `1px dashed ${C.primary}`, background: C.primaryLight, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.04em" }}>
+                + ADD BED
+              </button>
+            )}
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Totals summary strip ── */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", fontWeight: 600 }}>ALL BEDS — TOTALS</div>
+          {beds.some(b => b.na) && <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, letterSpacing: "0.06em" }}>{beds.filter(b => b.na).length} N/A EXCLUDED</div>}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {metrics.map(m => {
+            const q = totals[`${m.id}_q`];
+            const a = totals[`${m.id}_a`];
+            const p = q > 0 ? Math.round((a / q) * 100) : null;
+            return (
+              <div key={m.id} style={{ background: p !== null ? pctBg2(p) : C.bg, border: `1px solid ${p !== null ? pctCol(p) + "33" : C.border}`, borderRadius: 8, padding: "7px 12px", minWidth: 90, flex: "1 1 90px" }}>
+                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{METRIC_SHORT[m.id] || m.label}</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 15, fontWeight: 700, color: p !== null ? pctCol(p) : C.inkFaint }}>
+                    {p !== null ? `${p}%` : "—"}
+                  </span>
+                  {q > 0 && <span style={{ fontSize: 10, color: C.inkLight }}>{a}/{q}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Camera scan modal ── */}
+      {scanning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1100, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: 440, background: C.surface, borderRadius: "20px 20px 0 0", position: "absolute", bottom: 0, padding: "20px 20px 36px" }}>
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>Scan Room Number</div>
+                <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Point camera at the room placard</div>
+              </div>
+              <button onClick={closeCamera} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: C.inkLight, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+
+            {/* Viewfinder */}
+            <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", background: "#000", aspectRatio: "4/3", marginBottom: 16 }}>
+              {scanStatus === "starting" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13 }}>Starting camera...</div>
+              )}
+              {scanStatus === "error" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 20 }}>
+                  <span style={{ fontSize: 28 }}>🚫</span>
+                  <div style={{ color: "white", fontSize: 13, textAlign: "center" }}>Camera access denied. Please allow camera permission in your browser settings.</div>
+                </div>
+              )}
+              <video ref={videoRef} autoPlay playsInline muted
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: scanStatus === "error" ? "none" : "block" }} />
+              {/* Targeting overlay */}
+              {(scanStatus === "ready" || scanStatus === "reading") && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                  <div style={{ width: "60%", height: "35%", border: `2px solid ${C.primary}`, borderRadius: 8, boxShadow: `0 0 0 2000px rgba(0,0,0,0.35)` }} />
+                </div>
+              )}
+              {scanStatus === "reading" && (
+                <div style={{ position: "absolute", bottom: 12, left: 0, right: 0, textAlign: "center" }}>
+                  <span style={{ background: "rgba(0,0,0,0.7)", color: "white", fontSize: 12, padding: "4px 12px", borderRadius: 20, fontFamily: "'IBM Plex Mono', monospace" }}>Reading...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Hidden canvas for OCR */}
+            <canvas ref={canvasRef} style={{ display: "none" }} />
+
+            {/* Capture button */}
+            {(scanStatus === "ready" || scanStatus === "reading") && (
+              <button onClick={captureAndRead} disabled={scanStatus === "reading"}
+                style={{ width: "100%", padding: "14px", background: scanStatus === "reading" ? C.surfaceAlt : C.primary, border: "none", borderRadius: 10, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: scanStatus === "reading" ? C.inkLight : "white", cursor: scanStatus === "reading" ? "not-allowed" : "pointer", letterSpacing: "0.08em" }}>
+                {scanStatus === "reading" ? "READING ROOM NUMBER..." : "📷  CAPTURE"}
+              </button>
+            )}
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
 const HospitalInput = ({ value, onChange, hospitals }) => {
   const [open, setOpen] = useState(false);
   const [filtered, setFiltered] = useState([]);
@@ -253,6 +607,32 @@ const saveHospitalUnit = (hospital, unit, protocol) => {
   if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
   if (!data[hospital].units.includes(unit)) data[hospital].units.push(unit);
   if (protocol) data[hospital].protocols[unit] = protocol;
+  saveHospitalData(data);
+};
+const getBedCount = (hospital, unit) => {
+  if (!hospital || !unit) return 0;
+  const data = getHospitalData();
+  return data[hospital]?.bedCounts?.[unit] || 0;
+};
+const saveBedCount = (hospital, unit, count) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].bedCounts) data[hospital].bedCounts = {};
+  data[hospital].bedCounts[unit] = count;
+  saveHospitalData(data);
+};
+const getBedRooms = (hospital, unit) => {
+  if (!hospital || !unit) return [];
+  const data = getHospitalData();
+  return data[hospital]?.bedRooms?.[unit] || [];
+};
+const saveBedRooms = (hospital, unit, rooms) => {
+  if (!hospital || !unit) return;
+  const data = getHospitalData();
+  if (!data[hospital]) data[hospital] = { units: [], protocols: {} };
+  if (!data[hospital].bedRooms) data[hospital].bedRooms = {};
+  data[hospital].bedRooms[unit] = rooms;
   saveHospitalData(data);
 };
 
@@ -391,6 +771,7 @@ const FilterBar = ({ value, onChange, label, hospitals }) => (
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
+  const [viewAsUser, setViewAsUser] = useState(null); // { email, full_name } when admin is impersonating
   const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState("log");
   const [entries, setEntries] = useState([]);
@@ -406,21 +787,40 @@ export default function App() {
   const [syncResult, setSyncResult] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [userProfiles, setUserProfiles] = useState([]);
-  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users
+  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals
+  const [deletionRequestModal, setDeletionRequestModal] = useState(null); // { session } | null
+  const [deletionRequestReason, setDeletionRequestReason] = useState("");
   const [reassignFrom, setReassignFrom] = useState(null);
   const [reassignTo, setReassignTo] = useState("");
+  const [hospitalRenameFrom, setHospitalRenameFrom] = useState("");
+  const [hospitalRenameTo, setHospitalRenameTo] = useState("");
+  const [hospitalRenaming, setHospitalRenaming] = useState(false);
+  const [hospitalRenameResult, setHospitalRenameResult] = useState(null);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
+  const [editingNameSaving, setEditingNameSaving] = useState(false); // { count, error }
 
-  // Mobile detection
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
-  useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth <= 640);
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
-  }, []);
+  // PWA install prompt
+  const [pwaPrompt, setPwaPrompt] = useState(null); // deferred BeforeInstallPromptEvent
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [installDismissed, setInstallDismissed] = useState(() => !!localStorage.getItem("caretrack_install_dismissed"));
+
+  // User invite (admin)
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null); // { ok, message }
 
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [practiceBedGrid, setPracticeBedGrid] = useState(() => {
+    try { return [1, 2, 3, 4].map(n => createEmptyBed(METRICS, n)); }
+    catch { return []; }
+  });
+  const [practiceSaving, setPracticeSaving] = useState(false);
+  const [practiceError, setPracticeError] = useState(null);
+  const [practiceSessionId, setPracticeSessionId] = useState(null);
 
   // Changelog
   const [darkMode, setDarkMode] = useState(() => {
@@ -470,6 +870,14 @@ export default function App() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [expandedPhotos, setExpandedPhotos] = useState({}); // { sessionId: bool }
   const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
+
+  // Bed-level grid input mode
+  const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "simple"); // "simple" | "grid"
+  const [auditHeelBoots, setAuditHeelBoots] = useState(false);
+  const [auditTurnClock, setAuditTurnClock] = useState(false);
+  const [bedGrid, setBedGrid] = useState([]);
+  const [bedCount, setBedCount] = useState(0);
+  const lastGridKey = useRef("");
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [selectedMetrics, setSelectedMetrics] = useState(() => {
@@ -495,9 +903,20 @@ export default function App() {
   const [dateTo, setDateTo] = useState("");
   const summaryRef = useRef(null);
 
-  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
-  const hospitals = [...new Set(entries.map(e => e.hospital).filter(Boolean))].sort();
-  const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
+  const realIsAdmin = user && ADMIN_EMAILS.includes(user.email);
+  const isAdmin = realIsAdmin && !viewAsUser;
+
+  // Director role — derived from user_profiles once loaded
+  const myProfile = userProfiles.find(p => p.email === user?.email);
+  const isDirector = !isAdmin && myProfile?.role === "director";
+  const myRegion = myProfile?.region || "";
+  const regionReps = userProfiles.filter(p => p.region === myRegion && p.role !== "director" && p.email !== user?.email);
+  const [regionEntries, setRegionEntries] = useState([]);
+  const [regionLoading, setRegionLoading] = useState(false);
+  // When impersonating, override the display name and filter entries to that user only
+  const userName = viewAsUser
+    ? (viewAsUser.full_name || viewAsUser.email)
+    : (user?.user_metadata?.full_name || user?.email || "");
 
   // Session streak — count consecutive weeks with at least one session logged by this user
   const streak = (() => {
@@ -552,7 +971,8 @@ export default function App() {
       if (e.key === "2") setTab("dashboard");
       if (e.key === "3") setTab("history");
       if (e.key === "4") setTab("performers");
-      if (e.key === "5" && isAdmin) setTab("admin");
+      if (e.key === "5" && isDirector) setTab("region");
+      if ((e.key === "5" && isAdmin) || (e.key === "6" && isAdmin)) setTab("admin");
       if (e.key === "?" ) setShowChangelog(true);
       if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); setShowBrandingEditor(false); }
     };
@@ -577,7 +997,19 @@ export default function App() {
     const goOffline = () => setIsOnline(false);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
-    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+
+    // Android PWA install prompt
+    const handleInstallPrompt = (e) => {
+      e.preventDefault();
+      setPwaPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
+
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+    };
   }, []);
 
   // Auto-sync when coming back online
@@ -585,12 +1017,13 @@ export default function App() {
     if (!isOnline || !user || offlineQueue.length === 0) return;
     (async () => {
       setSyncing(true);
-      const userName = user?.user_metadata?.full_name || user?.email;
+      // userName defined above (proxy-aware)
+  const realUserName = user?.user_metadata?.full_name || user?.email || "";
       const failed = [];
       let successCount = 0;
       for (const session of offlineQueue) {
         const { queuedAt, tempId, ...payload } = session;
-        payload.logged_by = userName;
+        payload.logged_by = realUserName;
         const { data, error } = await supabase.from("sessions").insert([payload]).select().single();
         if (error) { failed.push(session); }
         else {
@@ -614,7 +1047,7 @@ export default function App() {
     (async () => {
       setLoading(true);
       const userName = user?.user_metadata?.full_name || user?.email;
-      const isAdminUser = ADMIN_EMAILS.includes(user?.email);
+      const isAdminUser = ADMIN_EMAILS.includes(user?.email); // uses real user always
 
       // Step 1: Fetch user's own sessions to discover which hospitals they've logged for
       const { data: ownData, error } = await supabase.from("sessions")
@@ -659,6 +1092,12 @@ export default function App() {
         setUserProfiles(profileData || []);
       }
 
+      // All users get full user_profiles so director/region info is available
+      if (!isAdminUser) {
+        const { data: profileData } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: true });
+        setUserProfiles(profileData || []);
+      }
+
       // Register/update user profile on login
       await supabase.from("user_profiles").upsert([{
         email: user.email,
@@ -667,6 +1106,94 @@ export default function App() {
       setLoading(false);
     })();
   }, [user]);
+
+  // Fetch all sessions for reps in director's region
+  useEffect(() => {
+    if (!isDirector || !myRegion || regionReps.length === 0) return;
+    (async () => {
+      setRegionLoading(true);
+      const repNames = regionReps.map(r => r.full_name || r.email).filter(Boolean);
+      const { data } = await supabase.from("sessions").select("*")
+        .in("logged_by", repNames)
+        .order("created_at", { ascending: true });
+      setRegionEntries(data || []);
+      setRegionLoading(false);
+    })();
+  }, [isDirector, myRegion, regionReps.length]);
+
+  // Initialize bed grid when hospital/unit changes (grid mode)
+  useEffect(() => {
+    if (inputMode !== "grid" || !form.hospital || !form.location) return;
+    const key = `${form.hospital}|||${form.location}`;
+    if (key === lastGridKey.current) return; // same unit, don't recreate
+    lastGridKey.current = key;
+    const savedCount = getBedCount(form.hospital, form.location);
+    const savedRooms = getBedRooms(form.hospital, form.location);
+    if (savedCount > 0) {
+      setBedCount(savedCount);
+      const activeMetrics = getMetrics(form.hospital);
+      const newGrid = [];
+      for (let i = 0; i < savedCount; i++) {
+        const room = savedRooms[i] || String(i + 1);
+        const bed = createEmptyBed(activeMetrics, room);
+        bed.room = room;
+        newGrid.push(bed);
+      }
+      setBedGrid(newGrid);
+    } else {
+      setBedCount(0);
+      setBedGrid([]);
+    }
+  }, [form.hospital, form.location, inputMode]);
+
+  // Auto-sum bed grid values into the form's metric fields
+  useEffect(() => {
+    if (inputMode !== "grid" || bedGrid.length === 0) return;
+    const activeMetrics = getMetrics(form.hospital);
+    const updates = {};
+    activeMetrics.forEach(m => {
+      const totalQ = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
+      const totalA = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
+      const hasAny = bedGrid.some(b => b[`${m.id}_q`] !== "" || b[`${m.id}_a`] !== "");
+      updates[`${m.id}_den`] = hasAny ? String(totalQ) : "";
+      updates[`${m.id}_num`] = hasAny ? String(totalA) : "";
+    });
+    setForm(f => ({ ...f, ...updates }));
+  }, [bedGrid, inputMode, form.hospital]);
+
+  // Persist room numbers to localStorage when grid changes
+  useEffect(() => {
+    if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
+    const rooms = bedGrid.map(b => b.room || "");
+    saveBedRooms(form.hospital, form.location, rooms);
+  }, [bedGrid, inputMode, form.hospital, form.location]);
+
+  // Handle bed count change — resize the grid
+  const handleBedCountChange = (count) => {
+    const n = Math.max(0, Math.min(100, parseInt(count) || 0));
+    setBedCount(n);
+    if (form.hospital && form.location && n > 0) {
+      saveBedCount(form.hospital, form.location, n);
+    }
+    const activeMetrics = getMetrics(form.hospital);
+    setBedGrid(prev => {
+      if (n === 0) return [];
+      const newGrid = [];
+      for (let i = 0; i < n; i++) {
+        if (i < prev.length) {
+          // keep existing bed data, but ensure room is set
+          const bed = { ...prev[i] };
+          if (!bed.room) bed.room = String(i + 1);
+          newGrid.push(bed);
+        } else {
+          const bed = createEmptyBed(activeMetrics, i + 1);
+          bed.room = String(i + 1);
+          newGrid.push(bed);
+        }
+      }
+      return newGrid;
+    });
+  };
 
   const handleLogout = async () => { await supabase.auth.signOut(); setEntries([]); };
   const updateMetric = (id, field, val) => setForm(f => ({ ...f, [`${id}_${field}`]: val }));
@@ -695,7 +1222,8 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
-      ...Object.fromEntries([...METRICS, ...MAYO_METRICS].flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...(inputMode === "grid" && bedGrid.length > 0 ? { bed_data: bedGrid } : {}),
     };
     // If offline, queue the session locally
     if (!isOnline) {
@@ -706,7 +1234,7 @@ export default function App() {
       localStorage.setItem("caretrack_offline_queue", JSON.stringify(newQueue));
       setEntries(prev => [...prev, offlineSession]);
       saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-      setForm(defaultForm()); setSaving(false); setSaved(true);
+      setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
       setSavedAt(new Date().toISOString());
       setTimeout(() => setSaved(false), 4000);
       return;
@@ -728,9 +1256,14 @@ export default function App() {
     }
     setEntries(prev => [...prev, finalData]);
     saveHospitalUnit(form.hospital, form.location, form.protocol_for_use);
-    setForm(defaultForm()); setSaving(false); setSaved(true);
+    setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
+    haptic("success"); // haptic on save
     setTimeout(() => setSaved(false), 4000);
+    // Show PWA install prompt after first session if not dismissed
+    if (!installDismissed && (pwaPrompt || isIOS())) {
+      setTimeout(() => setShowInstallBanner(true), 1500);
+    }
     await logAudit("SESSION_CREATED", { hospital: payload.hospital, location: payload.location, date: payload.date }, null, data.id);
   };
 
@@ -742,8 +1275,13 @@ export default function App() {
     return true;
   });
 
-  const filteredDashboard = applyFilters(entries, hospitalFilter);
-  const filteredHistory = applyFilters(entries, historyHospitalFilter);
+  const proxyEntries = viewAsUser
+    ? (isDirector ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
+    : entries;
+  const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
+  const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
+  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
+  const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter);
 
   const chartData = filteredDashboard.map(e => {
     const row = { date: e.date?.slice(5) };
@@ -904,6 +1442,39 @@ export default function App() {
     return all;
   };
 
+  const handleRequestDeletion = async (sessionId, reason) => {
+    const { error } = await supabase.from("sessions")
+      .update({ deletion_requested: true, deletion_reason: reason || null })
+      .eq("id", sessionId);
+    if (error) { alert("Failed to submit request: " + error.message); return; }
+    const session = entries.find(e => e.id === sessionId);
+    setEntries(prev => prev.map(e => e.id === sessionId ? { ...e, deletion_requested: true, deletion_reason: reason || null } : e));
+    setAllEntriesFull(prev => prev.map(e => e.id === sessionId ? { ...e, deletion_requested: true, deletion_reason: reason || null } : e));
+    await logAudit("DELETION_REQUESTED", { hospital: session?.hospital, location: session?.location, date: session?.date, reason: reason || null }, session?.logged_by, sessionId);
+    setDeletionRequestModal(null);
+    setDeletionRequestReason("");
+  };
+
+  const handleApproveDeletion = async (id) => {
+    const session = allEntriesFull.find(e => e.id === id);
+    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    if (error) { alert("Failed to delete session: " + error.message); return; }
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setAllEntriesFull(prev => prev.filter(e => e.id !== id));
+    await logAudit("DELETION_APPROVED", { hospital: session?.hospital, location: session?.location, date: session?.date, logged_by: session?.logged_by }, session?.logged_by, id);
+  };
+
+  const handleDenyDeletion = async (id) => {
+    const { error } = await supabase.from("sessions")
+      .update({ deletion_requested: false, deletion_reason: null })
+      .eq("id", id);
+    if (error) { alert("Failed to deny request: " + error.message); return; }
+    const session = allEntriesFull.find(e => e.id === id);
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, deletion_requested: false, deletion_reason: null } : e));
+    setAllEntriesFull(prev => prev.map(e => e.id === id ? { ...e, deletion_requested: false, deletion_reason: null } : e));
+    await logAudit("DELETION_DENIED", { hospital: session?.hospital, location: session?.location, date: session?.date }, session?.logged_by, id);
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this session? This cannot be undone.")) return;
     const session = allEntriesFull.find(e => e.id === id) || entries.find(e => e.id === id);
@@ -918,13 +1489,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -949,6 +1520,62 @@ export default function App() {
     setSummarizing(false);
   };
 
+  // Mobile UX
+  const [historyPage, setHistoryPage] = useState(20); // virtualised history — show N at a time
+  const [pulling, setPulling] = useState(false);       // pull-to-refresh indicator
+  const touchStartX = useRef(null);
+  const touchStartY = useRef(null);
+  const mainContentRef = useRef(null);
+
+  // Cross-platform haptic feedback — navigator.vibrate on Android, AudioContext click on iOS
+  const haptic = (type = "light") => {
+    if (navigator.vibrate) {
+      navigator.vibrate(type === "success" ? [40, 30, 40] : type === "heavy" ? 60 : 15);
+    } else {
+      // iOS fallback: tiny AudioContext click simulates haptic feel
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.01, ctx.sampleRate);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start();
+        setTimeout(() => ctx.close(), 100);
+      } catch {}
+    }
+  };
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchEnd = async (e) => {
+    if (touchStartY.current === null) return;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    const dx = Math.abs(e.changedTouches[0].clientX - touchStartX.current);
+    const scrollTop = mainContentRef.current?.scrollTop ?? window.scrollY;
+    // Pull down ≥80px, mostly vertical, at top of scroll
+    if (dy > 80 && dx < 40 && scrollTop < 10 && (tab === "dashboard" || tab === "history")) {
+      setPulling(true);
+      haptic("light");
+      // Refetch sessions
+      const uName = user?.user_metadata?.full_name || user?.email;
+      const { data } = await supabase.from("sessions").select("*").eq("logged_by", uName).order("created_at", { ascending: true });
+      if (data) setEntries(data);
+      setPulling(false);
+    }
+    // Swipe left/right to change tab
+    const tabs = ["log", "dashboard", "history", "performers", ...(isDirector ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
+    const swipeX = e.changedTouches[0].clientX - touchStartX.current;
+    const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+    if (Math.abs(swipeX) > 60 && swipeY < 40) {
+      const cur = tabs.indexOf(tab);
+      if (swipeX < 0 && cur < tabs.length - 1) { setTab(tabs[cur + 1]); haptic("light"); }
+      if (swipeX > 0 && cur > 0) { setTab(tabs[cur - 1]); haptic("light"); }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
   const Tab = ({ id, label, badge }) => (
     <button onClick={() => setTab(id)} style={{ padding: "10px 22px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.08em", color: tab === id ? C.primary : C.inkLight, borderBottom: tab === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", position: "relative" }}>
       {label}
@@ -956,25 +1583,52 @@ export default function App() {
     </button>
   );
 
-  const DateRangeFilter = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>DATE RANGE</span>
-      <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
-      <span style={{ fontSize: 11, color: C.inkLight }}>to</span>
-      <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
-      {(dateFrom || dateTo) && (
-        <button onClick={() => { setDateFrom(""); setDateTo(""); }}
-          style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: C.inkLight, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace" }}>CLEAR</button>
-      )}
-    </div>
-  );
+  const DateRangeFilter = () => {
+    const presets = [
+      { label: "30D", days: 30 }, { label: "90D", days: 90 },
+      { label: "YTD", ytd: true }, { label: "1Y", days: 365 },
+    ];
+    const applyPreset = (p) => {
+      const to = new Date().toISOString().slice(0, 10);
+      let from;
+      if (p.ytd) { from = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10); }
+      else { const d = new Date(); d.setDate(d.getDate() - p.days); from = d.toISOString().slice(0, 10); }
+      setDateFrom(from); setDateTo(to);
+    };
+    const isActive = (p) => {
+      if (!dateFrom || !dateTo) return false;
+      const to = new Date().toISOString().slice(0, 10);
+      if (dateTo !== to) return false;
+      if (p.ytd) return dateFrom === new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const d = new Date(); d.setDate(d.getDate() - p.days);
+      return dateFrom === d.toISOString().slice(0, 10);
+    };
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} className="date-filter">
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>DATE</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {presets.map(p => (
+            <button key={p.label} onClick={() => isActive(p) ? (setDateFrom(""), setDateTo("")) : applyPreset(p)}
+              style={{ padding: "3px 8px", borderRadius: 5, border: `1px solid ${isActive(p) ? C.primary : C.border}`, background: isActive(p) ? C.primaryLight : "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: isActive(p) ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
+        <span style={{ fontSize: 11, color: C.inkLight }}>to</span>
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.ink, outline: "none" }} />
+        {(dateFrom || dateTo) && (
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: C.inkLight, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace" }}>CLEAR</button>
+        )}
+      </div>
+    );
+  };
 
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
-
-  const userName = user?.user_metadata?.full_name || user?.email;
 
   return (
     <>
@@ -982,15 +1636,39 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        /* ── Mobile touch optimisations (global) ── */
+        button, [role="button"], a {
+          -webkit-tap-highlight-color: transparent;
+          touch-action: manipulation;
+        }
+        /* Prevent accidental text selection during swipe gestures */
+        .bottom-nav, .nav-tabs, .filter-bar, .metric-card-hover,
+        .history-card-top, .history-actions, .admin-sub-nav {
+          user-select: none;
+          -webkit-user-select: none;
+        }
+        /* Minimum tap target 44×44px for all interactive elements */
+        button { min-height: 36px; }
+        input, textarea { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
         input,textarea { font-family: 'IBM Plex Sans', sans-serif; outline: none; }
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
         ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${C.borderDark}; border-radius: 3px; }
         .savebtn:hover { background: ${C.primary} !important; color: white !important; border-color: ${C.primary} !important; }
+        @keyframes savePulse {
+          0%   { transform: scale(1); box-shadow: 0 0 0 0 ${C.green}66; }
+          40%  { transform: scale(1.03); box-shadow: 0 0 0 8px ${C.green}00; }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 ${C.green}00; }
+        }
+        .savebtn-success { animation: savePulse 0.45s ease-out forwards; }
         .summarize:hover { background: ${C.primaryLight} !important; }
         .export-btn:hover { opacity: 0.85 !important; }
         .signout:hover { color: ${C.accent} !important; }
         .metric-card-hover:hover .hide-metric-btn { opacity: 1 !important; }
         .metric-card-hover:hover .hide-metric-btn:hover { background: ${C.surfaceAlt} !important; color: ${C.inkMid} !important; }
+        .metric-card-hover { touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: default; }
+        @media (max-width: 640px) {
+          .metric-card-hover:active { opacity: 0.85; transform: scale(0.98); transition: transform 0.1s, opacity 0.1s; }
+        }
         @media (max-width: 640px) {
           .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
           .admin-user-card { flex-direction: column !important; }
@@ -1001,40 +1679,81 @@ export default function App() {
         }
         /* Mobile optimisation */
         @media (max-width: 640px) {
-          .mobile-pad { padding: 16px !important; }
+          /* Hide top nav tabs — replaced by bottom nav */
+          .nav-tabs { display: none !important; }
+
+          /* Layout */
+          .mobile-pad { padding: 16px 16px 100px !important; }
           .mobile-full { max-width: 100% !important; padding: 0 !important; }
-          .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
-          .history-metric-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
-          .nav-tabs { padding: 0 8px !important; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-          .nav-tabs button { padding: 10px 14px !important; font-size: 10px !important; }
-          input, textarea, select { font-size: 16px !important; min-height: 44px; }
-          .savebtn { width: 100% !important; padding: 16px !important; font-size: 13px !important; }
-          .dashboard-header { flex-direction: column !important; align-items: flex-start !important; }
+
+          /* Header */
+          .header-wrap { padding-top: env(safe-area-inset-top, 0px) !important; }
+          .header-outer { padding: 0 16px !important; }
+          .header-subtitle { display: none !important; }
+          .header-meta { display: none !important; }
+          .header-session-count { display: none !important; }
+          .header-status { display: none !important; }
+          .header-divider { display: none !important; }
+          .header-user-name { display: none !important; }
+          .header-right { gap: 8px !important; }
+
+          /* Inputs */
+          input, textarea, select { font-size: 16px !important; }
+
+          /* Sticky save button — log tab only */
+          .savebtn {
+            position: fixed !important;
+            bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+            left: 12px !important;
+            right: 12px !important;
+            width: auto !important;
+            padding: 16px !important;
+            font-size: 13px !important;
+            z-index: 90 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 -2px 20px rgba(0,0,0,0.18) !important;
+          }
+
+          /* Extra bottom padding on log tab so content isn't hidden behind sticky save */
+          .log-form-bottom { padding-bottom: 100px !important; }
+
+          /* Dashboard */
+          .dashboard-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
           .dashboard-filters { align-items: flex-start !important; width: 100% !important; }
-          .filter-bar { flex-wrap: wrap !important; }
+          .dashboard-title { font-size: 20px !important; }
+          .metric-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
           .export-row { flex-direction: column !important; gap: 8px !important; }
-          .export-row button { width: 100% !important; }
+          .export-row button { width: 100% !important; justify-content: center !important; }
           .mom-grid { grid-template-columns: 1fr !important; }
-          .dashboard-title { font-size: 22px !important; }
           .chart-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .mom-metric-row { font-size: 11px !important; }
+          .mom-delta { min-width: 36px !important; }
+
+          /* Filter bar */
+          .filter-bar { flex-wrap: wrap !important; }
+          .date-filter { flex-wrap: wrap !important; gap: 6px !important; }
+          .date-filter input[type=date] { flex: 1 !important; min-width: 120px !important; }
+
+          /* History */
+          .history-card-top { flex-direction: column !important; gap: 12px !important; }
+          .history-actions { flex-wrap: wrap !important; gap: 6px !important; justify-content: flex-start !important; }
+          .history-actions button, .history-actions span { flex: 1 1 auto !important; text-align: center !important; justify-content: center !important; min-width: 80px !important; }
+          .history-metric-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+          .history-notes { max-width: 100% !important; text-align: left !important; }
+
+          /* Admin */
           .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+          .admin-sub-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+          .admin-sub-nav button { white-space: nowrap !important; flex-shrink: 0 !important; }
+          .admin-user-card { flex-direction: column !important; }
+          .admin-user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
+          .admin-user-actions button { flex: 1 !important; }
           .user-card-row { flex-wrap: wrap !important; }
           .user-actions { flex-direction: row !important; width: 100% !important; margin-top: 10px; }
           .user-actions button { flex: 1; }
-          /* Header mobile */
-          .header-wrap { padding-top: env(safe-area-inset-top) !important; }
-          .header-inner { padding: 0 16px !important; }
-          .header-row1 { padding: 8px 0 6px !important; }
-          .header-right { gap: 8px !important; }
-          .header-subtitle { display: none !important; }
-          .header-logo { height: 26px !important; }
-          .header-status-text { display: none !important; }
-          .header-status-dot { display: inline !important; }
-          .header-sessions-count { display: none !important; }
-          .header-streak-text { display: none !important; }
-          .header-divider { display: none !important; }
-          .header-username { display: none !important; }
-          .header-secondary { display: flex !important; }
+
+          /* Bottom nav */
+          .bottom-nav { display: flex !important; }
         }
         /* Print styles */
         @media print {
@@ -1047,80 +1766,72 @@ export default function App() {
       `}</style>
 
 
+      {/* ── IMPERSONATION BANNER ── */}
+      {viewAsUser && (
+        <div style={{ background: C.amber, padding: "10px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 16 }}>👁</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: "white", letterSpacing: "0.06em" }}>
+              VIEWING AS: {viewAsUser.full_name || viewAsUser.email}
+            </span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
+              — read-only view of their data
+            </span>
+          </div>
+          <button onClick={() => { setViewAsUser(null); setTab(realIsAdmin ? "admin" : "region"); }}
+            style={{ background: "white", border: "none", borderRadius: 6, padding: "5px 16px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, fontWeight: 700, cursor: "pointer", letterSpacing: "0.06em" }}>
+            EXIT VIEW ✕
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="header-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 16px" : "0 32px" }}>
-
-          {/* Row 1: logo left / controls right */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "8px 0 6px" : "14px 0 0" }}>
-            {/* Left: logo + divider + CARETRACK label */}
-            <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 20 }}>
-              <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: isMobile ? 26 : 36, objectFit: "contain" }} />
-              <div style={{ width: 1, height: isMobile ? 20 : 28, background: C.border }} />
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 32px" }} className="header-outer">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 36, objectFit: "contain" }} />
+              <div style={{ width: 1, height: 28, background: C.border }} />
               <div>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.15em" }}>CARETRACK</div>
-                {!isMobile && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkFaint, letterSpacing: "0.1em" }}>WOUND CARE COMPLIANCE</div>}
+                <div className="header-subtitle" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkFaint, letterSpacing: "0.1em" }}>WOUND CARE COMPLIANCE</div>
               </div>
             </div>
-
-            {/* Right controls */}
-            <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 16 }}>
-
-              {/* Status indicator */}
-              {!isOnline
-                ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber }}>
-                    {isMobile ? "●" : `● OFFLINE${offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}`}
-                  </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }} className="header-right">
+              <span className="header-status">{!isOnline
+                ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber }}>● OFFLINE{offlineQueue.length > 0 ? ` · ${offlineQueue.length} QUEUED` : ""}</span>
                 : syncing
-                  ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>
-                      {isMobile ? "●" : "● SYNCING..."}
-                    </span>
+                  ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>● SYNCING...</span>
                   : !loading && !dbError
-                    ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>
-                        {isMobile ? "●" : "● CONNECTED"}
-                      </span>
+                    ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>● CONNECTED</span>
                     : dbError
-                      ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>
-                          {isMobile ? "●" : "● DB ERROR"}
-                        </span>
+                      ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red }}>● DB ERROR</span>
                       : null
-              }
-              {syncResult && !isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
-
-              {/* WHAT'S NEW — desktop only, secondary strip on mobile */}
-              {!isMobile && (
-                <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
-                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
-                  WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
-                </button>
-              )}
-
-              {/* Session count + streak */}
-              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 12 }}>
-                {!isMobile && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }}>{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>}
+              }</span>
+              {syncResult && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green }}>{syncResult}</span>}
+              <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
+                WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: C.red }} />}
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }} className="header-meta">
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight }} className="header-session-count">{entries.length} SESSIONS{offlineQueue.length > 0 ? ` (${offlineQueue.length} pending)` : ""}</div>
                 {streak > 0 && (
                   <div title={`${streak} consecutive week${streak !== 1 ? "s" : ""} with sessions logged`}
                     style={{ display: "flex", alignItems: "center", gap: 4, background: streak >= 4 ? C.amberLight : C.surfaceAlt, border: `1px solid ${streak >= 4 ? C.amber : C.border}`, borderRadius: 12, padding: "2px 8px" }}>
                     <span style={{ fontSize: 12 }}>{streak >= 8 ? "🔥" : streak >= 4 ? "⚡" : "✦"}</span>
-                    {!isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight, letterSpacing: "0.05em" }}>{streak}W STREAK</span>}
-                    {isMobile && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight }}>{streak}W</span>}
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: streak >= 4 ? C.amber : C.inkLight, letterSpacing: "0.05em" }}>{streak}W STREAK</span>
                   </div>
                 )}
               </div>
-
-              {!isMobile && <div style={{ width: 1, height: 20, background: C.border }} />}
-
-              {/* Avatar + username (desktop) + dark mode + sign out (desktop) */}
-              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 10 }}>
+              <div style={{ width: 1, height: 20, background: C.border }} className="header-divider" />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
                   {userName.charAt(0).toUpperCase()}
                 </div>
-                {!isMobile && (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
-                    {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
-                  </div>
-                )}
+                <div className="header-user-name">
+                  <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
+                  {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
+                </div>
                 <button onClick={() => {
                     const next = !darkMode;
                     setDarkMode(next);
@@ -1132,35 +1843,18 @@ export default function App() {
                   title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
                   {darkMode ? "☀️" : "🌙"}
                 </button>
-                {!isMobile && <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>}
+                <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em", transition: "color 0.15s" }}>SIGN OUT</button>
               </div>
             </div>
           </div>
-
-          {/* Secondary strip — mobile only */}
-          {isMobile && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0 6px", borderTop: `0.5px solid ${C.border}` }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight }}>
-                {entries.length} SESSIONS{offlineQueue.length > 0 ? ` · ${offlineQueue.length} PENDING` : ""}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button onClick={() => { setShowChangelog(true); setChangelogBadge(false); localStorage.setItem("caretrack_changelog_seen", CURRENT_VERSION); }}
-                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", position: "relative" }}>
-                  WHAT'S NEW {changelogBadge && <span style={{ position: "absolute", top: -3, right: -3, width: 6, height: 6, borderRadius: "50%", background: C.red }} />}
-                </button>
-                <button className="signout" onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.05em" }}>SIGN OUT</button>
-              </div>
-            </div>
-          )}
-
-          {/* Nav tabs — desktop only, replaced by bottom nav on mobile */}
-          {!isMobile && <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
-            <Tab id="log" label="LOG SESSION" />
+          <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
+            <Tab id="log" label="LOG AUDIT" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
+            {isDirector && <Tab id="region" label="MY REGION" />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
-          </div>}
+          </div>
         </div>
       </div>
 
@@ -1176,14 +1870,21 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: isMobile ? "24px 16px 90px" : "32px 32px 64px" }} className="mobile-pad">
+      <div ref={mainContentRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 120px" }} className="mobile-pad">
+
+        {/* Pull-to-refresh indicator */}
+        {pulling && (
+          <div style={{ textAlign: "center", padding: "8px 0 16px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.08em" }}>
+            ↻ REFRESHING...
+          </div>
+        )}
 
         {/* ── LOG SESSION ── */}
         {tab === "log" && (
-          <div style={{ maxWidth: 720 }} className="mobile-full">
+          <div style={{ maxWidth: 720 }} className="mobile-full log-form-bottom">
             <div style={{ marginBottom: 28 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Session</h1>
-              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong></p>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
+              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DATE <span style={{ color: C.red }}>*</span></label>
@@ -1192,7 +1893,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" }))} hospitals={hospitals} />
+              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={hospitals} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -1206,12 +1907,123 @@ export default function App() {
             </div>
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PROTOCOL FOR USE</label>
-              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this session..."
+              <textarea value={form.protocol_for_use} onChange={e => setForm(f => ({ ...f, protocol_for_use: e.target.value }))} placeholder="Describe the protocol or intended use for this audit..."
                 rows={3} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.ink, resize: "vertical", lineHeight: 1.6 }}
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-              {getMetrics(form.hospital).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)}
+              {/* Input mode toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <label style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>COMPLIANCE METRICS</label>
+                <div style={{ display: "flex", background: C.surfaceAlt, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                  {[["simple", "Simple"], ["grid", "Per Bed"]].map(([mode, label]) => (
+                    <button key={mode} onClick={() => { setInputMode(mode); localStorage.setItem("caretrack_input_mode", mode); }}
+                      style={{ padding: "5px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", cursor: "pointer", border: "none", transition: "all 0.15s",
+                        background: inputMode === mode ? C.primary : "transparent", color: inputMode === mode ? "white" : C.inkLight }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {isKaiser(form.hospital) && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ background: auditHeelBoots ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditHeelBoots ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <div style={{ marginTop: 2, flexShrink: 0 }}>
+                        <input type="checkbox" checked={auditHeelBoots} onChange={e => setAuditHeelBoots(e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditHeelBoots ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>👢  AUDIT HEEL BOOTS</div>
+                        <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Heel Boots On</strong> compliance metric for this session.</div>
+                      </div>
+                    </label>
+                  </div>
+                  <div style={{ background: auditTurnClock ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditTurnClock ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <div style={{ marginTop: 2, flexShrink: 0 }}>
+                        <input type="checkbox" checked={auditTurnClock} onChange={e => setAuditTurnClock(e.target.checked)}
+                          style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditTurnClock ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>🕐  AUDIT TURN CLOCK</div>
+                        <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Turn Clock</strong> compliance metric for this session.</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+              {inputMode === "simple" ? (
+                getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock)).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
+              ) : (
+                <>
+                  {/* Bed count input */}
+                  {form.hospital && form.location ? (
+                    <>
+                      {/* Early duplicate warning */}
+                      {(() => {
+                        const earlyDup = form.date && entries.find(e =>
+                          e.date === form.date &&
+                          e.hospital?.toLowerCase().trim() === form.hospital.toLowerCase().trim() &&
+                          e.location?.toLowerCase().trim() === form.location.toLowerCase().trim()
+                        );
+                        return earlyDup ? (
+                          <div style={{ background: C.amberLight, border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
+                            <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.amber, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", marginBottom: 3 }}>DUPLICATE SESSION</div>
+                              <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                                A session for <strong>{form.hospital} — {form.location}</strong> on <strong>{form.date}</strong> already exists. You can still save, but check if this is intentional.
+                              </div>
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ flex: "0 0 auto" }}>
+                          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>NUMBER OF BEDS</label>
+                          <input type="number" min="1" max="100" value={bedCount || ""} placeholder="0"
+                            onChange={e => handleBedCountChange(e.target.value)}
+                            style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center" }}
+                            onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                        </div>
+                        {bedCount > 0 && (
+                          <div style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", paddingTop: 16 }}>
+                            {form.location} · {bedCount} bed{bedCount !== 1 ? "s" : ""}
+                          </div>
+                        )}
+                      </div>
+                      {bedCount > 0 && bedGrid.length > 0 && (
+                        <BedGrid
+                          metrics={getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock))}
+                          beds={bedGrid}
+                          onChange={setBedGrid}
+                          onAddBed={() => {
+                            const activeMetrics = getMetrics(form.hospital);
+                            const newCount = bedCount + 1;
+                            setBedCount(newCount);
+                            saveBedCount(form.hospital, form.location, newCount);
+                            const newBed = createEmptyBed(activeMetrics, newCount);
+                            newBed.room = String(newCount);
+                            setBedGrid(prev => [...prev, newBed]);
+                          }}
+                          onRemoveBed={(idx) => {
+                            const newCount = Math.max(1, bedCount - 1);
+                            setBedCount(newCount);
+                            saveBedCount(form.hospital, form.location, newCount);
+                            setBedGrid(prev => prev.filter((_, i) => i !== idx));
+                          }}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ padding: "24px 0", textAlign: "center", color: C.inkLight, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      Select a hospital and unit above to enter bed-level data.
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NOTES (OPTIONAL)</label>
@@ -1242,14 +2054,37 @@ export default function App() {
             </div>
 
             {saveError && <div style={{ marginBottom: 16, padding: "10px 14px", background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, fontSize: 13, color: C.red }}>⚠ {saveError}</div>}
-            <button className="savebtn" onClick={handleSave} disabled={saving || !!dbError}
-              style={{ background: saved ? C.greenLight : !isOnline ? C.amberLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : !isOnline ? C.amber : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? C.green : !isOnline ? C.amber : C.ink, cursor: saving ? "not-allowed" : "pointer", transition: "all 0.2s", opacity: saving ? 0.6 : 1 }}>
+            <button className={`savebtn${saved ? " savebtn-success" : ""}`} onClick={handleSave} disabled={saving || !!dbError}
+              style={{ background: saved ? C.green : !isOnline ? C.amberLight : C.surfaceAlt, border: `1px solid ${saved ? C.green : !isOnline ? C.amber : C.borderDark}`, borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: saved ? "white" : !isOnline ? C.amber : C.ink, cursor: saving ? "not-allowed" : "pointer", transition: "background 0.2s, color 0.2s, border-color 0.2s", opacity: saving ? 0.6 : 1 }}>
               {saved ? `✓ SAVED · ${savedAt ? new Date(savedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}` : saving ? "SAVING..." : !isOnline ? "SAVE OFFLINE →" : "SAVE SESSION →"}
             </button>
           </div>
         )}
 
-        {/* ── DASHBOARD ── */}
+        {/* ── DELETION REQUEST MODAL ── */}
+      {deletionRequestModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: C.surface, borderRadius: 16, padding: 32, width: "100%", maxWidth: 460, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, letterSpacing: "0.08em", marginBottom: 8 }}>REQUEST SESSION DELETION</div>
+            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, color: C.ink, marginBottom: 4 }}>{deletionRequestModal.session.hospital}</div>
+            <div style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>{deletionRequestModal.session.date}{deletionRequestModal.session.location ? ` · ${deletionRequestModal.session.location}` : ""}</div>
+            <div style={{ fontSize: 13, color: C.inkMid, marginBottom: 16, lineHeight: 1.6 }}>This will notify an admin to review and delete this session. You can add an optional reason below.</div>
+            <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REASON (OPTIONAL)</label>
+            <textarea value={deletionRequestReason} onChange={e => setDeletionRequestReason(e.target.value)}
+              placeholder="e.g. Entered incorrect data, duplicate session..."
+              rows={3} style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.ink, resize: "vertical", lineHeight: 1.5, marginBottom: 20, boxSizing: "border-box" }}
+              onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => { setDeletionRequestModal(null); setDeletionRequestReason(""); }}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer" }}>CANCEL</button>
+              <button onClick={() => handleRequestDeletion(deletionRequestModal.session.id, deletionRequestReason)}
+                style={{ background: C.red, border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>SUBMIT REQUEST</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
           <div>
             {/* Hospital branding banner */}
@@ -1275,8 +2110,14 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: hiddenMetrics.length > 0 ? 8 : 28 }} className="metric-grid">
-                  {avgByMetric.filter(m => !hiddenMetrics.includes(m.id)).map(m => {
+                {METRIC_BUCKETS.map(bucket => {
+                  const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
+                  if (bucketMetrics.length === 0) return null;
+                  return (
+                    <div key={bucket.label} style={{ marginBottom: 20 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8, paddingLeft: 2 }}>{bucket.label.toUpperCase()}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 12 }} className="metric-grid">
+                        {bucketMetrics.map(m => {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
@@ -1310,7 +2151,10 @@ export default function App() {
                       )}
                     </div>
                   )})}
-                </div>
+                      </div>
+                    </div>
+                  );
+                })}
                 {/* Hidden metrics restore bar */}
                 {hiddenMetrics.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, padding: "8px 14px", background: C.surfaceAlt, borderRadius: 8, flexWrap: "wrap" }}>
@@ -1411,7 +2255,7 @@ export default function App() {
                   </div>
                   {filteredDashboard.length === 0 ? (
                     <div style={{ padding: "40px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions for this filter.</div>
-                  ) : (
+                  ) : tab === "dashboard" ? (
                     <div className="chart-container">
                       <ResponsiveContainer width="100%" height={260}>
                         <LineChart data={chartDataWithNational} margin={{ top: 5, right: 20, bottom: 5, left: -15 }}>
@@ -1436,7 +2280,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 {/* Action buttons */}
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }} className="export-row">
@@ -1479,7 +2323,7 @@ export default function App() {
                 <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={setHistoryHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
+                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
                 <DateRangeFilter />
               </div>
             </div>
@@ -1489,7 +2333,7 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontSize: 13 }}>No sessions found for this filter.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {[...filteredHistory].reverse().map(e => {
+                {[...filteredHistory].reverse().slice(0, historyPage).map(e => {
                   const isOfflinePending = e.id && String(e.id).startsWith("offline_");
                   const isEditing = editingId === e.id;
                   const ef = isEditing ? editForm : e;
@@ -1497,7 +2341,7 @@ export default function App() {
                   const inpStyle = { background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, color: C.ink, width: "100%", outline: "none" };
                   return (
                     <div key={e.id} style={{ background: C.surface, border: `1px solid ${isEditing ? C.primary : C.border}`, borderRadius: 12, padding: "18px 20px", transition: "border-color 0.2s" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }} className="history-card-top">
                         <div style={{ flex: 1, marginRight: 16 }}>
                           {isEditing ? (
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -1551,8 +2395,8 @@ export default function App() {
                           )}
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }}>{e.notes}</div>}
-                          <div style={{ display: "flex", gap: 6 }}>
+                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }} className="history-notes">{e.notes}</div>}
+                          <div style={{ display: "flex", gap: 6 }} className="history-actions">
                             {isEditing ? (
                               <>
                                 <button onClick={saveEdit} disabled={editSaving}
@@ -1574,13 +2418,21 @@ export default function App() {
                                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>
                                   PRINT
                                 </button>
+                                {!isOfflinePending && (
+                                  e.deletion_requested
+                                    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.redLight, border: `1px solid ${C.red}44`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, letterSpacing: "0.04em" }}>⏳ DELETION PENDING</span>
+                                    : <button onClick={() => { setDeletionRequestModal({ session: e }); setDeletionRequestReason(""); }}
+                                        style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                        REQUEST DELETION
+                                      </button>
+                                )}
                               </>
                             )}
                           </div>
                         </div>
                       </div>
                       {isEditing ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid">
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }} className="history-metric-grid history-metric-grid-edit">
                           {getMetrics(e.hospital).map(m => (
                             <div key={m.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
                               <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{m.label}</div>
@@ -1657,6 +2509,13 @@ export default function App() {
                     </div>
                   );
                 })}
+                {filteredHistory.length > historyPage && (
+                  <button
+                    onClick={() => { setHistoryPage(p => p + 20); haptic("light"); }}
+                    style={{ width: "100%", padding: "14px", background: "none", border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.06em" }}>
+                    LOAD MORE ({filteredHistory.length - historyPage} remaining)
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1849,6 +2708,144 @@ export default function App() {
           </div>
         )}
 
+        {tab === "region" && isDirector && (
+          <div>
+            {/* Header */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>MY REGION</div>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{myRegion || "Region"}</h1>
+              <p style={{ color: C.inkMid, fontSize: 13 }}>{regionReps.length} rep{regionReps.length !== 1 ? "s" : ""} · {regionEntries.length} sessions logged</p>
+            </div>
+
+            {regionLoading ? (
+              <div style={{ fontSize: 13, color: C.inkLight, padding: "40px 0", textAlign: "center" }}>Loading region data...</div>
+            ) : regionReps.length === 0 ? (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No reps in your region yet</div>
+                <div style={{ fontSize: 13, color: C.inkMid }}>Ask your admin to assign reps to the <strong>{myRegion}</strong> region.</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* ── Rep Roster ── */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>REP ROSTER</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {regionReps.map(rep => {
+                      const repSessions = regionEntries.filter(e => e.logged_by === (rep.full_name || rep.email));
+                      const repVals = METRICS.flatMap(m => repSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                      const repAvg = repVals.length ? Math.round(repVals.reduce((a, b) => a + b, 0) / repVals.length) : null;
+                      const lastSess = repSessions[repSessions.length - 1];
+                      const isActive = rep.is_active !== false;
+                      return (
+                        <div key={rep.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, opacity: isActive ? 1 : 0.5 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.primaryLight, border: `1px solid ${C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: C.primary, flexShrink: 0 }}>
+                            {(rep.full_name || rep.email).charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{rep.full_name || rep.email}</div>
+                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {rep.email} · {repSessions.length} session{repSessions.length !== 1 ? "s" : ""}
+                              {lastSess && ` · Last: ${formatTimestamp(lastSess.created_at, lastSess.date)}`}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: repAvg !== null ? pctColor(repAvg) : C.inkFaint }}>{repAvg !== null ? `${repAvg}%` : "—"}</div>
+                            <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
+                          </div>
+                          <button onClick={() => { setViewAsUser({ email: rep.email, full_name: rep.full_name }); setTab("dashboard"); }}
+                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+                            👁 VIEW
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ── Regional Aggregated Metrics ── */}
+                {regionEntries.length > 0 && (() => {
+                  const regionAvgByMetric = METRICS.map(m => {
+                    const vals = regionEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                    return { ...m, avg };
+                  });
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>REGIONAL COMPLIANCE — ALL REPS</div>
+                      {METRIC_BUCKETS.map(bucket => {
+                        const bucketMetrics = regionAvgByMetric.filter(m => bucket.ids.includes(m.id));
+                        if (bucketMetrics.length === 0) return null;
+                        return (
+                          <div key={bucket.label} style={{ marginBottom: 20 }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 8 }}>{bucket.label.toUpperCase()}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 10 }} className="metric-grid">
+                              {bucketMetrics.map(m => {
+                                const natVals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                                const natAvg = natVals.length ? Math.round(natVals.reduce((a,b)=>a+b,0)/natVals.length) : null;
+                                return (
+                                <div key={m.id} style={{ background: m.avg !== null ? (m.avg >= 90 ? C.greenLight : m.avg >= 70 ? C.amberLight : C.redLight) : C.bg, border: `1px solid ${m.avg !== null ? pctColor(m.avg) + "44" : C.border}`, borderRadius: 10, padding: "14px 16px" }}>
+                                  <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, marginBottom: 8 }}>{m.label}</div>
+                                  <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color: m.avg !== null ? pctColor(m.avg) : C.inkFaint }}>{m.avg !== null ? `${m.avg}%` : "—"}</div>
+                                  <div style={{ marginTop: 6, height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: `${m.avg ?? 0}%`, background: m.avg !== null ? pctColor(m.avg) : C.inkFaint, borderRadius: 2, transition: "width 0.6s ease" }} />
+                                  </div>
+                                  {natAvg !== null && (
+                                    <div style={{ marginTop: 6, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>
+                                      National avg: {natAvg}%
+                                      {m.avg !== null && <span style={{ marginLeft: 6, fontWeight: 600, color: m.avg >= natAvg ? C.green : C.red }}>{m.avg >= natAvg ? "▲" : "▼"}{Math.abs(m.avg - natAvg)}%</span>}
+                                    </div>
+                                  )}
+                                </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Hospital Rankings across region ── */}
+                {regionEntries.length > 0 && (() => {
+                  const hospMap = {};
+                  regionEntries.forEach(e => {
+                    if (!e.hospital) return;
+                    if (!hospMap[e.hospital]) hospMap[e.hospital] = [];
+                    hospMap[e.hospital].push(e);
+                  });
+                  const rankings = Object.entries(hospMap).map(([hosp, sess]) => {
+                    const vals = METRICS.flatMap(m => sess.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                    return { name: hosp, avg, sessions: sess.length };
+                  }).filter(h => h.avg !== null).sort((a, b) => b.avg - a.avg);
+                  if (rankings.length === 0) return null;
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>HOSPITAL RANKINGS — REGION</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {rankings.map((h, i) => (
+                          <div key={h.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < rankings.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                            <div style={{ width: 24, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint, flexShrink: 0 }}>#{i + 1}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
+                              <div style={{ fontSize: 10, color: C.inkLight, marginTop: 1 }}>{h.sessions} session{h.sessions !== 1 ? "s" : ""}</div>
+                            </div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: pctColor(h.avg), flexShrink: 0 }}>{h.avg}%</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "admin" && isAdmin && (
           <div>
             <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
@@ -1864,12 +2861,16 @@ export default function App() {
 
             {/* Admin sub-nav */}
             <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              {[["sessions","ALL SESSIONS"],["users","USER MANAGEMENT"],["audit","AUDIT LOG"]].map(([id, label]) => (
-                <button key={id} onClick={() => setAdminSection(id)}
-                  style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {label}
-                </button>
-              ))}
+              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["hospitals","HOSPITALS"],["audit","AUDIT LOG"]].map(([id, label]) => {
+                const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : 0;
+                return (
+                  <button key={id} onClick={() => setAdminSection(id)}
+                    style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    {label}
+                    {pendingCount > 0 && <span style={{ background: C.red, color: "white", borderRadius: 10, padding: "1px 7px", fontSize: 9, fontWeight: 700 }}>{pendingCount}</span>}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Stats row - always visible */}
@@ -1933,9 +2934,100 @@ export default function App() {
               </div>
             )}
 
+            {/* ── DELETION REQUESTS SECTION ── */}
+            {adminSection === "deletions" && (() => {
+              const pending = [...allEntriesFull].filter(e => e.deletion_requested).reverse();
+              return (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>DELETION REQUESTS ({pending.length})</div>
+                  {pending.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>No pending deletion requests.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {pending.map(e => {
+                        const overallVals = METRICS.map(m => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                        const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
+                        return (
+                          <div key={e.id} style={{ background: C.redLight, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "14px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{e.date}{e.hospital ? <span style={{ color: C.primary }}> · {e.hospital}</span> : ""}</div>
+                                <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{e.location && `${e.location} · `}{formatTimestamp(e.created_at)}</div>
+                                {e.logged_by && <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "2px 10px" }}><span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary }}>{e.logged_by}</span></div>}
+                                {e.deletion_reason && <div style={{ marginTop: 8, fontSize: 12, color: C.inkMid, background: "white", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", fontStyle: "italic" }}>"{e.deletion_reason}"</div>}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint, marginRight: 4 }}>{overall !== null ? `${overall}%` : "—"}</div>
+                                <button onClick={() => handleDenyDeletion(e.id)}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.04em" }}>DENY</button>
+                                <button onClick={() => { if (window.confirm(`Permanently delete this session from ${e.hospital} on ${e.date}?`)) handleApproveDeletion(e.id); }}
+                                  style={{ background: C.red, border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.04em" }}>APPROVE & DELETE</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* ── USER MANAGEMENT SECTION ── */}
             {adminSection === "users" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Invite User card */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>INVITE USER</div>
+                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Send an invitation email with a sign-in link. The user will be prompted to set their password on first login.</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FULL NAME</label>
+                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Jane Smith"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL ADDRESS</label>
+                      <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="jane@hospital.com"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                  </div>
+                  {inviteResult && (
+                    <div style={{ background: inviteResult.ok ? C.greenLight : C.redLight, border: `1px solid ${inviteResult.ok ? C.green : C.red}44`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: inviteResult.ok ? C.green : C.red, marginBottom: 16 }}>
+                      {inviteResult.ok ? "✓" : "⚠"} {inviteResult.message}
+                    </div>
+                  )}
+                  <button disabled={inviting || !inviteEmail.trim() || !inviteName.trim()}
+                    onClick={async () => {
+                      if (!inviteEmail.trim() || !inviteName.trim()) return;
+                      setInviting(true); setInviteResult(null);
+                      try {
+                        // Use Supabase Edge Function to call auth.admin.inviteUserByEmail with service role
+                        const { data: { session } } = await supabase.auth.getSession();
+                        const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/invite-user`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+                          body: JSON.stringify({ email: inviteEmail.trim(), full_name: inviteName.trim() }),
+                        });
+                        const json = await res.json();
+                        if (!res.ok) throw new Error(json.error || "Invitation failed");
+                        setInviteResult({ ok: true, message: `Invitation sent to ${inviteEmail.trim()}` });
+                        await logAudit("USER_INVITED", { email: inviteEmail.trim(), name: inviteName.trim() }, inviteEmail.trim());
+                        const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
+                        if (freshAudit) setAuditLog(freshAudit);
+                        setInviteEmail(""); setInviteName("");
+                      } catch (err) {
+                        setInviteResult({ ok: false, message: err.message });
+                      }
+                      setInviting(false);
+                    }}
+                    style={{ background: inviting || !inviteEmail.trim() || !inviteName.trim() ? C.surfaceAlt : C.primary, border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: inviting || !inviteEmail.trim() || !inviteName.trim() ? C.inkLight : "white", cursor: inviting || !inviteEmail.trim() || !inviteName.trim() ? "not-allowed" : "pointer", letterSpacing: "0.08em" }}>
+                    {inviting ? "SENDING..." : "SEND INVITATION →"}
+                  </button>
+                </div>
                 {/* Per-user breakdown */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
@@ -1955,9 +3047,69 @@ export default function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
-                                {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
-                                {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                                {editingNameId === profile.id ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                                    <input
+                                      autoFocus
+                                      value={editingNameValue}
+                                      onChange={e => setEditingNameValue(e.target.value)}
+                                      onKeyDown={async e => {
+                                        if (e.key === "Escape") { setEditingNameId(null); setEditingNameValue(""); }
+                                        if (e.key === "Enter") {
+                                          if (!editingNameValue.trim() || editingNameValue.trim() === profile.full_name) { setEditingNameId(null); return; }
+                                          setEditingNameSaving(true);
+                                          const oldName = profile.full_name || profile.email;
+                                          const newName = editingNameValue.trim();
+                                          // Update user_profiles
+                                          const { error: profErr } = await supabase.from("user_profiles").update({ full_name: newName }).eq("id", profile.id);
+                                          if (profErr) { alert("Failed: " + profErr.message); setEditingNameSaving(false); return; }
+                                          // Bulk update sessions logged_by
+                                          await supabase.from("sessions").update({ logged_by: newName }).eq("logged_by", oldName);
+                                          // Update local state
+                                          setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, full_name: newName } : p));
+                                          setAllEntriesFull(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                          setEntries(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                          await logAudit("USER_RENAMED", { email: profile.email, from: oldName, to: newName }, profile.email);
+                                          setEditingNameId(null); setEditingNameValue(""); setEditingNameSaving(false);
+                                        }
+                                      }}
+                                      style={{ flex: 1, background: C.bg, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "3px 8px", fontSize: 13, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif", minWidth: 0, outline: "none" }}
+                                    />
+                                    <button onClick={async () => {
+                                      if (!editingNameValue.trim() || editingNameValue.trim() === profile.full_name) { setEditingNameId(null); return; }
+                                      setEditingNameSaving(true);
+                                      const oldName = profile.full_name || profile.email;
+                                      const newName = editingNameValue.trim();
+                                      const { error: profErr } = await supabase.from("user_profiles").update({ full_name: newName }).eq("id", profile.id);
+                                      if (profErr) { alert("Failed: " + profErr.message); setEditingNameSaving(false); return; }
+                                      await supabase.from("sessions").update({ logged_by: newName }).eq("logged_by", oldName);
+                                      setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, full_name: newName } : p));
+                                      setAllEntriesFull(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                      setEntries(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
+                                      await logAudit("USER_RENAMED", { email: profile.email, from: oldName, to: newName }, profile.email);
+                                      setEditingNameId(null); setEditingNameValue(""); setEditingNameSaving(false);
+                                    }} disabled={editingNameSaving}
+                                      style={{ background: C.green, border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                      {editingNameSaving ? "..." : "SAVE"}
+                                    </button>
+                                    <button onClick={() => { setEditingNameId(null); setEditingNameValue(""); }}
+                                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
+                                    {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
+                                    {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
+                                    {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
+                                    {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                                    <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
+                                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
+                                      ✎ RENAME
+                                    </button>
+                                  </>
+                                )}
                               </div>
                               <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {profile.email} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}
@@ -1992,13 +3144,162 @@ export default function App() {
                                   style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", whiteSpace: "nowrap" }}>
                                   RESET PASSWORD
                                 </button>
+                                <button onClick={() => { setViewAsUser({ email: profile.email, full_name: profile.full_name }); setTab("dashboard"); }}
+                                  style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  👁 VIEW AS
+                                </button>
                               </div>
                             )}
                           </div>
+                          {/* Role + Region row */}
+                          {!isAdminUser && (
+                            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>ROLE</label>
+                                <select value={profile.role || "rep"}
+                                  onChange={async e => {
+                                    const newRole = e.target.value;
+                                    const { error } = await supabase.from("user_profiles").update({ role: newRole }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: newRole } : p));
+                                    await logAudit("USER_ROLE_CHANGED", { email: profile.email, role: newRole }, profile.email);
+                                  }}
+                                  style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
+                                  <option value="rep">Rep</option>
+                                  <option value="director">Director</option>
+                                </select>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REGION</label>
+                                <input
+                                  defaultValue={profile.region || ""}
+                                  placeholder="e.g. Northeast"
+                                  onBlur={async e => {
+                                    const newRegion = e.target.value.trim();
+                                    if (newRegion === (profile.region || "")) return;
+                                    const { error } = await supabase.from("user_profiles").update({ region: newRegion }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, region: newRegion } : p));
+                                    await logAudit("USER_REGION_CHANGED", { email: profile.email, region: newRegion }, profile.email);
+                                  }}
+                                  style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                                  onFocus={e => e.target.style.borderColor = C.primary}
+                                  onKeyDown={e => e.key === "Enter" && e.target.blur()}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
                     {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── HOSPITALS SECTION ── */}
+            {adminSection === "hospitals" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Rename Hospital card */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>RENAME HOSPITAL</div>
+                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Renames a hospital across all sessions. The new name will appear in rep dropdowns automatically.</p>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>CURRENT NAME</label>
+                      <select
+                        value={hospitalRenameFrom}
+                        onChange={e => { setHospitalRenameFrom(e.target.value); setHospitalRenameResult(null); }}
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: hospitalRenameFrom ? C.ink : C.inkLight, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                        <option value="">Select hospital...</option>
+                        {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NEW NAME</label>
+                      <input
+                        type="text"
+                        value={hospitalRenameTo}
+                        onChange={e => { setHospitalRenameTo(e.target.value); setHospitalRenameResult(null); }}
+                        placeholder="Enter new hospital name..."
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  {hospitalRenameFrom && hospitalRenameTo && hospitalRenameFrom !== hospitalRenameTo && (
+                    <div style={{ background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.amber }}>
+                      ⚠️ This will rename <strong>"{hospitalRenameFrom}"</strong> to <strong>"{hospitalRenameTo}"</strong> across{" "}
+                      <strong>{allEntriesFull.filter(e => e.hospital === hospitalRenameFrom).length} sessions</strong>. This cannot be undone.
+                    </div>
+                  )}
+
+                  {/* Result */}
+                  {hospitalRenameResult && (
+                    <div style={{ background: hospitalRenameResult.error ? C.redLight : C.greenLight, border: `1px solid ${hospitalRenameResult.error ? C.red : C.green}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: hospitalRenameResult.error ? C.red : C.green }}>
+                      {hospitalRenameResult.error
+                        ? `Error: ${hospitalRenameResult.error}`
+                        : `✓ Successfully renamed ${hospitalRenameResult.count} session${hospitalRenameResult.count !== 1 ? "s" : ""}.`}
+                    </div>
+                  )}
+
+                  <button
+                    disabled={!hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo || hospitalRenaming}
+                    onClick={async () => {
+                      if (!window.confirm(`Rename "${hospitalRenameFrom}" to "${hospitalRenameTo}" across all sessions?`)) return;
+                      setHospitalRenaming(true);
+                      setHospitalRenameResult(null);
+                      const { data, error } = await supabase
+                        .from("sessions")
+                        .update({ hospital: hospitalRenameTo })
+                        .eq("hospital", hospitalRenameFrom)
+                        .select();
+                      setHospitalRenaming(false);
+                      if (error) {
+                        setHospitalRenameResult({ error: error.message });
+                      } else {
+                        setHospitalRenameResult({ count: data.length });
+                        // Refresh entries
+                        setAllEntriesFull(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                        setEntries(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                        await logAudit("HOSPITAL_RENAMED", { from: hospitalRenameFrom, to: hospitalRenameTo, count: data.length });
+                        setHospitalRenameFrom("");
+                        setHospitalRenameTo("");
+                      }
+                    }}
+                    style={{ background: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.surfaceAlt : C.primary, color: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.inkLight : "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? "not-allowed" : "pointer", letterSpacing: "0.06em" }}>
+                    {hospitalRenaming ? "RENAMING..." : "RENAME HOSPITAL"}
+                  </button>
+                </div>
+
+                {/* Hospital list */}
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>
+                    ALL HOSPITALS ({[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(h => {
+                      const count = allEntriesFull.filter(e => e.hospital === h).length;
+                      const reps = [...new Set(allEntriesFull.filter(e => e.hospital === h).map(e => e.logged_by))].filter(Boolean);
+                      return (
+                        <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
+                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{reps.join(", ")}</div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.primary, fontWeight: 600 }}>{count}</div>
+                            <div style={{ fontSize: 10, color: C.inkLight }}>sessions</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -2017,12 +3318,14 @@ export default function App() {
                         SESSION_CREATED: C.green, SESSION_EDITED: C.amber, SESSION_DELETED: C.red,
                         USER_DEACTIVATED: C.red, USER_REACTIVATED: C.green, PASSWORD_RESET_SENT: C.primary,
                         ALL_SESSIONS_DELETED: C.red,
+                        DELETION_REQUESTED: C.amber, DELETION_APPROVED: C.red, DELETION_DENIED: C.green,
                       };
                       const actionLabels = {
                         SESSION_CREATED: "Session Created", SESSION_EDITED: "Session Edited",
                         SESSION_DELETED: "Session Deleted", USER_DEACTIVATED: "User Deactivated",
                         USER_REACTIVATED: "User Reactivated", PASSWORD_RESET_SENT: "Password Reset Sent",
                         ALL_SESSIONS_DELETED: "All Sessions Deleted",
+                        DELETION_REQUESTED: "Deletion Requested", DELETION_APPROVED: "Deletion Approved", DELETION_DENIED: "Deletion Denied",
                       };
                       const color = actionColors[log.action] || C.inkLight;
                       const label = actionLabels[log.action] || log.action;
@@ -2060,57 +3363,204 @@ export default function App() {
         )}
       </div>
 
+      {/* ── PWA INSTALL BANNER ────────────────────────────────────────────── */}
+      {showInstallBanner && !installDismissed && !isInStandaloneMode() && (
+        <div style={{ position: "fixed", bottom: 72, left: 12, right: 12, zIndex: 900, maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.primary}44`, borderRadius: 14, padding: "16px 18px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", display: "flex", alignItems: "flex-start", gap: 14 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <span style={{ fontSize: 20 }}>📲</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>Add CareTrack to Home Screen</div>
+              {isIOS()
+                ? <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                    Tap <strong style={{ color: C.primary }}>Share</strong> then <strong style={{ color: C.primary }}>"Add to Home Screen"</strong> for instant one-tap access.
+                  </div>
+                : <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+                    Install CareTrack for instant one-tap access — no app store needed.
+                  </div>
+              }
+              {!isIOS() && pwaPrompt && (
+                <button onClick={async () => {
+                  pwaPrompt.prompt();
+                  const { outcome } = await pwaPrompt.userChoice;
+                  if (outcome === "accepted") {
+                    setShowInstallBanner(false);
+                    setInstallDismissed(true);
+                    localStorage.setItem("caretrack_install_dismissed", "1");
+                  }
+                  setPwaPrompt(null);
+                }} style={{ marginTop: 10, background: C.primary, border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.06em" }}>
+                  INSTALL APP
+                </button>
+              )}
+            </div>
+            <button onClick={() => {
+              setShowInstallBanner(false);
+              setInstallDismissed(true);
+              localStorage.setItem("caretrack_install_dismissed", "1");
+            }} style={{ background: "none", border: "none", color: C.inkLight, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2, flexShrink: 0 }}>✕</button>
+          </div>
+        </div>
+      )}
+
       {/* ── ONBOARDING MODAL ───────────────────────────────────────────────── */}
       {showOnboarding && user && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 520, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", maxWidth: 480, width: "100%", padding: "28px 24px 36px", boxShadow: "0 -8px 40px rgba(0,0,0,0.25)", maxHeight: "90vh", overflowY: "auto" }}>
+
+            {/* Step dots */}
+            <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 24 }}>
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} style={{ width: i === onboardingStep ? 20 : 6, height: 6, borderRadius: 3, background: i === onboardingStep ? C.primary : C.border, transition: "all 0.2s" }} />
+              ))}
+            </div>
+
+            {/* ── STEP 0: WELCOME ── */}
             {onboardingStep === 0 && (
               <>
-                <div style={{ fontSize: 36, marginBottom: 16 }}>👋</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Welcome to CareTrack</h2>
-                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>CareTrack helps you track wound care compliance across hospitals and locations. Log sessions after each visit, view trends on your dashboard, and export reports for your team.</p>
-                <div style={{ background: C.bg, borderRadius: 10, padding: "16px 20px", marginBottom: 24, fontSize: 13, color: C.inkMid, lineHeight: 1.8 }}>
-                  <div>📋 <strong>Log Session</strong> — Record compliance data after each visit</div>
-                  <div>📊 <strong>Dashboard</strong> — View trends and national averages</div>
-                  <div>📁 <strong>History</strong> — Browse and edit past sessions</div>
-                  <div>🏆 <strong>Performers</strong> — See hospital and location rankings</div>
+                <div style={{ fontSize: 40, marginBottom: 14, textAlign: "center" }}>👋</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, marginBottom: 10, textAlign: "center" }}>Welcome to CareTrack</h2>
+                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20, textAlign: "center" }}>Your tool for tracking wound care compliance across hospitals. Log an audit after every visit — your dashboard builds itself from there.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+                  {[
+                    ["📋", "Log Audit",  "Record compliance data after each visit"],
+                    ["📊", "Dashboard",  "Trends, averages, and export tools"],
+                    ["📁", "History",    "Browse and edit past sessions"],
+                    ["🏆", "Performers", "Hospital and unit rankings"],
+                  ].map(([icon, title, desc]) => (
+                    <div key={title} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", background: C.bg, borderRadius: 10 }}>
+                      <span style={{ fontSize: 22, flexShrink: 0 }}>{icon}</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{title}</div>
+                        <div style={{ fontSize: 12, color: C.inkLight, marginTop: 1 }}>{desc}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <button onClick={() => setOnboardingStep(1)} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
-                  GET STARTED →
+                <button onClick={() => setOnboardingStep(1)} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 10, padding: "16px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+                  SHOW ME HOW →
                 </button>
               </>
             )}
+
+            {/* ── STEP 1: HOW TO LOG ── */}
             {onboardingStep === 1 && (
               <>
-                <div style={{ fontSize: 36, marginBottom: 16 }}>⌨️</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>Keyboard Shortcuts</h2>
-                <p style={{ fontSize: 14, color: C.inkMid, marginBottom: 20 }}>Navigate CareTrack faster with these shortcuts:</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-                  {[["1","Log Session"],["2","Dashboard"],["3","History"],["4","Performers"],["5","Admin (admins only)"],["?","What's New / Changelog"],["Esc","Close any modal"]].map(([key, desc]) => (
-                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
-                      <kbd style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.ink, minWidth: 36, textAlign: "center" }}>{key}</kbd>
-                      <span style={{ fontSize: 13, color: C.inkMid }}>{desc}</span>
+                <div style={{ fontSize: 40, marginBottom: 14, textAlign: "center" }}>📋</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, marginBottom: 8, textAlign: "center" }}>Logging an audit</h2>
+                <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6, marginBottom: 20, textAlign: "center" }}>Fill in these four things after every hospital visit.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+                  {[
+                    ["1", "Date",     "Today's date is filled in automatically — change it if logging retroactively."],
+                    ["2", "Hospital", "Type or select the hospital name. CareTrack remembers hospitals you've used before."],
+                    ["3", "Unit",     "Enter the unit or location. Previously used units appear as a quick-pick list."],
+                    ["4", "Metrics",  "Use Per Bed mode to tap YES/NO for each metric per bed. Totals calculate automatically."],
+                  ].map(([num, title, desc]) => (
+                    <div key={num} style={{ display: "flex", gap: 14, padding: "14px", background: C.bg, borderRadius: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.primary, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, flexShrink: 0, marginTop: 1 }}>{num}</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 3 }}>{title}</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.6 }}>{desc}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={() => setOnboardingStep(0)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
-                  <button onClick={() => { setOnboardingStep(2); }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>NEXT →</button>
+                  <button onClick={() => setOnboardingStep(0)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
+                  <button onClick={() => setOnboardingStep(2)} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>TRY IT NOW →</button>
                 </div>
               </>
             )}
+
+            {/* ── STEP 2: PRACTICE SESSION — BED GRID ── */}
             {onboardingStep === 2 && (
               <>
-                <div style={{ fontSize: 36, marginBottom: 16 }}>✅</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 400, marginBottom: 12 }}>You're all set!</h2>
-                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 20 }}>Start by logging your first session — tap <strong>Log Session</strong> and fill in your hospital, location, and metric data. Your dashboard will populate as you add more sessions.</p>
-                <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 24 }}>You can revisit this guide anytime from the <strong>What's New</strong> button in the top bar.</p>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", marginBottom: 4 }}>PRACTICE SESSION</div>
+                  <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 400, marginBottom: 6 }}>Log your first audit</h2>
+                  <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Tap YES or NO for each metric on each bed. We'll delete this practice entry automatically when you're done.</p>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+                  <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 3 }}>DATE</div>
+                    <div style={{ fontSize: 13, color: C.ink }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+                  </div>
+                  <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 3 }}>UNIT</div>
+                    <div style={{ fontSize: 13, color: C.ink }}>Practice Unit</div>
+                  </div>
+                  <div style={{ gridColumn: "span 2", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 3 }}>HOSPITAL</div>
+                    <div style={{ fontSize: 13, color: C.ink }}>Practice Hospital</div>
+                  </div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <BedGrid
+                    metrics={METRICS}
+                    beds={practiceBedGrid}
+                    onChange={setPracticeBedGrid}
+                    onAddBed={() => {
+                      const n = practiceBedGrid.length + 1;
+                      const b = createEmptyBed(METRICS, n);
+                      b.room = String(n);
+                      setPracticeBedGrid(prev => [...prev, b]);
+                    }}
+                    onRemoveBed={(idx) => setPracticeBedGrid(prev => prev.filter((_, i) => i !== idx))}
+                  />
+                </div>
+                {practiceError && (
+                  <div style={{ background: C.redLight, border: `1px solid ${C.red}33`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 12 }}>{practiceError}</div>
+                )}
                 <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={() => setOnboardingStep(1)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
-                  <button onClick={() => { setShowOnboarding(false); localStorage.setItem("caretrack_onboarded", "true"); setTab("log"); }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>START LOGGING →</button>
+                  <button onClick={() => setOnboardingStep(1)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>← BACK</button>
+                  <button disabled={practiceSaving} onClick={async () => {
+                    const metricTotals = {};
+                    METRICS.forEach(m => {
+                      const active = practiceBedGrid.filter(b => !b.na && !b[`${m.id}_na`]);
+                      metricTotals[`${m.id}_den`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0) || null;
+                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0) || null;
+                    });
+                    if (!METRICS.some(m => metricTotals[`${m.id}_den`] > 0)) { setPracticeError("Tap YES or NO on at least one bed to continue."); return; }
+                    setPracticeError(null); setPracticeSaving(true);
+                    const { data, error } = await supabase.from("sessions").insert([{
+                      date: new Date().toISOString().slice(0, 10),
+                      hospital: "Practice Hospital", location: "Practice Unit",
+                      notes: "Onboarding practice session — will be deleted automatically.",
+                      logged_by: userName, bed_data: practiceBedGrid, ...metricTotals,
+                    }]).select().single();
+                    setPracticeSaving(false);
+                    if (error) { setPracticeError("Couldn't save. " + error.message); return; }
+                    setPracticeSessionId(data.id);
+                    setOnboardingStep(3);
+                  }} style={{ flex: 2, background: C.primary, border: "none", borderRadius: 10, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: practiceSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em", opacity: practiceSaving ? 0.7 : 1 }}>
+                    {practiceSaving ? "SAVING…" : "SAVE AUDIT →"}
+                  </button>
                 </div>
               </>
             )}
+
+            {/* ── STEP 3: SUCCESS ── */}
+            {onboardingStep === 3 && (
+              <>
+                <div style={{ fontSize: 40, marginBottom: 14, textAlign: "center" }}>🎉</div>
+                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, marginBottom: 10, textAlign: "center" }}>You've got it!</h2>
+                <p style={{ fontSize: 14, color: C.inkMid, lineHeight: 1.7, marginBottom: 8, textAlign: "center" }}>Your practice audit was saved. Tap below to start logging real sessions — we'll delete the practice entry in the background.</p>
+                <p style={{ fontSize: 12, color: C.inkLight, lineHeight: 1.6, marginBottom: 28, textAlign: "center" }}>You can revisit this guide anytime from the <strong>What's New</strong> button.</p>
+                <button onClick={async () => {
+                  setShowOnboarding(false);
+                  localStorage.setItem("caretrack_onboarded", "true");
+                  setTab("log");
+                  if (practiceSessionId) {
+                    await supabase.from("sessions").delete().eq("id", practiceSessionId);
+                    setEntries(prev => prev.filter(e => e.id !== practiceSessionId));
+                  }
+                }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 10, padding: "16px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+                  START LOGGING →
+                </button>
+              </>
+            )}
+
           </div>
         </div>
       )}
@@ -2125,11 +3575,35 @@ export default function App() {
             </div>
             {[
               { version: "2.8", date: "March 2026", badge: "LATEST", items: [
-                "Mobile header overhaul — slimmed to two rows so it no longer overlaps iOS system UI",
-                "iOS safe-area inset applied to header — no more content behind the notch or status bar",
-                "Subtitle, username, session count, and status text hidden on mobile to free up space",
-                "Streak badge condensed to icon + week count only on narrow screens",
-                "Secondary strip on mobile shows session count, What's New, and Sign Out cleanly below the main row",
+                "Onboarding redesign — new mobile bottom-sheet walkthrough with a live bed grid practice session that auto-deletes on completion",
+                "PDF session log — metrics now shown in grouped category columns (Matt Compliance, Wedge Compliance, Turning, Air Supply) with colour-coded values",
+                "PDF bed detail page — per-bed compliance breakdown added after the session log when Per Bed data is present",
+                "PDF AI summary — markdown formatting stripped, 1,200-character limit removed, overflow pages added for long summaries",
+                "Mayo and Kaiser metrics — air_reposition, heel_boots, and turn_clock now included dynamically in PDF and PowerPoint exports when present",
+                "Admin: Hospital rename tool — bulk-rename a hospital across all sessions from a new Hospitals tab, with audit logging",
+                "Security: RLS policies tightened — users can only read and write their own sessions; audit log restricted to admins only",
+              ]},
+              { version: "2.7", date: "March 2026", badge: null, items: [
+                "Log Audit — form renamed from \"Log Session\" throughout the app",
+                "Kaiser Permanente metrics — opt-in Heel Boots On and Turn Clock compliance metrics for Kaiser hospitals",
+                "Deletion requests — reps can request a session be deleted; admins approve or deny from a new Admin tab panel",
+                "Per Bed card mode — enter compliance data bed-by-bed with room labels, per-metric N/A toggles, and live totals",
+                "Per Bed data saved to database and included in PDF, PowerPoint, and Excel exports as a detailed breakdown",
+                "Kaiser metrics (Heel Boots, Turn Clock) flow through to all exports when present",
+                "Date range filter on dashboard — scope all metrics, charts, and exports to a custom date window",
+              ]},
+              { version: "2.6", date: "March 2026", badge: null, items: [
+                "In-app User Guide — downloadable PDF walkthrough accessible from the header",
+                "Session print layout improvements — fixed blank page on print",
+              ]},
+              { version: "2.5", date: "March 2026", badge: null, items: [
+                "Metric bucket grouping — metrics organized into Patient Met Criteria, Matt Compliance, Wedge Compliance, and Air Supply across dashboard, PDF, PowerPoint, and Excel exports",
+                "Reordered metrics: Turning & Repositioning first, then Matt, Wedge, and Air Supply groups",
+                "Bed-level grid input — enter compliance data per bed/room with auto-summed totals",
+                "Toggle between Simple mode (aggregate entry) and Per Bed mode on the Log Audit form",
+                "Number of beds saved per hospital/unit — auto-populates on return visits",
+                "Mayo Clinic extra metric (Air Used to Reposition Patient)",
+                "Fixed session save error for non-Mayo hospitals sending Mayo-only fields",
               ]},
               { version: "2.4", date: "March 2026", badge: null, items: [
                 "Mobile layout overhaul — dashboard, performers, and admin sections fully optimised for phones",
@@ -2178,7 +3652,7 @@ export default function App() {
               ]},
               { version: "1.5", date: "January 2026", badge: null, items: [
                 "Inline session editing from History tab",
-                "Required field validation on Log Session form",
+                "Required field validation on Log Audit form",
                 "Duplicate session warnings",
                 "Export filenames now include hospital name",
                 "Session notes included in PDF and PPTX exports",
@@ -2210,7 +3684,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            <button onClick={() => { setShowChangelog(false); setShowOnboarding(true); setOnboardingStep(0); }} style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginTop: 8 }}>
+            <button onClick={() => { setShowChangelog(false); setShowOnboarding(true); setOnboardingStep(0); setPracticeBedGrid([1,2,3,4].map(n => createEmptyBed(METRICS, n))); setPracticeSaving(false); setPracticeError(null); setPracticeSessionId(null); }} style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", marginTop: 8 }}>
               REPLAY ONBOARDING TOUR
             </button>
           </div>
@@ -2329,65 +3803,41 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* ── Mobile Bottom Nav ── */}
-      {isMobile && (
-        <div style={{
-          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
-          background: C.surface, borderTop: `1px solid ${C.border}`,
-          display: "flex", alignItems: "stretch",
-          paddingBottom: "env(safe-area-inset-bottom)",
-        }}>
-          {[
-            { id: "log",        label: "Log",     icon: (active) => (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
-            )},
-            { id: "dashboard",  label: "Dash",    icon: (active) => (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/>
-              </svg>
-            )},
-            { id: "history",    label: "History", icon: (active) => (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-              </svg>
-            ), badge: entries.length > 0 ? entries.length : null },
-            { id: "performers", label: "Rank",    icon: (active) => (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
-              </svg>
-            )},
-            ...(isAdmin ? [{ id: "admin", label: "Admin", icon: (active) => (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-              </svg>
-            )}] : []),
-          ].map(({ id, label, icon, badge }) => {
-            const active = tab === id;
-            return (
-              <button key={id} onClick={() => setTab(id)} style={{
-                flex: 1, background: "none", border: "none", cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                padding: "8px 4px 6px", gap: 3, position: "relative",
-              }}>
-                {/* Active indicator */}
-                {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: C.primary, borderRadius: "0 0 2px 2px" }} />}
-                {/* Badge */}
-                {badge && (
-                  <div style={{ position: "absolute", top: 6, left: "50%", marginLeft: 6, background: C.primary, color: "white", borderRadius: 8, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, padding: "0 4px", fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {badge > 99 ? "99+" : badge}
-                  </div>
-                )}
-                {icon(active)}
-                <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: active ? C.primary : C.inkLight, letterSpacing: "0.04em" }}>{label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
     </div>
+
+      {/* ── BOTTOM NAV (mobile only) ─────────────────────────────────────────── */}
+      <div className="bottom-nav" style={{
+        display: "none", // shown via CSS on mobile
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
+        background: C.surface, borderTop: `1px solid ${C.border}`,
+        boxShadow: "0 -2px 12px rgba(0,0,0,0.08)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        {[
+          { id: "log",        icon: "✏️", label: "Log" },
+          { id: "dashboard",  icon: "📊", label: "Dash" },
+          { id: "history",    icon: "📁", label: "History", badge: entries.length > 0 ? entries.length : null },
+          { id: "performers", icon: "🏆", label: "Rank" },
+          ...(isDirector ? [{ id: "region", icon: "🗺️", label: "Region" }] : []),
+          ...(isAdmin ? [{ id: "admin", icon: "⚙️", label: "Admin" }] : []),
+        ].map(({ id, icon, label, badge }) => (
+          <button key={id} onClick={() => { setTab(id); haptic("light"); }}
+            style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              padding: "10px 4px 8px", background: "none", border: "none", cursor: "pointer",
+              color: tab === id ? C.primary : C.inkLight, position: "relative",
+            }}>
+            <span style={{ fontSize: 20, lineHeight: 1, marginBottom: 3 }}>{icon}</span>
+            <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", fontWeight: tab === id ? 600 : 400 }}>{label}</span>
+            {tab === id && (
+              <span style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 24, height: 2, background: C.primary, borderRadius: "0 0 2px 2px" }} />
+            )}
+            {badge != null && (
+              <span style={{ position: "absolute", top: 6, right: "calc(50% - 16px)", background: C.primary, color: "white", borderRadius: 8, padding: "1px 5px", fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{badge}</span>
+            )}
+          </button>
+        ))}
+      </div>
     </>
   );
 }
