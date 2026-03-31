@@ -1277,7 +1277,9 @@ export default function App() {
 
   const proxyEntries = viewAsUser
     ? (isDirector ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
-    : entries;
+    : isDirector
+      ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) // own + all region reps, deduplicated
+      : entries;
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
