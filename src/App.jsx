@@ -3276,19 +3276,100 @@ export default function App() {
             </div>
 
             {/* Stats row - always visible */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }} className="admin-stats-grid">
-              {[
-                { label: "Total Sessions", value: allEntriesFull.length },
-                { label: "Hospitals", value: [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].length },
-                { label: "Active Users", value: userProfiles.filter(u => u.is_active !== false).length },
-                { label: "Avg Overall", value: (() => { const vals = METRICS.flatMap(m => allEntriesFull.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null)); return vals.length ? `${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "—"; })() },
-              ].map(s => (
-                <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
-                  <div style={{ fontSize: 11, color: C.inkLight, marginBottom: 8 }}>{s.label}</div>
-                  <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 32, fontWeight: 700, color: C.primary }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
+            {(() => {
+              const now = new Date();
+              const todayStr = now.toISOString().slice(0, 10);
+              const thisMonth = now.getMonth();
+              const thisYear = now.getFullYear();
+              const todaySessions = allEntriesFull.filter(e => e.date === todayStr).length;
+              const monthSessions = allEntriesFull.filter(e => {
+                const d = new Date(e.date);
+                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+              }).length;
+              const orgAvg = (() => {
+                const vals = METRICS.flatMap(m => allEntriesFull.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
+              })();
+              const activeReps = userProfiles.filter(u => u.is_active !== false && !ADMIN_EMAILS.includes(u.email)).length;
+              const monthName = now.toLocaleString("en-US", { month: "long" });
+
+              return (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }} className="admin-stats-grid">
+                    {[
+                      { label: "Sessions Today", value: todaySessions, sub: todayStr, color: todaySessions > 0 ? C.green : C.inkLight },
+                      { label: `${monthName} Sessions`, value: monthSessions, sub: `${allEntriesFull.length} all time`, color: C.primary },
+                      { label: "Active Users", value: activeReps, sub: `${userProfiles.length} total registered`, color: C.primary },
+                      { label: "Org Avg Compliance", value: orgAvg !== null ? `${orgAvg}%` : "—", sub: "across all sessions", color: orgAvg !== null ? pctColor(orgAvg) : C.inkLight },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
+                        <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 8 }}>{s.label.toUpperCase()}</div>
+                        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                        <div style={{ fontSize: 10, color: C.inkFaint, marginTop: 6 }}>{s.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Bulk export row */}
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                    <div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>BULK EXPORT</div>
+                      <div style={{ fontSize: 12, color: C.inkMid }}>Export all sessions to Excel for reporting to HoverTech leadership</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {[
+                        { label: "ALL TIME", filter: null },
+                        { label: `${monthName.toUpperCase()} ONLY`, filter: "month" },
+                        { label: "LAST 90 DAYS", filter: "90d" },
+                      ].map(({ label, filter }) => (
+                        <button key={label} onClick={() => {
+                          const filtered = filter === "month"
+                            ? allEntriesFull.filter(e => { const d = new Date(e.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; })
+                            : filter === "90d"
+                              ? allEntriesFull.filter(e => { const d = new Date(e.date); return (now - d) / 86400000 <= 90; })
+                              : allEntriesFull;
+
+                          const XLSX = window.XLSX || (typeof require !== "undefined" ? require("xlsx") : null);
+                          import("xlsx").then(XLSX => {
+                            const rows = filtered.map(e => ({
+                              Date: e.date || "",
+                              Hospital: e.hospital || "",
+                              "Location / Unit": e.location || "",
+                              "Protocol for Use": e.protocol_for_use || "",
+                              "Logged By": e.logged_by || "",
+                              "Created At": e.created_at ? new Date(e.created_at).toLocaleString() : "",
+                              "Turning & Repo Num": e.turning_criteria_num ?? "",
+                              "Turning & Repo Den": e.turning_criteria_den ?? "",
+                              "Matt Applied Num": e.matt_applied_num ?? "",
+                              "Matt Applied Den": e.matt_applied_den ?? "",
+                              "Matt Properly Num": e.matt_proper_num ?? "",
+                              "Matt Properly Den": e.matt_proper_den ?? "",
+                              "Wedges In Room Num": e.wedges_in_room_num ?? "",
+                              "Wedges In Room Den": e.wedges_in_room_den ?? "",
+                              "Wedges Applied Num": e.wedges_applied_num ?? "",
+                              "Wedges Applied Den": e.wedges_applied_den ?? "",
+                              "Wedge Offload Num": e.wedge_offload_num ?? "",
+                              "Wedge Offload Den": e.wedge_offload_den ?? "",
+                              "Air Supply Num": e.air_supply_num ?? "",
+                              "Air Supply Den": e.air_supply_den ?? "",
+                              "Notes": e.notes || "",
+                            }));
+                            const ws = XLSX.utils.json_to_sheet(rows);
+                            const wb = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wb, ws, "Sessions");
+                            const dateStr = now.toISOString().slice(0, 10);
+                            XLSX.writeFile(wb, `CareTrack_BulkExport_${label.replace(/\s/g,"_")}_${dateStr}.xlsx`);
+                          }).catch(() => alert("Export failed. Please try again."));
+                        }}
+                        style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "8px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
+                          ↓ {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             {/* ── SESSIONS SECTION ── */}
             {adminSection === "sessions" && (
@@ -3727,6 +3808,75 @@ export default function App() {
                     {hospitalRenaming ? "RENAMING..." : "RENAME HOSPITAL"}
                   </button>
                 </div>
+
+                {/* KAM Coverage Map */}
+                {(() => {
+                  const allHospitals = [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort();
+                  const kams = userProfiles.filter(p => p.role === "kam" && p.is_active !== false);
+                  const coveredHospitals = new Set(kams.flatMap(k => k.accounts || []));
+                  const covered = allHospitals.filter(h => coveredHospitals.has(h));
+                  const uncovered = allHospitals.filter(h => !coveredHospitals.has(h));
+                  const coveragePct = allHospitals.length ? Math.round((covered.length / allHospitals.length) * 100) : 0;
+
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>KAM ACCOUNT COVERAGE</div>
+                        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: C.green, fontFamily: "'IBM Plex Mono', monospace" }}>✓ {covered.length} covered</span>
+                          <span style={{ fontSize: 11, color: C.red, fontFamily: "'IBM Plex Mono', monospace" }}>✕ {uncovered.length} uncovered</span>
+                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: coveragePct >= 80 ? C.green : coveragePct >= 50 ? C.amber : C.red }}>{coveragePct}%</div>
+                        </div>
+                      </div>
+
+                      {/* Coverage bar */}
+                      <div style={{ height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: "hidden", marginBottom: 20 }}>
+                        <div style={{ height: "100%", width: `${coveragePct}%`, background: coveragePct >= 80 ? C.green : coveragePct >= 50 ? C.amber : C.red, borderRadius: 3, transition: "width 0.6s ease" }} />
+                      </div>
+
+                      {kams.length === 0 ? (
+                        <div style={{ fontSize: 12, color: C.inkLight, fontStyle: "italic" }}>No active KAMs assigned yet. Set a user's role to KAM in User Management to assign accounts.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                          {/* KAM list with their accounts */}
+                          {kams.map(kam => (
+                            <div key={kam.id} style={{ background: C.bg, borderRadius: 8, padding: "12px 14px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.amberLight, border: `1px solid ${C.amber}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: C.amber, flexShrink: 0 }}>
+                                  {(kam.full_name || kam.email).charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{kam.full_name || kam.email}</div>
+                                  <div style={{ fontSize: 10, color: C.inkLight }}>{(kam.accounts || []).length} account{(kam.accounts || []).length !== 1 ? "s" : ""} assigned</div>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {(kam.accounts || []).length === 0
+                                  ? <span style={{ fontSize: 11, color: C.inkFaint, fontStyle: "italic" }}>No accounts assigned</span>
+                                  : (kam.accounts || []).map(h => (
+                                    <div key={h} style={{ background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 6, padding: "2px 10px", fontSize: 11, color: C.amber }}>{h}</div>
+                                  ))
+                                }
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Uncovered hospitals */}
+                          {uncovered.length > 0 && (
+                            <div>
+                              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.red, letterSpacing: "0.1em", marginBottom: 8 }}>NO KAM ASSIGNED · {uncovered.length}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {uncovered.map(h => (
+                                  <div key={h} style={{ background: C.redLight, border: `1px solid ${C.red}33`, borderRadius: 6, padding: "2px 10px", fontSize: 11, color: C.red }}>{h}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Hospital list */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
