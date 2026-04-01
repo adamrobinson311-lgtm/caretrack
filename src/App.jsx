@@ -936,8 +936,11 @@ export default function App() {
   // Director role — derived from user_profiles once loaded
   const myProfile = userProfiles.find(p => p.email === user?.email);
   const isDirector = !isAdmin && myProfile?.role === "director";
+  const isVP = !isAdmin && myProfile?.role === "vp";
   const myRegion = myProfile?.region || "";
-  const regionReps = userProfiles.filter(p => p.region === myRegion && p.role !== "director" && p.email !== user?.email);
+  const regionReps = isVP
+    ? userProfiles.filter(p => p.role !== "vp" && p.role !== "director" && !ADMIN_EMAILS.includes(p.email) && p.email !== user?.email)
+    : userProfiles.filter(p => p.region === myRegion && p.role !== "director" && p.email !== user?.email);
   const [regionEntries, setRegionEntries] = useState([]);
   const [regionLoading, setRegionLoading] = useState(false);
   // When impersonating, override the display name and filter entries to that user only
@@ -998,7 +1001,7 @@ export default function App() {
       if (e.key === "2") setTab("dashboard");
       if (e.key === "3") setTab("history");
       if (e.key === "4") setTab("performers");
-      if (e.key === "5" && isDirector) setTab("region");
+      if (e.key === "5" && (isDirector || isVP)) setTab("region");
       if ((e.key === "5" && isAdmin) || (e.key === "6" && isAdmin)) setTab("admin");
       if (e.key === "?" ) setShowChangelog(true);
       if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); setShowBrandingEditor(false); }
@@ -1136,7 +1139,7 @@ export default function App() {
 
   // Fetch all sessions for reps in director's region
   useEffect(() => {
-    if (!isDirector || !myRegion || regionReps.length === 0) return;
+    if (!isDirector && !isVP || !regionReps.length) return;
     (async () => {
       setRegionLoading(true);
       const repNames = regionReps.map(r => r.full_name || r.email).filter(Boolean);
@@ -1146,7 +1149,7 @@ export default function App() {
       setRegionEntries(data || []);
       setRegionLoading(false);
     })();
-  }, [isDirector, myRegion, regionReps.length]);
+  }, [isDirector, isVP, myRegion, regionReps.length]);
 
   // Initialize bed grid when hospital/unit changes (grid mode)
   useEffect(() => {
@@ -1304,8 +1307,8 @@ export default function App() {
   });
 
   const proxyEntries = viewAsUser
-    ? (isDirector ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
-    : isDirector
+    ? ((isDirector || isVP) ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
+    : (isDirector || isVP)
       ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
       : entries;
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
@@ -1601,7 +1604,7 @@ export default function App() {
       setPulling(false);
     }
     // Swipe left/right to change tab
-    const tabs = ["log", "dashboard", "history", "performers", "planner", ...(isDirector ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
+    const tabs = ["log", "dashboard", "history", "performers", "planner", ...((isDirector || isVP) ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
     const swipeX = e.changedTouches[0].clientX - touchStartX.current;
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     if (Math.abs(swipeX) > 60 && swipeY < 40) {
@@ -1893,7 +1896,7 @@ export default function App() {
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
             <Tab id="planner" label="PLANNER" />
-            {isDirector && <Tab id="region" label="MY REGION" />}
+            {(isDirector || isVP) && <Tab id="region" label={isVP ? "ALL REGIONS" : "MY REGION"} />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
 
@@ -2215,7 +2218,7 @@ export default function App() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
                 {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
-                {isDirector && regionRepNames.length > 0 && (
+                {(isDirector || isVP) && regionRepNames.length > 0 && (
                   <FilterBar value={repFilter} onChange={setRepFilter} label="REP" hospitals={regionRepNames} />
                 )}
                 <DateRangeFilter />
@@ -2662,7 +2665,7 @@ export default function App() {
             {/* ── RANKINGS VIEW ── */}
             {(() => {
               // Build hospital rankings — use proxyEntries so director sees all region reps
-              const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+              const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
               const hospitalMap = {};
               perfEntries.forEach(e => {
                 if (!e.hospital) return;
@@ -2842,9 +2845,9 @@ export default function App() {
 
         {/* ── PLANNER ── */}
         {tab === "planner" && (() => {
-          const perfEntries = isDirector ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+          const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
           const myName = user?.user_metadata?.full_name || user?.email || "";
-          const relevantEntries = isDirector ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
+          const relevantEntries = (isDirector || isVP) ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
           const today = new Date();
 
           const hospitalData = hospitals.map(hospital => {
@@ -2948,12 +2951,12 @@ export default function App() {
           );
         })()}
 
-        {tab === "region" && isDirector && (
+        {tab === "region" && (isDirector || isVP) && (
           <div>
             {/* Header */}
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>MY REGION</div>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{myRegion || "Region"}</h1>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>{isVP ? "ALL REGIONS" : "MY REGION"}</div>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{isVP ? "All Regions" : (myRegion || "Region")}</h1>
               <p style={{ color: C.inkMid, fontSize: 13 }}>{regionReps.length} rep{regionReps.length !== 1 ? "s" : ""} · {regionEntries.length} sessions logged</p>
             </div>
 
@@ -2963,7 +2966,7 @@ export default function App() {
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
                 <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No reps in your region yet</div>
-                <div style={{ fontSize: 13, color: C.inkMid }}>Ask your admin to assign reps to the <strong>{myRegion}</strong> region.</div>
+                <div style={{ fontSize: 13, color: C.inkMid }}>Ask your admin to assign reps to the <strong>{isVP ? "organisation" : myRegion}</strong> region.</div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -3342,6 +3345,7 @@ export default function App() {
                                     <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
                                     {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
                                     {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
+                            {profile.role === "vp" && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>VP</span>}
                                     {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
                                     {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
                                     <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
@@ -3407,6 +3411,7 @@ export default function App() {
                                   style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
                                   <option value="rep">Rep</option>
                                   <option value="director">Director</option>
+                                  <option value="vp">VP</option>
                                 </select>
                               </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
@@ -4081,7 +4086,7 @@ export default function App() {
               <circle cx="8" cy="15" r="1" fill={active ? C.primary : C.inkLight}/><circle cx="12" cy="15" r="1" fill={active ? C.primary : C.inkLight}/><circle cx="16" cy="15" r="1" fill={active ? C.primary : C.inkLight}/>
             </svg>
           )},
-          ...(isDirector ? [{ id: "region", label: "Region", icon: (active) => (
+          ...((isDirector || isVP) ? [{ id: "region", label: isVP ? "All" : "Region", icon: (active) => (
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? C.primary : C.inkLight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
               <line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
