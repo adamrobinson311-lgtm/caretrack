@@ -1683,6 +1683,47 @@ export default function App() {
     );
   };
 
+  // Handle Supabase auth error redirects (e.g. expired magic link)
+  const authErrorParams = (() => {
+    const hash = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    return {
+      error: params.get("error"),
+      code: params.get("error_code"),
+      description: params.get("error_description"),
+    };
+  })();
+
+  if (authErrorParams.error) {
+    const isExpired = authErrorParams.code === "otp_expired";
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "40px 36px", maxWidth: 420, width: "100%", textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.redLight, border: `1px solid ${C.red}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 24 }}>⚠</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red, letterSpacing: "0.12em", marginBottom: 12 }}>
+            {isExpired ? "LINK EXPIRED" : "ACCESS DENIED"}
+          </div>
+          <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 12 }}>
+            {isExpired ? "This link has expired" : "Something went wrong"}
+          </h2>
+          <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6, marginBottom: 28 }}>
+            {isExpired
+              ? "Email sign-in links expire after 1 hour. Please return to the login page and request a new link or sign in with your password."
+              : (authErrorParams.description?.replace(/\+/g, " ") || "An authentication error occurred.")}
+          </p>
+          <button
+            onClick={() => { window.location.href = "/"; }}
+            style={{ background: C.primary, color: "white", border: "none", borderRadius: 8, padding: "12px 28px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", cursor: "pointer" }}>
+            BACK TO LOGIN →
+          </button>
+          <div style={{ marginTop: 20, fontSize: 11, color: C.inkFaint }}>
+            Need help? Contact Elizabeth Dougherty — HoverTech CareTrack Administrator
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
 
