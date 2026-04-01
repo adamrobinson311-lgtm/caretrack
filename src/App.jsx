@@ -937,12 +937,15 @@ export default function App() {
   const myProfile = userProfiles.find(p => p.email === user?.email);
   const isDirector = !isAdmin && myProfile?.role === "director";
   const isVP = !isAdmin && myProfile?.role === "vp";
+  const isKAM = !isAdmin && myProfile?.role === "kam";
   const myRegion = myProfile?.region || "";
+  const kamAccounts = myProfile?.accounts || []; // array of hospital names assigned to this KAM
   const regionReps = isVP
     ? userProfiles.filter(p => p.role !== "vp" && p.role !== "director" && !ADMIN_EMAILS.includes(p.email) && p.email !== user?.email)
     : userProfiles.filter(p => p.region === myRegion && p.role !== "director" && p.email !== user?.email);
   const [regionEntries, setRegionEntries] = useState([]);
   const [regionLoading, setRegionLoading] = useState(false);
+  const [kamEntries, setKamEntries] = useState([]);
   // When impersonating, override the display name and filter entries to that user only
   const userName = viewAsUser
     ? (viewAsUser.full_name || viewAsUser.email)
@@ -1151,6 +1154,17 @@ export default function App() {
     })();
   }, [isDirector, isVP, myRegion, regionReps.length]);
 
+  // Fetch all sessions for KAM's assigned hospitals
+  useEffect(() => {
+    if (!isKAM || kamAccounts.length === 0) return;
+    (async () => {
+      const { data } = await supabase.from("sessions").select("*")
+        .in("hospital", kamAccounts)
+        .order("created_at", { ascending: true });
+      setKamEntries(data || []);
+    })();
+  }, [isKAM, kamAccounts.join(",")]); // eslint-disable-line
+
   // Initialize bed grid when hospital/unit changes (grid mode)
   useEffect(() => {
     if (inputMode !== "grid" || !form.hospital || !form.location) return;
@@ -1310,7 +1324,9 @@ export default function App() {
     ? ((isDirector || isVP) ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
     : (isDirector || isVP)
       ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
-      : entries;
+      : isKAM
+        ? kamEntries
+        : entries;
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
@@ -1953,7 +1969,7 @@ export default function App() {
               const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
               const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
               const myName = user?.user_metadata?.full_name || user?.email || "";
-              const myEntries = entries.filter(e => e.logged_by === myName);
+              const myEntries = isKAM ? kamEntries : entries.filter(e => e.logged_by === myName);
               const thisMonthSessions = myEntries.filter(e => {
                 const d = new Date(e.date);
                 return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
@@ -2008,7 +2024,7 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={hospitals} entries={entries} />
+              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -2665,7 +2681,7 @@ export default function App() {
             {/* ── RANKINGS VIEW ── */}
             {(() => {
               // Build hospital rankings — use proxyEntries so director sees all region reps
-              const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+              const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries;
               const hospitalMap = {};
               perfEntries.forEach(e => {
                 if (!e.hospital) return;
@@ -2845,7 +2861,7 @@ export default function App() {
 
         {/* ── PLANNER ── */}
         {tab === "planner" && (() => {
-          const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : entries;
+          const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries;
           const myName = user?.user_metadata?.full_name || user?.email || "";
           const relevantEntries = (isDirector || isVP) ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
           const today = new Date();
@@ -3346,6 +3362,7 @@ export default function App() {
                                     {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
                                     {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
                             {profile.role === "vp" && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>VP</span>}
+                            {profile.role === "kam" && <span style={{ fontSize: 9, background: C.amberLight, color: C.amber, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>KAM</span>}
                                     {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
                                     {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
                                     <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
@@ -3410,6 +3427,7 @@ export default function App() {
                                   }}
                                   style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
                                   <option value="rep">Rep</option>
+                                  <option value="kam">KAM</option>
                                   <option value="director">Director</option>
                                   <option value="vp">VP</option>
                                 </select>
@@ -3434,6 +3452,50 @@ export default function App() {
                               </div>
                             </div>
                           )}
+                          {/* KAM accounts assignment */}
+                          {profile.role === "kam" && (() => {
+                            const allHospitals = [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort();
+                            const assigned = profile.accounts || [];
+                            return (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>
+                                  ASSIGNED ACCOUNTS · {assigned.length}
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                                  {assigned.map(hosp => (
+                                    <div key={hosp} style={{ display: "flex", alignItems: "center", gap: 4, background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 6, padding: "2px 8px" }}>
+                                      <span style={{ fontSize: 11, color: C.amber }}>{hosp}</span>
+                                      <button onClick={async () => {
+                                        const newAccounts = assigned.filter(h => h !== hosp);
+                                        const { error } = await supabase.from("user_profiles").update({ accounts: newAccounts }).eq("id", profile.id);
+                                        if (error) { alert("Failed: " + error.message); return; }
+                                        setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, accounts: newAccounts } : p));
+                                        await logAudit("KAM_ACCOUNT_REMOVED", { email: profile.email, hospital: hosp }, profile.email);
+                                      }} style={{ background: "none", border: "none", cursor: "pointer", color: C.amber, fontSize: 12, lineHeight: 1, padding: 0 }}>✕</button>
+                                    </div>
+                                  ))}
+                                  {assigned.length === 0 && <span style={{ fontSize: 11, color: C.inkFaint, fontStyle: "italic" }}>No accounts assigned yet</span>}
+                                </div>
+                                <select
+                                  value=""
+                                  onChange={async e => {
+                                    const hosp = e.target.value;
+                                    if (!hosp || assigned.includes(hosp)) return;
+                                    const newAccounts = [...assigned, hosp];
+                                    const { error } = await supabase.from("user_profiles").update({ accounts: newAccounts }).eq("id", profile.id);
+                                    if (error) { alert("Failed: " + error.message); return; }
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, accounts: newAccounts } : p));
+                                    await logAudit("KAM_ACCOUNT_ASSIGNED", { email: profile.email, hospital: hosp }, profile.email);
+                                  }}
+                                  style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: C.inkMid, outline: "none", cursor: "pointer", maxWidth: 260 }}>
+                                  <option value="">+ Add account...</option>
+                                  {allHospitals.filter(h => !assigned.includes(h)).map(h => (
+                                    <option key={h} value={h}>{h}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
