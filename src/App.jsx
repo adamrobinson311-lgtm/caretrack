@@ -1545,13 +1545,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -2987,41 +2987,139 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-                {/* ── Rep Roster ── */}
-                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>REP ROSTER</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {regionReps.map(rep => {
+                {/* ── Rep Leaderboard ── */}
+                {(() => {
+                  const [sortBy, setSortBy] = React.useState("avg"); // avg | sessions | trend | name
+                  const [sortDir, setSortDir] = React.useState("desc");
+                  const [regionFilter, setRegionFilter] = React.useState("All");
+
+                  const allRegions = isVP ? [...new Set(regionReps.map(r => r.region).filter(Boolean))].sort() : [];
+
+                  const repData = regionReps
+                    .filter(rep => !isVP || regionFilter === "All" || rep.region === regionFilter)
+                    .map(rep => {
                       const repSessions = regionEntries.filter(e => e.logged_by === (rep.full_name || rep.email));
                       const repVals = METRICS.flatMap(m => repSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-                      const repAvg = repVals.length ? Math.round(repVals.reduce((a, b) => a + b, 0) / repVals.length) : null;
-                      const lastSess = repSessions[repSessions.length - 1];
-                      const isActive = rep.is_active !== false;
-                      return (
-                        <div key={rep.id} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, opacity: isActive ? 1 : 0.5 }}>
-                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.primaryLight, border: `1px solid ${C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: C.primary, flexShrink: 0 }}>
-                            {(rep.full_name || rep.email).charAt(0).toUpperCase()}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{rep.full_name || rep.email}</div>
-                            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {rep.email} · {repSessions.length} session{repSessions.length !== 1 ? "s" : ""}
-                              {lastSess && ` · Last: ${formatTimestamp(lastSess.created_at, lastSess.date)}`}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
-                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: repAvg !== null ? pctColor(repAvg) : C.inkFaint }}>{repAvg !== null ? `${repAvg}%` : "—"}</div>
-                            <div style={{ fontSize: 10, color: C.inkLight }}>avg compliance</div>
-                          </div>
-                          <button onClick={() => { setViewAsUser({ email: rep.email, full_name: rep.full_name }); setTab("dashboard"); }}
-                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
-                            👁 VIEW
-                          </button>
+                      const avg = repVals.length ? Math.round(repVals.reduce((a, b) => a + b, 0) / repVals.length) : null;
+                      // Trend: last 3 sessions vs previous 3
+                      const sorted = [...repSessions].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+                      const recent = sorted.slice(-3);
+                      const prev = sorted.slice(-6, -3);
+                      const recentVals = METRICS.flatMap(m => recent.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                      const prevVals = METRICS.flatMap(m => prev.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                      const recentAvg = recentVals.length ? Math.round(recentVals.reduce((a,b)=>a+b,0)/recentVals.length) : null;
+                      const prevAvg = prevVals.length ? Math.round(prevVals.reduce((a,b)=>a+b,0)/prevVals.length) : null;
+                      const trend = recentAvg !== null && prevAvg !== null ? recentAvg - prevAvg : null;
+                      const lastSess = sorted[sorted.length - 1];
+                      const daysSinceLast = lastSess?.date ? Math.floor((new Date() - new Date(lastSess.date)) / 86400000) : null;
+                      return { rep, avg, sessions: repSessions.length, trend, lastSess, daysSinceLast };
+                    })
+                    .sort((a, b) => {
+                      let av = a[sortBy] ?? (sortDir === "desc" ? -Infinity : Infinity);
+                      let bv = b[sortBy] ?? (sortDir === "desc" ? -Infinity : Infinity);
+                      if (sortBy === "name") { av = a.rep.full_name || a.rep.email; bv = b.rep.full_name || b.rep.email; }
+                      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+                      return sortDir === "desc" ? bv - av : av - bv;
+                    });
+
+                  const toggleSort = (col) => {
+                    if (sortBy === col) setSortDir(d => d === "desc" ? "asc" : "desc");
+                    else { setSortBy(col); setSortDir("desc"); }
+                  };
+
+                  const SortBtn = ({ col, label }) => {
+                    const active = sortBy === col;
+                    return (
+                      <button onClick={() => toggleSort(col)} style={{ background: active ? C.primaryLight : "none", border: `1px solid ${active ? C.primary : C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: active ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 4 }}>
+                        {label} {active ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                      </button>
+                    );
+                  };
+
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      {/* Header row */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>
+                          REP LEADERBOARD · {repData.length}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {isVP && allRegions.length > 0 && (
+                            <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)}
+                              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 10, color: C.ink, outline: "none", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+                              <option value="All">All Regions</option>
+                              {allRegions.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          )}
+                          <SortBtn col="avg" label="AVG %" />
+                          <SortBtn col="sessions" label="SESSIONS" />
+                          <SortBtn col="trend" label="TREND" />
+                          <SortBtn col="name" label="NAME" />
+                        </div>
+                      </div>
+
+                      {/* Leaderboard rows */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {repData.map(({ rep, avg, sessions, trend, daysSinceLast }, idx) => {
+                          const isActive = rep.is_active !== false;
+                          const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
+                          return (
+                            <div key={rep.id} style={{ background: C.bg, border: `1px solid ${idx === 0 && avg !== null ? C.primary + "44" : C.border}`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, opacity: isActive ? 1 : 0.45 }}>
+                              {/* Rank */}
+                              <div style={{ width: 28, textAlign: "center", flexShrink: 0 }}>
+                                {medal
+                                  ? <span style={{ fontSize: 18 }}>{medal}</span>
+                                  : <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkFaint }}>#{idx + 1}</span>
+                                }
+                              </div>
+                              {/* Avatar */}
+                              <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.primaryLight, border: `1px solid ${C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, color: C.primary, flexShrink: 0 }}>
+                                {(rep.full_name || rep.email).charAt(0).toUpperCase()}
+                              </div>
+                              {/* Name + meta */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {rep.full_name || rep.email}
+                                  {isVP && rep.region && <span style={{ marginLeft: 8, fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, background: C.surfaceAlt, borderRadius: 4, padding: "1px 6px" }}>{rep.region}</span>}
+                                </div>
+                                <div style={{ fontSize: 10, color: C.inkLight, marginTop: 2 }}>
+                                  {sessions} session{sessions !== 1 ? "s" : ""}
+                                  {daysSinceLast !== null && <span style={{ marginLeft: 8, color: daysSinceLast <= 19 ? C.green : daysSinceLast <= 30 ? C.amber : C.red }}>{daysSinceLast === 0 ? "today" : `${daysSinceLast}d ago`}</span>}
+                                </div>
+                              </div>
+                              {/* Compliance bar */}
+                              <div style={{ width: 80, flexShrink: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                                  <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700, color: avg !== null ? pctColor(avg) : C.inkFaint }}>{avg !== null ? `${avg}%` : "—"}</span>
+                                </div>
+                                <div style={{ height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden" }}>
+                                  <div style={{ height: "100%", width: `${avg ?? 0}%`, background: avg !== null ? pctColor(avg) : C.inkFaint, borderRadius: 2 }} />
+                                </div>
+                              </div>
+                              {/* Trend */}
+                              <div style={{ width: 40, textAlign: "center", flexShrink: 0 }}>
+                                {trend !== null
+                                  ? <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: trend > 0 ? C.green : trend < 0 ? C.red : C.inkLight }}>
+                                      {trend > 0 ? "▲" : trend < 0 ? "▼" : "–"}{trend !== 0 ? Math.abs(trend) + "%" : ""}
+                                    </span>
+                                  : <span style={{ fontSize: 10, color: C.inkFaint }}>–</span>
+                                }
+                              </div>
+                              {/* View button */}
+                              <button onClick={() => { setViewAsUser({ email: rep.email, full_name: rep.full_name }); setTab("dashboard"); }}
+                                style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+                                VIEW →
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {repData.length === 0 && (
+                          <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: C.inkLight }}>No reps found for this filter.</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ── Regional Aggregated Metrics ── */}
                 {regionEntries.length > 0 && (() => {
