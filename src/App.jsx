@@ -892,7 +892,7 @@ export default function App() {
   const [editSaving, setEditSaving] = useState(false);
   const [photos, setPhotos] = useState([]); // files staged for new session
   const [photoUploading, setPhotoUploading] = useState(false);
-  const [expandedPhotos, setExpandedPhotos] = useState({}); // { sessionId: bool }
+  const [expandedPhotos, setExpandedPhotos] = useState(null); // lightbox URL or null
   const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
 
   // Bed-level grid input mode
@@ -2676,24 +2676,28 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* View mode: photo badge + expandable thumbnails */}
+                      {/* View mode: inline thumbnails */}
                       {!isEditing && e.photos && e.photos.length > 0 && (
                         <div style={{ marginTop: 12 }}>
-                          <button onClick={() => setExpandedPhotos(prev => ({ ...prev, [e.id]: !prev[e.id] }))}
-                            style={{ background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "3px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                            📷 {e.photos.length} PHOTO{e.photos.length !== 1 ? "S" : ""} {expandedPhotos[e.id] ? "▲" : "▼"}
-                          </button>
-                          {expandedPhotos[e.id] && (
-                            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                              {e.photos.map((url, i) => (
-                                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                                  <img src={url} alt={`Photo ${i + 1}`} style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, cursor: "pointer", transition: "transform 0.15s" }}
-                                    onMouseEnter={el => el.target.style.transform = "scale(1.04)"}
-                                    onMouseLeave={el => el.target.style.transform = "scale(1)"} />
-                                </a>
-                              ))}
-                            </div>
-                          )}
+                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>
+                            PHOTOS · {e.photos.length}
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {e.photos.map((url, i) => (
+                              <div key={i} onClick={() => setExpandedPhotos(url)}
+                                style={{ position: "relative", width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, cursor: "pointer", flexShrink: 0 }}>
+                                <img src={url} alt={`Photo ${i + 1}`}
+                                  style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.15s" }}
+                                  onMouseEnter={el => el.target.style.transform = "scale(1.06)"}
+                                  onMouseLeave={el => el.target.style.transform = "scale(1)"} />
+                                {e.photos.length > 1 && i === e.photos.length - 1 && (
+                                  <div style={{ position: "absolute", inset: 0, background: "rgba(42,38,36,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    <span style={{ color: "white", fontSize: 13, fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace" }}>+{e.photos.length}</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -4317,7 +4321,26 @@ export default function App() {
             </button>
           );
         })}
-      </div>
+        {/* ── Photo Lightbox ── */}
+      {expandedPhotos && (
+        <div onClick={() => setExpandedPhotos(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out" }}>
+          <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh" }}>
+            <img src={expandedPhotos} alt="Full size"
+              style={{ maxWidth: "90vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 10, boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }} />
+            <button onClick={() => setExpandedPhotos(null)}
+              style={{ position: "absolute", top: -16, right: -16, width: 32, height: 32, borderRadius: "50%", background: "white", border: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
+              ✕
+            </button>
+            <a href={expandedPhotos} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+              style={{ position: "absolute", bottom: -36, left: "50%", transform: "translateX(-50%)", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "rgba(255,255,255,0.6)", textDecoration: "none", letterSpacing: "0.08em" }}>
+              OPEN FULL SIZE ↗
+            </a>
+          </div>
+        </div>
+      )}
+
+    </div>
     </>
   );
 }
