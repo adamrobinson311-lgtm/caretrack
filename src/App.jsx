@@ -3566,8 +3566,9 @@ export default function App() {
               const thisYear = now.getFullYear();
               const todaySessions = allEntriesFull.filter(e => e.date === todayStr).length;
               const monthSessions = allEntriesFull.filter(e => {
-                const d = new Date(e.date);
-                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+                if (!e.date) return false;
+                const [y, m] = e.date.split("-").map(Number);
+                return m - 1 === thisMonth && y === thisYear;
               }).length;
               const orgAvg = (() => {
                 const vals = METRICS.flatMap(m => allEntriesFull.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
@@ -3607,9 +3608,9 @@ export default function App() {
                       ].map(({ label, filter }) => (
                         <button key={label} onClick={() => {
                           const filtered = filter === "month"
-                            ? allEntriesFull.filter(e => { const d = new Date(e.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; })
+                            ? allEntriesFull.filter(e => { if (!e.date) return false; const [y, m] = e.date.split("-").map(Number); return m - 1 === thisMonth && y === thisYear; })
                             : filter === "90d"
-                              ? allEntriesFull.filter(e => { const d = new Date(e.date); return (now - d) / 86400000 <= 90; })
+                              ? allEntriesFull.filter(e => { if (!e.date) return false; const [y, m, d] = e.date.split("-").map(Number); return (now - new Date(y, m-1, d)) / 86400000 <= 90; })
                               : allEntriesFull;
 
                           const XLSX = window.XLSX || (typeof require !== "undefined" ? require("xlsx") : null);
