@@ -1392,7 +1392,7 @@ export default function App() {
     // Send session confirmation email (fire and forget)
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
-      fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/session-confirmation`, {
+      fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/super-api`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authSession.access_token}` },
         body: JSON.stringify({ session: finalData, userEmail: user.email, userName }),
