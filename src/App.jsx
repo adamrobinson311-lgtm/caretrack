@@ -2285,6 +2285,59 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
+                {/* ── Last Session Card ── */}
+                {(() => {
+                  const myName = user?.user_metadata?.full_name || user?.email || "";
+                  const mySessions = (isDirector || isVP) ? proxyEntries : proxyEntries.filter(e => e.logged_by === myName);
+                  const last = [...mySessions].sort((a, b) => (b.created_at || b.date || "").localeCompare(a.created_at || a.date || ""))[0];
+                  if (!last) return null;
+                  const metrics = getMetrics(last.hospital);
+                  const vals = metrics.map(m => pct(last[`${m.id}_num`], last[`${m.id}_den`])).filter(v => v !== null);
+                  const overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                  const days = last.date ? Math.floor((new Date() - new Date(last.date)) / 86400000) : null;
+                  const daysLabel = days === null ? "" : days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
+                  const metricRows = metrics.slice(0, 4).map(m => ({ label: m.label, val: pct(last[`${m.id}_num`], last[`${m.id}_den`]) }));
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overall !== null ? pctColor(overall) : C.border}`, borderRadius: "0 12px 12px 0", padding: "16px 18px", marginBottom: 20 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>LAST SESSION</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{last.hospital || "—"}</div>
+                          <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>
+                            {last.location && `${last.location} · `}{last.date}{daysLabel && <span style={{ marginLeft: 6, color: days === 0 ? C.green : days <= 7 ? C.green : C.inkLight }}>{daysLabel}</span>}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 16 }}>
+                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 28, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint, lineHeight: 1 }}>{overall !== null ? `${overall}%` : "—"}</div>
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, marginTop: 2 }}>OVERALL</div>
+                        </div>
+                      </div>
+                      {/* Mini metric bars */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 16px", marginBottom: 12 }}>
+                        {metricRows.map(({ label, val }) => (
+                          <div key={label}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                              <span style={{ fontSize: 10, color: C.inkLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{label}</span>
+                              <span style={{ fontSize: 10, fontWeight: 500, color: val !== null ? pctColor(val) : C.inkFaint, flexShrink: 0 }}>{val !== null ? `${val}%` : "—"}</span>
+                            </div>
+                            <div style={{ height: 3, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${val ?? 0}%`, background: val !== null ? pctColor(val) : C.surfaceAlt, borderRadius: 2 }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Footer */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTop: `0.5px solid ${C.border}` }}>
+                        <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>
+                          LOGGED BY {(last.logged_by || "").toUpperCase()}
+                        </div>
+                        <button onClick={() => setTab("history")} style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
+                          VIEW IN HISTORY →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {METRIC_BUCKETS.map(bucket => {
                   const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
                   if (bucketMetrics.length === 0) return null;
