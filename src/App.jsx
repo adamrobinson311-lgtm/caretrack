@@ -1388,6 +1388,17 @@ export default function App() {
     setForm(defaultForm()); setBedGrid([]); setBedCount(0); lastGridKey.current = ""; setSaving(false); setSaved(true);
     setSavedAt(data.created_at || new Date().toISOString());
     haptic("success"); // haptic on save
+
+    // Send session confirmation email (fire and forget)
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/session-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authSession.access_token}` },
+        body: JSON.stringify({ session: finalData, userEmail: user.email, userName }),
+      });
+    } catch (_) {}
+
     setTimeout(() => setSaved(false), 4000);
     // Show PWA install prompt after first session if not dismissed
     if (!installDismissed && (pwaPrompt || isIOS())) {
