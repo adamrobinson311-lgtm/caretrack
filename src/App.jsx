@@ -907,6 +907,8 @@ export default function App() {
   // User invite (admin)
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState("rep");
+  const [inviteRegion, setInviteRegion] = useState("");
   const [inviting, setInviting] = useState(false);
   const [inviteResult, setInviteResult] = useState(null); // { ok, message }
 
@@ -1799,7 +1801,7 @@ export default function App() {
             BACK TO LOGIN →
           </button>
           <div style={{ marginTop: 20, fontSize: 11, color: C.inkFaint }}>
-            Need help? Contact Elizabeth Dougherty — HoverTech CareTrack Administrator
+            Need help? Contact Elizabeth Doherty — HoverTech CareTrack Administrator
           </div>
         </div>
       </div>
@@ -3603,8 +3605,8 @@ export default function App() {
                 {/* Invite User card */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>INVITE USER</div>
-                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Send an invitation email with a sign-in link. The user will be prompted to set their password on first login.</p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20, lineHeight: 1.6 }}>Send a branded invitation email. The user will be prompted to set their password on first login.</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                     <div>
                       <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FULL NAME</label>
                       <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="Jane Smith"
@@ -3614,6 +3616,24 @@ export default function App() {
                     <div>
                       <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL ADDRESS</label>
                       <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="jane@hospital.com"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                        onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>ROLE</label>
+                      <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif", cursor: "pointer" }}>
+                        <option value="rep">Rep</option>
+                        <option value="kam">KAM</option>
+                        <option value="director">Director</option>
+                        <option value="vp">VP</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REGION <span style={{ color: C.inkFaint }}>(optional)</span></label>
+                      <input value={inviteRegion} onChange={e => setInviteRegion(e.target.value)} placeholder="e.g. Northeast"
                         style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
                         onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
                     </div>
@@ -3633,7 +3653,7 @@ export default function App() {
                         const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/invite-user`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-                          body: JSON.stringify({ email: inviteEmail.trim(), full_name: inviteName.trim() }),
+                          body: JSON.stringify({ email: inviteEmail.trim(), full_name: inviteName.trim(), role: inviteRole, region: inviteRegion.trim() }),
                         });
                         const json = await res.json();
                         if (!res.ok) throw new Error(json.error || "Invitation failed");
@@ -3641,7 +3661,7 @@ export default function App() {
                         await logAudit("USER_INVITED", { email: inviteEmail.trim(), name: inviteName.trim() }, inviteEmail.trim());
                         const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
                         if (freshAudit) setAuditLog(freshAudit);
-                        setInviteEmail(""); setInviteName("");
+                        setInviteEmail(""); setInviteName(""); setInviteRole("rep"); setInviteRegion("");
                       } catch (err) {
                         setInviteResult({ ok: false, message: err.message });
                       }
