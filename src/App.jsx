@@ -1390,11 +1390,14 @@ export default function App() {
     haptic("success"); // haptic on save
 
     // Send session confirmation email (fire and forget)
-    try {
-      supabase.functions.invoke("super-api", {
-        body: { session: finalData, userEmail: user.email, userName },
-      });
-    } catch (_) {}
+    setTimeout(async () => {
+      try {
+        const { error } = await supabase.functions.invoke("super-api", {
+          body: { session: finalData, userEmail: user.email, userName },
+        });
+        if (error) console.warn("Session confirmation email error:", error);
+      } catch (e) { console.warn("Session confirmation email failed:", e); }
+    }, 500);
 
     setTimeout(() => setSaved(false), 4000);
     // Show PWA install prompt after first session if not dismissed
