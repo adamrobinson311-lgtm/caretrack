@@ -186,7 +186,63 @@ const LoginScreen = ({ onLogin }) => {
   );
 };
 
-const MetricInput = ({ metric, num, den, onChange }) => {
+const PasswordResetScreen = ({ onComplete }) => {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const handleReset = async () => {
+    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== confirm) { setError("Passwords do not match."); return; }
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setDone(true);
+    setTimeout(() => onComplete(), 2000);
+  };
+
+  const inp = { width: "100%", background: "#ffffff", border: `1px solid #cec9c7`, borderRadius: 8, padding: "11px 14px", fontSize: 14, color: "#2a2624", outline: "none" };
+
+  return (
+    <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+        </div>
+        <div style={{ background: "#ffffff", borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
+          <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: "#2a2624", marginBottom: 4 }}>Set new password</h2>
+          <p style={{ fontSize: 13, color: "#7C7270", marginBottom: 28 }}>Choose a strong password for your CareTrack account.</p>
+          {error && <div style={{ background: "#fdf0f0", border: "1px solid #f0c8c8", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#9e3a3a", marginBottom: 20 }}>⚠ {error}</div>}
+          {done && <div style={{ background: "#e8f4ee", border: "1px solid #b8dfc9", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#3a7d5c", marginBottom: 20 }}>✓ Password updated — signing you in...</div>}
+          {!done && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "#7C7270", letterSpacing: "0.08em", marginBottom: 6 }}>NEW PASSWORD</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters" style={inp}
+                  onFocus={e => e.target.style.borderColor = "#4F6E77"} onBlur={e => e.target.style.borderColor = "#cec9c7"} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "#7C7270", letterSpacing: "0.08em", marginBottom: 6 }}>CONFIRM PASSWORD</label>
+                <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat your new password" style={inp}
+                  onFocus={e => e.target.style.borderColor = "#4F6E77"} onBlur={e => e.target.style.borderColor = "#cec9c7"}
+                  onKeyDown={e => e.key === "Enter" && handleReset()} />
+              </div>
+              <button onClick={handleReset} disabled={loading} style={{ width: "100%", marginTop: 8, background: "#4F6E77", border: "none", borderRadius: 8, padding: "13px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                {loading ? "SAVING..." : "SET PASSWORD →"}
+              </button>
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#c0bbb9", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+      </div>
+    </div>
+  );
+};
+
+
   const isNA = num === "na" && den === "na";
   const p = isNA ? null : pct(num, den);
   return (
@@ -815,6 +871,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [viewAsUser, setViewAsUser] = useState(null); // { email, full_name } when admin is impersonating
   const [authLoading, setAuthLoading] = useState(true);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [tab, setTab] = useState("log");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -994,7 +1051,14 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setUser(null); // don't log them in yet
+        setShowPasswordReset(true);
+      } else {
+        setUser(session?.user ?? null);
+      }
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -1740,6 +1804,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // Password reset screen — shown when user clicks reset link from email
+  if (showPasswordReset) {
+    return <PasswordResetScreen onComplete={() => { setShowPasswordReset(false); }} />;
   }
 
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
