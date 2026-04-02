@@ -98,9 +98,158 @@ const LoginScreen = ({ onLogin }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState("rep");
+  const [region, setRegion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [pendingApproval, setPendingApproval] = useState(false);
+
+  const REGIONS = ["Northeast", "Southeast", "Midwest", "Southwest", "West", "Northwest"];
+
+  const handleSubmit = async () => {
+    setLoading(true); setError(""); setMessage("");
+    if (mode === "signup") {
+      if (!name.trim()) { setError("Please enter your full name."); setLoading(false); return; }
+      if (!region) { setError("Please select your region."); setLoading(false); return; }
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
+      if (error) { setError(error.message); setLoading(false); return; }
+      if (data?.user) {
+        await supabase.from("user_profiles").upsert({
+          id: data.user.id, email, full_name: name, role, region,
+          is_active: false, pending_approval: true, created_at: new Date().toISOString(),
+        });
+        try {
+          await fetch("https://okswecmkqegydbxsczjc.supabase.co/functions/v1/notify-admin-signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, email, role, region }),
+          });
+        } catch (_) {}
+      }
+      setPendingApproval(true);
+    } else if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+      if (error) setError(error.message);
+      else setMessage("Password reset email sent — check your inbox.");
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) { setError(error.message); setLoading(false); return; }
+      const { data: profile } = await supabase.from("user_profiles").select("is_active, pending_approval").eq("email", email).single();
+      if (profile?.pending_approval) {
+        await supabase.auth.signOut();
+        setError("Your account is pending admin approval. You'll receive an email once approved.");
+      } else if (profile && profile.is_active === false) {
+        await supabase.auth.signOut();
+        setError("Your account has been deactivated. Please contact an administrator.");
+      } else {
+        onLogin(data.user);
+      }
+    }
+    setLoading(false);
+  };
+
+  const inp = { width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 14px", fontSize: 14, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" };
+  const sel = { ...inp, cursor: "pointer" };
+
+  if (pendingApproval) {
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 420 }}>
+          <div style={{ textAlign: "center", marginBottom: 36 }}>
+            <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+          </div>
+          <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)", textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.amberLight, border: `1px solid ${C.amber}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 24 }}>⏳</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.12em", marginBottom: 12 }}>PENDING APPROVAL</div>
+            <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 12 }}>Account request submitted</h2>
+            <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6, marginBottom: 24 }}>
+              Thanks {name.split(" ")[0]}! Your request has been sent to a CareTrack administrator. You'll receive an email at <strong>{email}</strong> once your account is activated.
+            </p>
+            <div style={{ background: C.bg, borderRadius: 8, padding: "12px 16px", marginBottom: 24, fontSize: 12, color: C.inkLight, textAlign: "left" }}>
+              <div style={{ marginBottom: 4 }}><strong style={{ color: C.ink }}>Role:</strong> {role.charAt(0).toUpperCase() + role.slice(1)}</div>
+              <div><strong style={{ color: C.ink }}>Region:</strong> {region}</div>
+            </div>
+            <p style={{ fontSize: 12, color: C.inkFaint }}>Questions? Contact <strong>Elizabeth Doherty</strong><br />
+              <a href="mailto:edoherty@hovertechinternational.com" style={{ color: C.primary }}>edoherty@hovertechinternational.com</a>
+            </p>
+          </div>
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+        </div>
+        <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
+          <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 4 }}>
+            {mode === "login" ? "Welcome back" : mode === "signup" ? "Request access" : "Reset password"}
+          </h2>
+          <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 28 }}>
+            {mode === "login" ? "Sign in to CareTrack" : mode === "signup" ? "Submit your details for admin approval" : "Enter your email and we'll send a reset link"}
+          </p>
+          {error && <div style={{ background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 20 }}>⚠ {error}</div>}
+          {message && <div style={{ background: C.greenLight, border: `1px solid #b8dfc9`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.green, marginBottom: 20 }}>✓ {message}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {mode === "signup" && (<>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FULL NAME</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your full name" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>ROLE</label>
+                  <select value={role} onChange={e => setRole(e.target.value)} style={sel}>
+                    <option value="rep">Sales Rep</option>
+                    <option value="kam">KAM</option>
+                    <option value="director">Director</option>
+                    <option value="vp">VP</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REGION</label>
+                  <select value={region} onChange={e => setRegion(e.target.value)} style={{ ...sel, color: region ? C.ink : C.inkLight }}>
+                    <option value="">Select...</option>
+                    {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>)}
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@hovertechinternational.com" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+            </div>
+            {mode !== "forgot" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PASSWORD</label>
+                  {mode === "login" && (
+                    <button onClick={() => { setMode("forgot"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>FORGOT PASSWORD?</button>
+                  )}
+                </div>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+              </div>
+            )}
+          </div>
+          <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", marginTop: 24, background: C.primary, border: "none", borderRadius: 8, padding: "13px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+            {loading ? "PLEASE WAIT..." : mode === "login" ? "SIGN IN →" : mode === "signup" ? "REQUEST ACCESS →" : "SEND RESET EMAIL →"}
+          </button>
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: C.inkLight }}>
+            {mode === "login" && <span>Need access? <button onClick={() => { setMode("signup"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Request an account</button></span>}
+            {mode === "signup" && <span>Already have an account? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Sign in</button></span>}
+            {mode === "forgot" && <span>Remember it? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Back to sign in</button></span>}
+          </div>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+      </div>
+    </div>
+  );
+};
 
   const handleSubmit = async () => {
     setLoading(true); setError(""); setMessage("");
@@ -3419,7 +3568,7 @@ export default function App() {
             {/* Admin sub-nav */}
             <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["hospitals","HOSPITALS"],["audit","AUDIT LOG"]].map(([id, label]) => {
-                const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : 0;
+                const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : id === "users" ? userProfiles.filter(p => p.pending_approval).length : 0;
                 return (
                   <button key={id} onClick={() => setAdminSection(id)}
                     style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.06em", color: adminSection === id ? C.primary : C.inkLight, borderBottom: adminSection === id ? `2px solid ${C.primary}` : "2px solid transparent", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
@@ -3614,6 +3763,69 @@ export default function App() {
             {/* ── USER MANAGEMENT SECTION ── */}
             {adminSection === "users" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Pending Approval Queue */}
+                {(() => {
+                  const pending = userProfiles.filter(p => p.pending_approval === true);
+                  if (pending.length === 0) return null;
+                  return (
+                    <div style={{ background: C.surface, border: `2px solid ${C.amber}44`, borderRadius: 12, padding: "24px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.1em" }}>PENDING APPROVAL · {pending.length}</div>
+                        <div style={{ background: C.amber, color: "white", borderRadius: 10, padding: "1px 8px", fontSize: 9, fontWeight: 700 }}>{pending.length}</div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {pending.map(p => (
+                          <div key={p.id} style={{ background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{p.full_name || "—"}</div>
+                              <div style={{ fontSize: 12, color: C.inkLight, marginTop: 2 }}>{p.email}</div>
+                              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                                <span style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.primary, fontFamily: "'IBM Plex Mono', monospace" }}>{(p.role || "rep").toUpperCase()}</span>
+                                {p.region && <span style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace" }}>{p.region}</span>}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button onClick={async () => {
+                                await supabase.from("user_profiles").update({ is_active: true, pending_approval: false }).eq("id", p.id);
+                                setUserProfiles(prev => prev.map(u => u.id === p.id ? { ...u, is_active: true, pending_approval: false } : u));
+                                await logAudit("USER_APPROVED", { email: p.email, name: p.full_name });
+                                // Send approval email
+                                try {
+                                  await fetch("https://okswecmkqegydbxsczjc.supabase.co/functions/v1/notify-admin-signup", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ action: "approve", name: p.full_name, email: p.email }),
+                                  });
+                                } catch (_) {}
+                              }}
+                                style={{ background: C.green, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em" }}>
+                                ✓ APPROVE
+                              </button>
+                              <button onClick={async () => {
+                                if (!window.confirm(`Reject and delete account for ${p.full_name || p.email}?`)) return;
+                                await supabase.from("user_profiles").delete().eq("id", p.id);
+                                await supabase.auth.admin?.deleteUser(p.id);
+                                setUserProfiles(prev => prev.filter(u => u.id !== p.id));
+                                await logAudit("USER_REJECTED", { email: p.email, name: p.full_name });
+                                try {
+                                  await fetch("https://okswecmkqegydbxsczjc.supabase.co/functions/v1/notify-admin-signup", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ action: "reject", name: p.full_name, email: p.email }),
+                                  });
+                                } catch (_) {}
+                              }}
+                                style={{ background: "none", border: `1px solid ${C.red}`, borderRadius: 8, padding: "8px 16px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                ✕ REJECT
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Invite User card */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
