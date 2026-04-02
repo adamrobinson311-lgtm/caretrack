@@ -1521,6 +1521,7 @@ export default function App() {
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
   const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter).filter(e => {
+    if ((isDirector || isVP) && repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (!historySearch.trim()) return true;
     const q = historySearch.toLowerCase();
     return (e.notes || "").toLowerCase().includes(q)
@@ -2078,6 +2079,16 @@ export default function App() {
           </button>
         </div>
       )}
+      {(isDirector || isVP) && repFilter !== "All" && !viewAsUser && (
+        <div style={{ background: C.primaryLight, borderBottom: `1px solid ${C.primary}33`, padding: "8px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.primary, letterSpacing: "0.06em" }}>
+            FILTERED: {repFilter}
+          </span>
+          <button onClick={() => setRepFilter("All")} style={{ background: "none", border: `1px solid ${C.primary}44`, borderRadius: 6, padding: "3px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
+            CLEAR FILTER ✕
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div className="header-wrap" style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(79,110,119,0.06)" }}>
@@ -2470,7 +2481,17 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
                 {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
                 {(isDirector || isVP) && regionRepNames.length > 0 && (
-                  <FilterBar value={repFilter} onChange={setRepFilter} label="REP" hospitals={regionRepNames} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }} className="filter-bar">
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REP</span>
+                    <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
+                      style={{ background: repFilter !== "All" ? C.primary : C.surface, border: `1px solid ${repFilter !== "All" ? C.primary : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: repFilter !== "All" ? "white" : C.inkMid, cursor: "pointer", outline: "none", minHeight: 36 }}>
+                      <option value="All">All Reps</option>
+                      {regionRepNames.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {repFilter !== "All" && (
+                      <button onClick={() => setRepFilter("All")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.inkLight, padding: "0 4px" }}>✕</button>
+                    )}
+                  </div>
                 )}
                 <DateRangeFilter />
               </div>
@@ -2746,6 +2767,19 @@ export default function App() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
                 {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
+                {(isDirector || isVP) && regionRepNames.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REP</span>
+                    <select value={repFilter} onChange={e => { setRepFilter(e.target.value); setHistoryPage(20); }}
+                      style={{ background: repFilter !== "All" ? C.primary : C.surface, border: `1px solid ${repFilter !== "All" ? C.primary : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: repFilter !== "All" ? "white" : C.inkMid, cursor: "pointer", outline: "none", minHeight: 36 }}>
+                      <option value="All">All Reps</option>
+                      {regionRepNames.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {repFilter !== "All" && (
+                      <button onClick={() => setRepFilter("All")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.inkLight, padding: "0 4px" }}>✕</button>
+                    )}
+                  </div>
+                )}
                 <DateRangeFilter />
                 <div style={{ position: "relative", width: "100%" }}>
                   <input
@@ -2973,8 +3007,8 @@ export default function App() {
             {/* ── RANKINGS VIEW ── */}
             {(() => {
               // Build hospital rankings — use proxyEntries so director sees all region reps
-              const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries;
-              const hospitalMap = {};
+              const perfEntries = ((isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries)
+                .filter(e => (isDirector || isVP) && repFilter !== "All" ? e.logged_by === repFilter : true);              const hospitalMap = {};
               perfEntries.forEach(e => {
                 if (!e.hospital) return;
                 if (!hospitalMap[e.hospital]) hospitalMap[e.hospital] = [];
@@ -3153,7 +3187,8 @@ export default function App() {
 
         {/* ── PLANNER ── */}
         {tab === "planner" && (() => {
-          const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries;
+          const perfEntries = ((isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries)
+            .filter(e => (isDirector || isVP) && repFilter !== "All" ? e.logged_by === repFilter : true);
           const myName = user?.user_metadata?.full_name || user?.email || "";
           // KAM sees all sessions at their accounts; reps see only their own; directors/VPs see all region
           const relevantEntries = (isDirector || isVP) || isKAM ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
