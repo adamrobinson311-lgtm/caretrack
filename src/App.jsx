@@ -4165,6 +4165,23 @@ export default function App() {
                         setAllEntriesFull(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
                         setEntries(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
                         await logAudit("HOSPITAL_RENAMED", { from: hospitalRenameFrom, to: hospitalRenameTo, count: data.length });
+                        // Clean up localStorage — migrate old hospital name to new name so it doesn't resurface in dropdowns
+                        const hospitalData = getHospitalData();
+                        if (hospitalData[hospitalRenameFrom]) {
+                          const oldData = hospitalData[hospitalRenameFrom];
+                          if (!hospitalData[hospitalRenameTo]) {
+                            hospitalData[hospitalRenameTo] = oldData;
+                          } else {
+                            // Merge units and protocols
+                            const existing = hospitalData[hospitalRenameTo];
+                            const mergedUnits = [...new Set([...(existing.units || []), ...(oldData.units || [])])];
+                            const mergedProtocols = { ...(oldData.protocols || {}), ...(existing.protocols || {}) };
+                            const mergedBedCounts = { ...(oldData.bedCounts || {}), ...(existing.bedCounts || {}) };
+                            hospitalData[hospitalRenameTo] = { units: mergedUnits, protocols: mergedProtocols, bedCounts: mergedBedCounts };
+                          }
+                          delete hospitalData[hospitalRenameFrom];
+                          saveHospitalData(hospitalData);
+                        }
                         setHospitalRenameFrom("");
                         setHospitalRenameTo("");
                       }
