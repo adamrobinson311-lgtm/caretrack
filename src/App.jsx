@@ -1,4 +1,4 @@
-// CareTrack v2.8
+// CareTrack v2.9
 import { useState, useEffect, useRef, Fragment } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "./supabaseClient";
@@ -1042,7 +1042,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.8";
+  const CURRENT_VERSION = "2.9";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -4539,7 +4539,18 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "2.8", date: "March 2026", badge: "LATEST", items: [
+              { version: "2.9", date: "April 2026", badge: "LATEST", items: [
+                "Session confirmation email — automatically receive a summary of every session you log, including all metric results and notes",
+                "Weekly summary email — every Monday morning you'll receive your prior week's stats: sessions logged, hospitals visited, and avg compliance vs the week before",
+                "Forgot password — new link on the login screen lets you reset your password by email without contacting an admin",
+                "Password reset — clicking a reset link now takes you to a proper set-new-password screen instead of logging you straight in",
+                "Photo thumbnails — session photos now show inline on History cards; tap any thumbnail to view full size",
+                "Last session card — Dashboard now opens with a summary of your most recent session at the top",
+                "MoM in exports — Month-over-month comparison now included as a dedicated page in PDF and PowerPoint exports",
+                "Rep filter — Directors and VPs can now filter all tabs (Dashboard, History, Performers, Planner) to a single rep via a dropdown",
+                "Account request flow — new users now select their role and region when signing up; admins approve or reject from User Management",
+              ]},
+              { version: "2.8", date: "March 2026", badge: null, items: [
                 "Onboarding redesign — new mobile bottom-sheet walkthrough with a live bed grid practice session that auto-deletes on completion",
                 "PDF session log — metrics now shown in grouped category columns (Matt Compliance, Wedge Compliance, Turning, Air Supply) with colour-coded values",
                 "PDF bed detail page — per-bed compliance breakdown added after the session log when Per Bed data is present",
