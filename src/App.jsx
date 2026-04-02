@@ -1008,6 +1008,7 @@ export default function App() {
 
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem("caretrack_onboarded"));
+  const [showChecklist, setShowChecklist] = useState(() => !localStorage.getItem("caretrack_checklist_dismissed"));
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [practiceBedGrid, setPracticeBedGrid] = useState(() => {
     try { return [1, 2, 3, 4].map(n => createEmptyBed(METRICS, n)); }
@@ -1735,13 +1736,13 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -2553,6 +2554,63 @@ export default function App() {
                     </div>
                   );
                 })()}
+                {/* ── Getting Started Checklist ── */}
+                {showChecklist && !isAdmin && !isDirector && !isVP && (() => {
+                  const myName = user?.user_metadata?.full_name || user?.email || "";
+                  const mySessions = entries.filter(e => e.logged_by === myName && e.hospital !== "Practice Hospital");
+                  const hasLoggedSession = mySessions.length > 0;
+                  const hasAddedHospital = mySessions.some(e => e.hospital);
+                  const hasUsedPerBed = mySessions.some(e => e.bed_data && e.bed_data.length > 0);
+                  const hasExported = !!localStorage.getItem("caretrack_exported");
+                  const hasPWA = window.matchMedia("(display-mode: standalone)").matches || !!window.navigator.standalone;
+
+                  const steps = [
+                    { label: "Log your first session", sub: "Tap Log Audit and record a compliance visit", done: hasLoggedSession },
+                    { label: "Add your first hospital", sub: "Type a hospital name on the Log Audit form", done: hasAddedHospital },
+                    { label: "Try Per Bed mode", sub: "Switch to Per Bed on the Log form and enter room-by-room data", done: hasUsedPerBed },
+                    { label: "Export a report", sub: "From Dashboard, tap PDF or PowerPoint to download", done: hasExported },
+                    { label: "Install on your phone", sub: "Tap Share → Add to Home Screen in Safari for offline access", done: hasPWA },
+                  ];
+                  const doneCount = steps.filter(s => s.done).length;
+                  const allDone = doneCount === steps.length;
+                  const progress = Math.round((doneCount / steps.length) * 100);
+
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 20 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                        <div>
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.primary, letterSpacing: "0.1em", marginBottom: 3 }}>GETTING STARTED</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{allDone ? "You're all set!" : `${doneCount} of ${steps.length} complete`}</div>
+                        </div>
+                        <button onClick={() => { setShowChecklist(false); localStorage.setItem("caretrack_checklist_dismissed", "true"); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: C.inkLight, padding: "4px 8px" }}>✕</button>
+                      </div>
+                      <div style={{ height: 4, background: C.surfaceAlt, borderRadius: 2, overflow: "hidden", marginBottom: 14 }}>
+                        <div style={{ height: "100%", width: `${progress}%`, background: allDone ? C.green : C.primary, borderRadius: 2, transition: "width 0.4s ease" }} />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {steps.map((step, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 0", borderBottom: i < steps.length - 1 ? `0.5px solid ${C.border}` : "none" }}>
+                            <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${step.done ? C.green : C.border}`, background: step.done ? C.green : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                              {step.done && <span style={{ color: "white", fontSize: 11, lineHeight: 1 }}>✓</span>}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, color: step.done ? C.inkLight : C.ink, textDecoration: step.done ? "line-through" : "none" }}>{step.label}</div>
+                              {!step.done && <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{step.sub}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {allDone && (
+                        <button onClick={() => { setShowChecklist(false); localStorage.setItem("caretrack_checklist_dismissed", "true"); }}
+                          style={{ width: "100%", marginTop: 14, background: C.primary, border: "none", borderRadius: 8, padding: "11px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+                          ALL DONE — DISMISS →
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {METRIC_BUCKETS.map(bucket => {
                   const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
                   if (bucketMetrics.length === 0) return null;
@@ -4532,6 +4590,7 @@ export default function App() {
                 <button onClick={async () => {
                   setShowOnboarding(false);
                   localStorage.setItem("caretrack_onboarded", "true");
+                  setShowChecklist(true);
                   setTab("log");
                   if (practiceSessionId) {
                     await supabase.from("sessions").delete().eq("id", practiceSessionId);
