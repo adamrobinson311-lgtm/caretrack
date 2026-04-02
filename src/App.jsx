@@ -3051,7 +3051,8 @@ export default function App() {
         {tab === "planner" && (() => {
           const perfEntries = (isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries;
           const myName = user?.user_metadata?.full_name || user?.email || "";
-          const relevantEntries = (isDirector || isVP) ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
+          // KAM sees all sessions at their accounts; reps see only their own; directors/VPs see all region
+          const relevantEntries = (isDirector || isVP) || isKAM ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
           const today = new Date();
 
           const hospitalData = hospitals.map(hospital => {
