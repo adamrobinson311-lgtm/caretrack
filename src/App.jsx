@@ -243,6 +243,7 @@ const PasswordResetScreen = ({ onComplete }) => {
 };
 
 
+const MetricInput = ({ metric, num, den, onChange }) => {
   const isNA = num === "na" && den === "na";
   const p = isNA ? null : pct(num, den);
   return (
