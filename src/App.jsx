@@ -105,7 +105,7 @@ const LoginScreen = ({ onLogin }) => {
   const [message, setMessage] = useState("");
   const [pendingApproval, setPendingApproval] = useState(false);
 
-  const REGIONS = ["Northeast", "Southeast", "Midwest", "Southwest", "West", "Northwest"];
+  const REGIONS = ["Northeast", "West", "Central", "Southeast"];
 
   const handleSubmit = async () => {
     setLoading(true); setError(""); setMessage("");
