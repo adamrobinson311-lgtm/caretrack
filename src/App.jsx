@@ -991,6 +991,9 @@ export default function App() {
   const [hospitalRenameTo, setHospitalRenameTo] = useState("");
   const [hospitalRenaming, setHospitalRenaming] = useState(false);
   const [hospitalRenameResult, setHospitalRenameResult] = useState(null);
+  const [dismissedDuplicates, setDismissedDuplicates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("caretrack_dismissed_dupes") || "[]"); } catch { return []; }
+  });
   const [editingNameId, setEditingNameId] = useState(null);
   const [editingNameValue, setEditingNameValue] = useState("");
   const [editingNameSaving, setEditingNameSaving] = useState(false); // { count, error }
@@ -4370,14 +4373,22 @@ export default function App() {
                     const union = new Set([...ta, ...tb]).size;
                     return union > 0 ? intersection / union : 0;
                   };
-                  const pairs: { a: string; b: string; score: number }[] = [];
+                  const pairs = [];
                   for (let i = 0; i < allHospitals.length; i++) {
                     for (let j = i + 1; j < allHospitals.length; j++) {
                       const score = similarity(allHospitals[i], allHospitals[j]);
-                      if (score >= 0.5) pairs.push({ a: allHospitals[i], b: allHospitals[j], score });
+                      const key = [allHospitals[i], allHospitals[j]].sort().join("|");
+                      if (score >= 0.5 && !dismissedDuplicates.includes(key)) pairs.push({ a: allHospitals[i], b: allHospitals[j], score });
                     }
                   }
                   if (pairs.length === 0) return null;
+
+                  const dismissPair = (a, b) => {
+                    const key = [a, b].sort().join("|");
+                    const updated = [...dismissedDuplicates, key];
+                    setDismissedDuplicates(updated);
+                    localStorage.setItem("caretrack_dismissed_dupes", JSON.stringify(updated));
+                  };
                   return (
                     <div style={{ background: C.surface, border: `2px solid ${C.amber}44`, borderRadius: 12, padding: "24px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -4403,6 +4414,10 @@ export default function App() {
                               <button onClick={() => { setHospitalRenameFrom(a); setHospitalRenameTo(b); setAdminSection("hospitals"); }}
                                 style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
                                 MERGE → "{b}"
+                              </button>
+                              <button onClick={() => dismissPair(a, b)}
+                                style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", marginLeft: "auto" }}>
+                                NOT A DUPLICATE ✕
                               </button>
                             </div>
                           </div>
