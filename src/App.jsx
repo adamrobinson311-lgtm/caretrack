@@ -2646,6 +2646,39 @@ export default function App() {
                   );
                 })()}
 
+                {/* ── YTD Summary Card ── */}
+                {(() => {
+                  const now = new Date();
+                  const jan1 = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+                  const ytdEntries = filteredDashboard.filter(e => e.date >= jan1);
+                  if (ytdEntries.length === 0) return null;
+                  const ytdHospitals = new Set(ytdEntries.map(e => e.hospital).filter(Boolean)).size;
+                  const ytdVals = METRICS.flatMap(m => ytdEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+                  const ytdAvg = ytdVals.length ? Math.round(ytdVals.reduce((a, b) => a + b, 0) / ytdVals.length) : null;
+                  const ytdBeds = ytdEntries.reduce((sum, e) => {
+                    if (e.bed_data && e.bed_data.length > 0) return sum + e.bed_data.length;
+                    return sum + (parseInt(e.matt_applied_den) || 0);
+                  }, 0);
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 12 }}>YEAR TO DATE · {now.getFullYear()}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }} className="metric-grid">
+                        {[
+                          { label: "Sessions", value: ytdEntries.length, color: C.primary },
+                          { label: "Hospitals", value: ytdHospitals, color: C.primary },
+                          { label: "Pt Beds Audited", value: ytdBeds, color: C.primary },
+                          { label: "Avg Compliance", value: ytdAvg !== null ? `${ytdAvg}%` : "—", color: ytdAvg !== null ? pctColor(ytdAvg) : C.inkFaint },
+                        ].map(s => (
+                          <div key={s.label} style={{ background: C.bg, borderRadius: 8, padding: "12px 14px" }}>
+                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em", marginBottom: 6 }}>{s.label.toUpperCase()}</div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {METRIC_BUCKETS.map(bucket => {
                   const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
                   if (bucketMetrics.length === 0) return null;
@@ -4324,6 +4357,60 @@ export default function App() {
                     {hospitalRenaming ? "RENAMING..." : "RENAME HOSPITAL"}
                   </button>
                 </div>
+
+                {/* Duplicate Hospital Detection */}
+                {(() => {
+                  const allHospitals = [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort();
+                  // Simple similarity: normalize names and find pairs with high overlap
+                  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+                  const tokenize = (s: string) => new Set(normalize(s).split(" ").filter(w => w.length > 2));
+                  const similarity = (a: string, b: string) => {
+                    const ta = tokenize(a), tb = tokenize(b);
+                    const intersection = [...ta].filter(w => tb.has(w)).length;
+                    const union = new Set([...ta, ...tb]).size;
+                    return union > 0 ? intersection / union : 0;
+                  };
+                  const pairs: { a: string; b: string; score: number }[] = [];
+                  for (let i = 0; i < allHospitals.length; i++) {
+                    for (let j = i + 1; j < allHospitals.length; j++) {
+                      const score = similarity(allHospitals[i], allHospitals[j]);
+                      if (score >= 0.5) pairs.push({ a: allHospitals[i], b: allHospitals[j], score });
+                    }
+                  }
+                  if (pairs.length === 0) return null;
+                  return (
+                    <div style={{ background: C.surface, border: `2px solid ${C.amber}44`, borderRadius: 12, padding: "24px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.1em" }}>POSSIBLE DUPLICATE HOSPITALS · {pairs.length}</div>
+                      </div>
+                      <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16, lineHeight: 1.6 }}>These hospital names look similar and may be duplicates. Use the Rename tool above to merge them.</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {pairs.map(({ a, b, score }) => (
+                          <div key={`${a}|${b}`} style={{ background: C.amberLight, border: `1px solid ${C.amber}33`, borderRadius: 8, padding: "12px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{a}</span>
+                              <span style={{ fontSize: 11, color: C.inkLight }}>↔</span>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{b}</span>
+                              <span style={{ marginLeft: "auto", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, background: C.surface, borderRadius: 6, padding: "2px 8px" }}>
+                                {Math.round(score * 100)}% match
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                              <button onClick={() => { setHospitalRenameFrom(b); setHospitalRenameTo(a); setAdminSection("hospitals"); }}
+                                style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
+                                MERGE → "{a}"
+                              </button>
+                              <button onClick={() => { setHospitalRenameFrom(a); setHospitalRenameTo(b); setAdminSection("hospitals"); }}
+                                style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
+                                MERGE → "{b}"
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* KAM Coverage Map */}
                 {(() => {
