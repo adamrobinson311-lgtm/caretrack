@@ -1668,12 +1668,31 @@ export default function App() {
   };
 
   // Upload photos to Supabase Storage and return public URLs
+  const compressPhoto = (file) => new Promise((resolve) => {
+    const MAX = 1200;
+    const QUALITY = 0.82;
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), "image/jpeg", QUALITY);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+
   const uploadPhotos = async (files, sessionId) => {
     const urls = [];
     for (const file of files) {
-      const ext = file.name.split(".").pop();
-      const path = `${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from("session-photos").upload(path, file, { upsert: false });
+      const compressed = await compressPhoto(file);
+      const path = `${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+      const { error } = await supabase.storage.from("session-photos").upload(path, compressed, { upsert: false, contentType: "image/jpeg" });
       if (!error) {
         const { data } = supabase.storage.from("session-photos").getPublicUrl(path);
         urls.push(data.publicUrl);
