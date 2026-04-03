@@ -1119,7 +1119,8 @@ export default function App() {
   const myProfile = userProfiles.find(p => p.email === user?.email);
   const isDirector = !isAdmin && myProfile?.role === "director";
   const isVP = !isAdmin && myProfile?.role === "vp";
-  const isKAM = !isAdmin && myProfile?.role === "kam";
+  // KAM: either explicit role, OR admin with KAM accounts assigned
+  const isKAM = (!isAdmin && myProfile?.role === "kam") || (isAdmin && (myProfile?.accounts || []).length > 0);
   const myRegion = myProfile?.region || "";
   const kamAccounts = myProfile?.accounts || []; // array of hospital names assigned to this KAM
   const regionReps = isVP
