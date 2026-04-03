@@ -3526,6 +3526,87 @@ export default function App() {
                   );
                 })()}
 
+                {/* ── Rep Session Comparison Chart ── */}
+                {regionEntries.length > 0 && (() => {
+                  const now = new Date();
+                  const [chartMode, setChartMode] = React.useState("sessions"); // sessions | beds
+                  const [chartPeriod, setChartPeriod] = React.useState("all"); // all | month | 90d
+
+                  const filterByPeriod = (sessions) => {
+                    if (chartPeriod === "month") {
+                      const m = now.getMonth(), y = now.getFullYear();
+                      return sessions.filter(e => { if (!e.date) return false; const [ey, em] = e.date.split("-").map(Number); return em - 1 === m && ey === y; });
+                    }
+                    if (chartPeriod === "90d") {
+                      return sessions.filter(e => { if (!e.date) return false; const [ey, em, ed] = e.date.split("-").map(Number); return (now - new Date(ey, em-1, ed)) / 86400000 <= 90; });
+                    }
+                    return sessions;
+                  };
+
+                  const bedsAudited = (sessions) => sessions.reduce((sum, e) => {
+                    if (e.bed_data && e.bed_data.length > 0) return sum + e.bed_data.length;
+                    return sum + (parseInt(e.matt_applied_den) || 0);
+                  }, 0);
+
+                  const chartData = regionReps.map(rep => {
+                    const name = rep.full_name || rep.email;
+                    const repSessions = filterByPeriod(regionEntries.filter(e => e.logged_by === name));
+                    const shortName = name.split(" ")[0];
+                    return { name: shortName, fullName: name, sessions: repSessions.length, beds: bedsAudited(repSessions) };
+                  }).sort((a, b) => b[chartMode] - a[chartMode]);
+
+                  const maxVal = Math.max(...chartData.map(d => d[chartMode]), 1);
+
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>REP COMPARISON</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {[["sessions","SESSIONS"],["beds","PT BEDS"]].map(([val, label]) => (
+                            <button key={val} onClick={() => setChartMode(val)}
+                              style={{ background: chartMode === val ? C.primary : "none", border: `1px solid ${chartMode === val ? C.primary : C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: chartMode === val ? "white" : C.inkLight, cursor: "pointer", letterSpacing: "0.05em" }}>
+                              {label}
+                            </button>
+                          ))}
+                          <div style={{ width: 1, background: C.border, margin: "0 2px" }} />
+                          {[["all","ALL"],["month","MTH"],["90d","90D"]].map(([val, label]) => (
+                            <button key={val} onClick={() => setChartPeriod(val)}
+                              style={{ background: chartPeriod === val ? C.primaryLight : "none", border: `1px solid ${chartPeriod === val ? C.primary : C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: chartPeriod === val ? C.primary : C.inkLight, cursor: "pointer", letterSpacing: "0.05em" }}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Bar chart */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {chartData.map((d, i) => {
+                          const val = d[chartMode];
+                          const barPct = maxVal > 0 ? (val / maxVal) * 100 : 0;
+                          return (
+                            <div key={d.fullName} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <div style={{ width: 90, fontSize: 11, color: C.inkLight, textAlign: "right", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.fullName}>{d.name}</div>
+                              <div style={{ flex: 1, height: 28, background: C.bg, borderRadius: 4, overflow: "hidden", position: "relative" }}>
+                                <div style={{ height: "100%", width: `${barPct}%`, background: C.primary, borderRadius: 4, transition: "width 0.5s ease", minWidth: val > 0 ? 4 : 0 }} />
+                                <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, fontWeight: 500, color: barPct > 50 ? "white" : C.ink, fontFamily: "'IBM Plex Mono', monospace" }}>
+                                  {val > 0 ? val : "—"}
+                                </div>
+                              </div>
+                              {i === 0 && <div style={{ width: 16, fontSize: 12 }}>🥇</div>}
+                              {i === 1 && <div style={{ width: 16, fontSize: 12 }}>🥈</div>}
+                              {i === 2 && <div style={{ width: 16, fontSize: 12 }}>🥉</div>}
+                              {i > 2 && <div style={{ width: 16 }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {chartData.every(d => d[chartMode] === 0) && (
+                        <div style={{ textAlign: "center", padding: "20px 0", fontSize: 13, color: C.inkLight }}>No data for this period.</div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* ── Regional Aggregated Metrics ── */}
                 {regionEntries.length > 0 && (() => {
                   const regionAvgByMetric = METRICS.map(m => {
