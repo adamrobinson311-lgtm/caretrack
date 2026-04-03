@@ -143,6 +143,8 @@ const LoginScreen = ({ onLogin }) => {
         await supabase.auth.signOut();
         setError("Your account has been deactivated. Please contact an administrator.");
       } else {
+        // Update last login timestamp
+        await supabase.from("user_profiles").update({ last_login: new Date().toISOString() }).eq("email", email);
         onLogin(data.user);
       }
     }
@@ -3918,6 +3920,46 @@ export default function App() {
                     {inviting ? "SENDING..." : "SEND INVITATION →"}
                   </button>
                 </div>
+                {/* Org Health Summary */}
+                {(() => {
+                  const now = new Date();
+                  const activeUsers = userProfiles.filter(u => u.is_active !== false && !ADMIN_EMAILS.includes(u.email) && !u.pending_approval);
+                  const thirtyDaysAgo = new Date(now - 30 * 86400000).toISOString();
+                  const sixtyDaysAgo = new Date(now - 60 * 86400000).toISOString();
+                  const recentlyActive = activeUsers.filter(u => u.last_login && u.last_login > thirtyDaysAgo).length;
+                  const atRisk = activeUsers.filter(u => !u.last_login || u.last_login < sixtyDaysAgo).length;
+                  const onboarded = activeUsers.filter(u => allEntriesFull.some(e => e.logged_by === u.full_name || e.logged_by === u.email)).length;
+                  const thisMonth = now.getMonth(), thisYear = now.getFullYear();
+                  const coverageGaps = [...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].filter(h => {
+                    const recent = allEntriesFull.filter(e => e.hospital === h && e.date);
+                    const lastDate = recent.sort((a,b) => b.date.localeCompare(a.date))[0]?.date;
+                    if (!lastDate) return true;
+                    const [y, m, d] = lastDate.split("-").map(Number);
+                    return (now - new Date(y, m-1, d)) / 86400000 > 45;
+                  }).length;
+
+                  return (
+                    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 14 }}>ORG HEALTH</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }} className="admin-stats-grid">
+                        {[
+                          { label: "Active last 30d", value: recentlyActive, total: activeUsers.length, color: recentlyActive === activeUsers.length ? C.green : C.amber },
+                          { label: "At risk (60d+)", value: atRisk, total: activeUsers.length, color: atRisk === 0 ? C.green : C.red },
+                          { label: "Onboarded", value: onboarded, total: activeUsers.length, color: onboarded === activeUsers.length ? C.green : C.amber },
+                          { label: "Coverage gaps", value: coverageGaps, total: null, color: coverageGaps === 0 ? C.green : C.amber },
+                        ].map(s => (
+                          <div key={s.label} style={{ background: C.bg, borderRadius: 8, padding: "12px 14px" }}>
+                            <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em", marginBottom: 6 }}>{s.label.toUpperCase()}</div>
+                            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color: s.color }}>
+                              {s.value}{s.total !== null ? <span style={{ fontSize: 13, color: C.inkLight, fontWeight: 400 }}>/{s.total}</span> : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Per-user breakdown */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
@@ -3929,6 +3971,25 @@ export default function App() {
                       const lastSession = userSessions[userSessions.length - 1];
                       const isActive = profile.is_active !== false;
                       const isAdminUser = ADMIN_EMAILS.includes(profile.email);
+                      const now = new Date();
+
+                      // Last login
+                      const lastLogin = profile.last_login ? new Date(profile.last_login) : null;
+                      const daysSinceLogin = lastLogin ? Math.floor((now - lastLogin) / 86400000) : null;
+                      const lastLoginLabel = daysSinceLogin === null ? "Never logged in" : daysSinceLogin === 0 ? "Today" : daysSinceLogin === 1 ? "Yesterday" : `${daysSinceLogin}d ago`;
+                      const loginColor = daysSinceLogin === null ? C.red : daysSinceLogin <= 7 ? C.green : daysSinceLogin <= 30 ? C.amber : C.red;
+
+                      // Session frequency score
+                      const now30 = new Date(now - 30 * 86400000).toISOString().slice(0,10);
+                      const sessionsThisMonth = userSessions.filter(e => e.date >= now30).length;
+                      const freqColor = sessionsThisMonth >= 4 ? C.green : sessionsThisMonth >= 1 ? C.amber : C.red;
+                      const freqLabel = sessionsThisMonth >= 4 ? "Active" : sessionsThisMonth >= 1 ? "Slowing" : "Inactive";
+
+                      // Account age
+                      const createdAt = profile.created_at ? new Date(profile.created_at) : null;
+                      const accountAgeDays = createdAt ? Math.floor((now - createdAt) / 86400000) : null;
+                      const accountAgeLabel = accountAgeDays === null ? "" : accountAgeDays < 7 ? "New user" : accountAgeDays < 30 ? `${accountAgeDays}d old` : accountAgeDays < 365 ? `${Math.floor(accountAgeDays/30)}mo` : `${Math.floor(accountAgeDays/365)}yr`;
+
                       return (
                       <div key={profile.id} style={{ background: isActive ? C.bg : C.redLight, borderRadius: 10, padding: "14px 16px", border: `1px solid ${isActive ? C.border : "#f0c8c8"}`, opacity: isActive ? 1 : 0.7 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }} className="user-card-row">
@@ -3950,12 +4011,9 @@ export default function App() {
                                           setEditingNameSaving(true);
                                           const oldName = profile.full_name || profile.email;
                                           const newName = editingNameValue.trim();
-                                          // Update user_profiles
                                           const { error: profErr } = await supabase.from("user_profiles").update({ full_name: newName }).eq("id", profile.id);
                                           if (profErr) { alert("Failed: " + profErr.message); setEditingNameSaving(false); return; }
-                                          // Bulk update sessions logged_by
                                           await supabase.from("sessions").update({ logged_by: newName }).eq("logged_by", oldName);
-                                          // Update local state
                                           setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, full_name: newName } : p));
                                           setAllEntriesFull(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
                                           setEntries(prev => prev.map(e => e.logged_by === oldName ? { ...e, logged_by: newName } : e));
@@ -3992,10 +4050,11 @@ export default function App() {
                                     <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{profile.full_name || profile.email}</div>
                                     {isAdminUser && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>ADMIN</span>}
                                     {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
-                            {profile.role === "vp" && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>VP</span>}
-                            {profile.role === "kam" && <span style={{ fontSize: 9, background: C.amberLight, color: C.amber, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>KAM</span>}
+                                    {profile.role === "vp" && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>VP</span>}
+                                    {profile.role === "kam" && <span style={{ fontSize: 9, background: C.amberLight, color: C.amber, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>KAM</span>}
                                     {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
                                     {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
+                                    {accountAgeLabel && <span style={{ fontSize: 9, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{accountAgeLabel}</span>}
                                     <button onClick={() => { setEditingNameId(profile.id); setEditingNameValue(profile.full_name || ""); }}
                                       style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer", letterSpacing: "0.04em" }}>
                                       ✎ RENAME
@@ -4005,8 +4064,21 @@ export default function App() {
                               </div>
                               <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {profile.email} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}
-                                {lastSession && ` · Last: ${formatTimestamp(lastSession.created_at, lastSession.date)}`}
+                                {lastSession && ` · Last session: ${formatTimestamp(lastSession.created_at, lastSession.date)}`}
                               </div>
+                              {/* Health indicators row */}
+                              {!isAdminUser && (
+                                <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: loginColor, flexShrink: 0, display: "inline-block" }} />
+                                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: loginColor }}>LOGIN: {lastLoginLabel}</span>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: freqColor, flexShrink: 0, display: "inline-block" }} />
+                                    <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: freqColor }}>{freqLabel.toUpperCase()} · {sessionsThisMonth} session{sessionsThisMonth !== 1 ? "s" : ""}/30d</span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
                               <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: overall !== null ? pctColor(overall) : C.inkFaint }}>{overall !== null ? `${overall}%` : "—"}</div>
@@ -4043,38 +4115,58 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          {/* Role + Region row */}
+                          {/* Role + Region + Notes row */}
                           {!isAdminUser && (
-                            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>ROLE</label>
-                                <select value={profile.role || "rep"}
-                                  onChange={async e => {
-                                    const newRole = e.target.value;
-                                    const { error } = await supabase.from("user_profiles").update({ role: newRole }).eq("id", profile.id);
-                                    if (error) { alert("Failed: " + error.message); return; }
-                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: newRole } : p));
-                                    await logAudit("USER_ROLE_CHANGED", { email: profile.email, role: newRole }, profile.email);
-                                  }}
-                                  style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
-                                  <option value="rep">Rep</option>
-                                  <option value="kam">KAM</option>
-                                  <option value="director">Director</option>
-                                  <option value="vp">VP</option>
-                                </select>
+                            <div style={{ marginTop: 10 }}>
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>ROLE</label>
+                                  <select value={profile.role || "rep"}
+                                    onChange={async e => {
+                                      const newRole = e.target.value;
+                                      const { error } = await supabase.from("user_profiles").update({ role: newRole }).eq("id", profile.id);
+                                      if (error) { alert("Failed: " + error.message); return; }
+                                      setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: newRole } : p));
+                                      await logAudit("USER_ROLE_CHANGED", { email: profile.email, role: newRole }, profile.email);
+                                    }}
+                                    style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", cursor: "pointer" }}>
+                                    <option value="rep">Rep</option>
+                                    <option value="kam">KAM</option>
+                                    <option value="director">Director</option>
+                                    <option value="vp">VP</option>
+                                  </select>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
+                                  <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REGION</label>
+                                  <input
+                                    defaultValue={profile.region || ""}
+                                    placeholder="e.g. Northeast"
+                                    onBlur={async e => {
+                                      const newRegion = e.target.value.trim();
+                                      if (newRegion === (profile.region || "")) return;
+                                      const { error } = await supabase.from("user_profiles").update({ region: newRegion }).eq("id", profile.id);
+                                      if (error) { alert("Failed: " + error.message); return; }
+                                      setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, region: newRegion } : p));
+                                      await logAudit("USER_REGION_CHANGED", { email: profile.email, region: newRegion }, profile.email);
+                                    }}
+                                    style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
+                                    onFocus={e => e.target.style.borderColor = C.primary}
+                                    onKeyDown={e => e.key === "Enter" && e.target.blur()}
+                                  />
+                                </div>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
-                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REGION</label>
+                              {/* Rep Notes */}
+                              <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap", paddingTop: 5 }}>NOTES</label>
                                 <input
-                                  defaultValue={profile.region || ""}
-                                  placeholder="e.g. Northeast"
+                                  defaultValue={profile.notes || ""}
+                                  placeholder="e.g. On leave, new hire, key account manager..."
                                   onBlur={async e => {
-                                    const newRegion = e.target.value.trim();
-                                    if (newRegion === (profile.region || "")) return;
-                                    const { error } = await supabase.from("user_profiles").update({ region: newRegion }).eq("id", profile.id);
+                                    const newNotes = e.target.value.trim();
+                                    if (newNotes === (profile.notes || "")) return;
+                                    const { error } = await supabase.from("user_profiles").update({ notes: newNotes }).eq("id", profile.id);
                                     if (error) { alert("Failed: " + error.message); return; }
-                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, region: newRegion } : p));
-                                    await logAudit("USER_REGION_CHANGED", { email: profile.email, region: newRegion }, profile.email);
+                                    setUserProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, notes: newNotes } : p));
                                   }}
                                   style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" }}
                                   onFocus={e => e.target.style.borderColor = C.primary}
