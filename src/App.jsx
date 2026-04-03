@@ -1091,6 +1091,11 @@ export default function App() {
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
   const [repFilter, setRepFilter] = useState("All");
+  const [regionSortBy, setRegionSortBy] = useState("avg");
+  const [regionSortDir, setRegionSortDir] = useState("desc");
+  const [regionVPFilter, setRegionVPFilter] = useState("All");
+  const [repChartMode, setRepChartMode] = useState("sessions");
+  const [repChartPeriod, setRepChartPeriod] = useState("all");
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
   const [historySearch, setHistorySearch] = useState("");
   const [performersView, setPerformersView] = useState("rankings"); // "rankings" | "planner"
@@ -3394,9 +3399,12 @@ export default function App() {
 
                 {/* ── Rep Leaderboard ── */}
                 {(() => {
-                  const [sortBy, setSortBy] = React.useState("avg"); // avg | sessions | trend | name
-                  const [sortDir, setSortDir] = React.useState("desc");
-                  const [regionFilter, setRegionFilter] = React.useState("All");
+                  const sortBy = regionSortBy;
+                  const setSortBy = setRegionSortBy;
+                  const sortDir = regionSortDir;
+                  const setSortDir = setRegionSortDir;
+                  const regionFilter = regionVPFilter;
+                  const setRegionFilter = setRegionVPFilter;
 
                   const allRegions = isVP ? [...new Set(regionReps.map(r => r.region).filter(Boolean))].sort() : [];
 
@@ -3529,8 +3537,10 @@ export default function App() {
                 {/* ── Rep Session Comparison Chart ── */}
                 {regionEntries.length > 0 && (() => {
                   const now = new Date();
-                  const [chartMode, setChartMode] = React.useState("sessions"); // sessions | beds
-                  const [chartPeriod, setChartPeriod] = React.useState("all"); // all | month | 90d
+                  const chartMode = repChartMode;
+                  const setChartMode = setRepChartMode;
+                  const chartPeriod = repChartPeriod;
+                  const setChartPeriod = setRepChartPeriod;
 
                   const filterByPeriod = (sessions) => {
                     if (chartPeriod === "month") {
