@@ -1522,10 +1522,19 @@ export default function App() {
       : isKAM
         ? kamEntries
         : entries;
+
+  // Trial hospitals — excluded from Dashboard, Performers, Planner but kept in History/exports
+  const trialHospitals = new Set(
+    Object.entries(hospitalBranding)
+      .filter(([, b]) => b.isTrial)
+      .map(([h]) => h)
+  );
+  const isTrialHospital = (h) => trialHospitals.has(h);
+
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
-  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter);
+  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => !isTrialHospital(e.hospital));
   const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter).filter(e => {
     if ((isDirector || isVP) && repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (!historySearch.trim()) return true;
@@ -3092,7 +3101,7 @@ export default function App() {
               const perfEntries = ((isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries)
                 .filter(e => (isDirector || isVP) && repFilter !== "All" ? e.logged_by === repFilter : true);              const hospitalMap = {};
               perfEntries.forEach(e => {
-                if (!e.hospital) return;
+                if (!e.hospital || isTrialHospital(e.hospital)) return;
                 if (!hospitalMap[e.hospital]) hospitalMap[e.hospital] = [];
                 hospitalMap[e.hospital].push(e);
               });
@@ -3276,7 +3285,7 @@ export default function App() {
           const relevantEntries = (isDirector || isVP) || isKAM ? perfEntries : perfEntries.filter(e => e.logged_by === myName);
           const today = new Date();
 
-          const hospitalData = hospitals.map(hospital => {
+          const hospitalData = hospitals.filter(h => !isTrialHospital(h)).map(hospital => {
             const sessions = relevantEntries.filter(e => e.hospital === hospital && e.date);
             const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
             const lastSession = sorted[0];
@@ -4302,15 +4311,33 @@ export default function App() {
                     {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(h => {
                       const count = allEntriesFull.filter(e => e.hospital === h).length;
                       const reps = [...new Set(allEntriesFull.filter(e => e.hospital === h).map(e => e.logged_by))].filter(Boolean);
+                      const isTrial = !!(hospitalBranding[h]?.isTrial);
                       return (
-                        <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: C.bg, borderRadius: 8 }}>
-                          <div>
-                            <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
+                        <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: isTrial ? C.amberLight : C.bg, borderRadius: 8, border: `1px solid ${isTrial ? C.amber + "44" : "transparent"}` }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
+                              {isTrial && <span style={{ background: C.amber, color: "white", borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, letterSpacing: "0.06em" }}>TRIAL</span>}
+                            </div>
                             <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{reps.join(", ")}</div>
                           </div>
-                          <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.primary, fontWeight: 600 }}>{count}</div>
-                            <div style={{ fontSize: 10, color: C.inkLight }}>sessions</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.primary, fontWeight: 600 }}>{count}</div>
+                              <div style={{ fontSize: 10, color: C.inkLight }}>sessions</div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>TRIAL</span>
+                              <div onClick={() => {
+                                const updated = { ...hospitalBranding, [h]: { ...(hospitalBranding[h] || {}), isTrial: !isTrial } };
+                                setHospitalBranding(updated);
+                                localStorage.setItem("caretrack_branding", JSON.stringify(updated));
+                                logAudit(isTrial ? "HOSPITAL_TRIAL_REMOVED" : "HOSPITAL_TRIAL_SET", { hospital: h });
+                              }}
+                                style={{ width: 36, height: 20, borderRadius: 10, background: isTrial ? C.amber : C.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                                <div style={{ position: "absolute", top: 3, left: isTrial ? 18 : 3, width: 14, height: 14, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       );
