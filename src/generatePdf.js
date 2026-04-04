@@ -607,8 +607,21 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
       doc.text(card.sub, cx + 29, 73, { align: "center" });
     });
-    const momRows = mom.metricDeltas.map(m => [m.label, m.last !== null ? `${m.last}%` : "—", m.this !== null ? `${m.this}%` : "—", m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`, m.delta === null ? "—" : m.delta > 0 ? "▲ Improved" : m.delta < 0 ? "▼ Declined" : "→ Unchanged"]);
-    autoTable(doc, { startY: 84, head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]], body: momRows, styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" }, headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8 }, alternateRowStyles: { fillColor: [240, 237, 234] }, columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } }, didParseCell: (data) => { if (data.column.index === 3 && data.section === "body") { const v = parseFloat(data.cell.raw); if (!isNaN(v)) data.cell.styles.textColor = v > 0 ? BRAND.green : v < 0 ? BRAND.red : BRAND.inkLight; } if (data.column.index === 4 && data.section === "body") { const r = String(data.cell.raw); data.cell.styles.textColor = r.startsWith("▲") ? BRAND.green : r.startsWith("▼") ? BRAND.red : BRAND.inkLight; } }, margin: { left: 14, right: 14 }, theme: "plain" });
+    const momRows = mom.metricDeltas.map(m => [m.label, m.last !== null ? `${m.last}%` : "—", m.this !== null ? `${m.this}%` : "—", m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`, m.delta === null ? "neutral" : m.delta > 0 ? "up" : "down"]);
+    autoTable(doc, { startY: 84, head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]], body: momRows, styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" }, headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8, halign: "center" }, alternateRowStyles: { fillColor: [240, 237, 234] }, columnStyles: { 0: { cellWidth: 58, halign: "left" }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } }, didParseCell: (data) => {
+        if (data.column.index === 3 && data.section === "body") { const v = parseFloat(data.cell.raw); if (!isNaN(v)) data.cell.styles.textColor = v > 0 ? BRAND.green : v < 0 ? BRAND.red : BRAND.inkLight; }
+        if (data.column.index === 4 && data.section === "body") { data.cell.text = [""]; }
+      }, didDrawCell: (data) => {
+        if (data.column.index === 4 && data.section === "body") {
+          const val = momRows[data.row.index]?.[4];
+          const color = val === "up" ? BRAND.green : val === "down" ? BRAND.red : BRAND.inkLight;
+          const r = 1.8;
+          const cx = data.cell.x + data.cell.width / 2;
+          const cy = data.cell.y + data.cell.height / 2;
+          doc.setFillColor(...color);
+          doc.circle(cx, cy, r, "F");
+        }
+      }, margin: { left: 14, right: 14 }, theme: "plain" });
   }
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
