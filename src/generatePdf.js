@@ -108,7 +108,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   // Count pages for pagination
-  let totalPages = 3; // title + summary + history
+  let totalPages = 3;
   if (mom?.hasData) totalPages++;
   if (hospitals.length > 1) totalPages++;
   if (summary && summary.length > 10) totalPages++;
@@ -397,9 +397,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   // ── GROUPED METRIC LAYOUT ─────────────────────────────────────────────────
   const GROUPS = [
     { label: "PATIENT MET CRITERIA", ids: ["turning_criteria"] },
-    { label: "MATT COMPLIANCE",      ids: ["matt_applied", "matt_proper"] },
-    { label: "WEDGE COMPLIANCE",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "AIR SUPPLY",           ids: ["air_supply"] },
+    { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"] },
+    { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "AIR SUPPLY",       ids: ["air_supply"] },
   ];
   if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"] });
 
@@ -407,16 +407,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   avgMetrics.forEach(m => { metricLookup[m.id] = m; });
   summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
 
-  // National averages — computed from full org dataset when available, otherwise hardcoded fallback
-  const NATL_FALLBACK = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75, heel_boots: null, turn_clock: null };
-  const NATL = { ...NATL_FALLBACK };
+  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
   if (allEntries.length > 0) {
     summaryMetrics.forEach(m => {
       const vals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
       if (vals.length) NATL[m.id] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     });
   }
-  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 42, GAP = 3, SECTION_H = 6;
+  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 44, GAP = 3, SECTION_H = 6;
   let curY = 48;
 
   const drawCard = (m, cx, cy, cw) => {
@@ -452,33 +450,35 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     // National avg tick + label + delta
     const natl = NATL[m.id];
-    if (natl !== undefined && natl !== null) {
+    if (natl !== undefined) {
       const tickX = barX + barW * natl / 100;
       doc.setFillColor(...BRAND.inkLight);
       doc.rect(tickX - 0.4, barY - 1, 0.8, 4.5, "F");
       doc.setTextColor(...BRAND.inkLight);
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
-      doc.text(`National avg: ${natl}%`, cx + 4, cy + CARD_H - 3);
+      doc.text(`National avg: ${natl}%`, cx + 4, cy + 38);
       if (m.avg !== null) {
         const delta = m.avg - natl;
         const dColor = delta >= 0 ? BRAND.green : BRAND.red;
         doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "+" : ""}${delta}%`, cx + cw - 4, cy + CARD_H - 3, { align: "right" });
+        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 38, { align: "right" });
       }
     }
   };
 
   GROUPS.forEach(group => {
-    // Always show bucket label
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.text(group.label, PAGE_LEFT, curY + 4);
-    curY += SECTION_H;
-
+    if (group.label) {
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      doc.text(group.label, PAGE_LEFT, curY + 4);
+      curY += SECTION_H;
+    } else {
+      curY += 1;
+    }
     const n = group.ids.length;
     const cardW = (PAGE_W - GAP * (n - 1)) / n;
     group.ids.forEach((id, idx) => {
@@ -568,65 +568,29 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.addPage();
     addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader);
     histPageNum++;
-    doc.setFillColor(...BRAND.bg);
-    doc.rect(0, 14, 210, 283, "F");
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
+    doc.setFillColor(...BRAND.bg); doc.rect(0, 14, 210, 283, "F");
+    doc.setTextColor(...brandHeader); doc.setFontSize(7); doc.setFont("helvetica", "bold");
     doc.text("MONTH-OVER-MONTH COMPARISON", 14, 24);
-    doc.setTextColor(...BRAND.ink);
-    doc.setFontSize(20);
+    doc.setTextColor(...BRAND.ink); doc.setFontSize(20);
     doc.text("Monthly Performance", 14, 35);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(...BRAND.inkLight);
     doc.text(`${mom.lastMonth}  →  ${mom.thisMonth}`, 14, 42);
-    const momCardDefs = [
-      { label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
-      { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
-      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
-    ];
-    momCardDefs.forEach((card, i) => {
+    [{ label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
+     { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
+     { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : BRAND.red },
+    ].forEach((card, i) => {
       const cx = 14 + i * 62;
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, 48, 58, 28, 2, 2, "F");
-      doc.setFillColor(...card.color);
-      doc.rect(cx, 48, 58, 2, "F");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
+      doc.setFillColor(...BRAND.white); doc.roundedRect(cx, 48, 58, 28, 2, 2, "F");
+      doc.setFillColor(...card.color); doc.rect(cx, 48, 58, 2, "F");
+      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
       doc.text(card.label, cx + 29, 55, { align: "center" });
-      doc.setTextColor(...card.color);
-      doc.setFontSize(20);
-      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...card.color); doc.setFontSize(20); doc.setFont("helvetica", "bold");
       doc.text(card.value, cx + 29, 67, { align: "center" });
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
       doc.text(card.sub, cx + 29, 73, { align: "center" });
     });
-    const momRows = mom.metricDeltas.map(m => [
-      m.label,
-      m.last !== null ? `${m.last}%` : "—",
-      m.this !== null ? `${m.this}%` : "—",
-      m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`,
-      m.delta === null ? "—" : m.delta > 0 ? "▲ Improved" : m.delta < 0 ? "▼ Declined" : "→ Unchanged",
-    ]);
-    autoTable(doc, {
-      startY: 84,
-      head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]],
-      body: momRows,
-      styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" },
-      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8 },
-      alternateRowStyles: { fillColor: [240, 237, 234] },
-      columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } },
-      didParseCell: (data) => {
-        if (data.column.index === 3 && data.section === "body") { const val = parseFloat(data.cell.raw); if (!isNaN(val)) data.cell.styles.textColor = val > 0 ? BRAND.green : val < 0 ? BRAND.red : BRAND.inkLight; }
-        if (data.column.index === 4 && data.section === "body") { const raw = String(data.cell.raw); data.cell.styles.textColor = raw.startsWith("▲") ? BRAND.green : raw.startsWith("▼") ? BRAND.red : BRAND.inkLight; }
-      },
-      margin: { left: 14, right: 14 },
-      theme: "plain",
-    });
+    const momRows = mom.metricDeltas.map(m => [m.label, m.last !== null ? `${m.last}%` : "—", m.this !== null ? `${m.this}%` : "—", m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`, m.delta === null ? "—" : m.delta > 0 ? "▲ Improved" : m.delta < 0 ? "▼ Declined" : "→ Unchanged"]);
+    autoTable(doc, { startY: 84, head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]], body: momRows, styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" }, headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8 }, alternateRowStyles: { fillColor: [240, 237, 234] }, columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } }, didParseCell: (data) => { if (data.column.index === 3 && data.section === "body") { const v = parseFloat(data.cell.raw); if (!isNaN(v)) data.cell.styles.textColor = v > 0 ? BRAND.green : v < 0 ? BRAND.red : BRAND.inkLight; } if (data.column.index === 4 && data.section === "body") { const r = String(data.cell.raw); data.cell.styles.textColor = r.startsWith("▲") ? BRAND.green : r.startsWith("▼") ? BRAND.red : BRAND.inkLight; } }, margin: { left: 14, right: 14 }, theme: "plain" });
   }
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
@@ -765,7 +729,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const bedEntries = [...entries].reverse().filter(e => e.bed_data && e.bed_data.length > 0).slice(0, 10);
   if (bedEntries.length > 0) {
     doc.addPage();
-    addHeader(doc, hasBedData ? (mom?.hasData ? 5 : 4) : (mom?.hasData ? 4 : 4), totalPages, preparedBy, brandHeader);
+    addHeader(doc, 4, totalPages, preparedBy, brandHeader);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
@@ -874,7 +838,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   }
 
   // ── PAGE 4/5: HOSPITAL COMPARISON (if multiple) ───────────────────────────
-  let pageNum = (mom?.hasData ? 1 : 0) + (hasBedData ? 5 : 4);
+  let pageNum = hasBedData ? 5 : 4;
   if (hospitals.length > 1) {
     doc.addPage();
     addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
