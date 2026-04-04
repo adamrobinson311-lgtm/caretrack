@@ -905,8 +905,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       const hLines = doc.splitTextToSize(h.hospital, hCardW - 4);
-      doc.text(hLines, cx + hCardW / 2, cx + 52, { align: "center" });
-      doc.text(hLines, cx + hCardW / 2, 52, { align: "center" });
+      doc.text(hLines, cx + hCardW / 2, 50, { align: "center" });
       doc.setTextColor(...color);
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
