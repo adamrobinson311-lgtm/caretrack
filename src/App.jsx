@@ -402,7 +402,7 @@ const METRIC_SHORT = {
 
 const createEmptyBed = (metrics, roomNum) => {
   const bed = { room: roomNum !== undefined && roomNum !== null ? String(roomNum) : "", na: false };
-  metrics.forEach(m => { bed[`${m.id}_q`] = "1"; bed[`${m.id}_a`] = "0"; bed[`${m.id}_na`] = false; });
+  metrics.forEach(m => { bed[`${m.id}_q`] = "0"; bed[`${m.id}_a`] = "0"; bed[`${m.id}_na`] = false; });
   return bed;
 };
 
