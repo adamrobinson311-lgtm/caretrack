@@ -2266,12 +2266,14 @@ export default function App() {
               const myName = user?.user_metadata?.full_name || user?.email || "";
               const myEntries = isKAM ? kamEntries : entries.filter(e => e.logged_by === myName);
               const thisMonthSessions = myEntries.filter(e => {
-                const d = new Date(e.date);
-                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+                if (!e.date) return false;
+                const [y, m] = e.date.split("-").map(Number);
+                return m - 1 === thisMonth && y === thisYear;
               });
               const lastMonthSessions = myEntries.filter(e => {
-                const d = new Date(e.date);
-                return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+                if (!e.date) return false;
+                const [y, m] = e.date.split("-").map(Number);
+                return m - 1 === lastMonth && y === lastMonthYear;
               });
               const thisMonthHospitals = new Set(thisMonthSessions.map(e => e.hospital).filter(Boolean)).size;
               const delta = thisMonthSessions.length - lastMonthSessions.length;
@@ -2558,7 +2560,7 @@ export default function App() {
                   const metrics = getMetrics(last.hospital);
                   const vals = metrics.map(m => pct(last[`${m.id}_num`], last[`${m.id}_den`])).filter(v => v !== null);
                   const overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-                  const days = last.date ? Math.floor((new Date() - new Date(last.date)) / 86400000) : null;
+                  const days = last.date ? Math.floor((new Date() - (() => { const [y,m,d] = last.date.split("-").map(Number); return new Date(y,m-1,d); })()) / 86400000) : null;
                   const daysLabel = days === null ? "" : days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
                   const metricRows = metrics.slice(0, 4).map(m => ({ label: m.label, val: pct(last[`${m.id}_num`], last[`${m.id}_den`]) }));
                   return (
@@ -3337,7 +3339,7 @@ export default function App() {
             const sessions = relevantEntries.filter(e => e.hospital === hospital && e.date);
             const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
             const lastSession = sorted[0];
-            const days = lastSession ? Math.floor((today - new Date(lastSession.date)) / 86400000) : null;
+            const days = lastSession ? Math.floor((today - (() => { const [y,m,d] = lastSession.date.split("-").map(Number); return new Date(y,m-1,d); })()) / 86400000) : null;
             const avgCompliance = (() => {
               const vals = METRICS.flatMap(m => sessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
               return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
