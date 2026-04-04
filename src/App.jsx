@@ -1788,7 +1788,7 @@ export default function App() {
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PDF export failed. Please try again."); }
+    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData, allEntries); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
