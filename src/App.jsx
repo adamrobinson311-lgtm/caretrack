@@ -982,7 +982,12 @@ export default function App() {
   const [syncResult, setSyncResult] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [userProfiles, setUserProfiles] = useState([]);
-  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals
+  const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
+  const [reportSchedules, setReportSchedules] = useState([]);
+  const [showNewSchedule, setShowNewSchedule] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" });
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleSending, setScheduleSending] = useState(null);
   const [deletionRequestModal, setDeletionRequestModal] = useState(null); // { session } | null
   const [deletionRequestReason, setDeletionRequestReason] = useState("");
   const [reassignFrom, setReassignFrom] = useState(null);
@@ -1313,6 +1318,8 @@ export default function App() {
         setAuditLog(auditData || []);
         const { data: profileData } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: true });
         setUserProfiles(profileData || []);
+        const { data: schedData } = await supabase.from("report_schedules").select("*").order("created_at", { ascending: false });
+        setReportSchedules(schedData || []);
       }
 
       // All users get full user_profiles so director/region info is available
@@ -3627,7 +3634,7 @@ export default function App() {
 
             {/* Admin sub-nav */}
             <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24, gap: 0, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["hospitals","HOSPITALS"],["audit","AUDIT LOG"]].map(([id, label]) => {
+              {[["sessions","ALL SESSIONS"],["deletions","DELETION REQUESTS"],["users","USER MANAGEMENT"],["hospitals","HOSPITALS"],["auto_reports","AUTO REPORTS"],["audit","AUDIT LOG"]].map(([id, label]) => {
                 const pendingCount = id === "deletions" ? allEntriesFull.filter(e => e.deletion_requested).length : id === "users" ? userProfiles.filter(p => p.pending_approval).length : 0;
                 return (
                   <button key={id} onClick={() => setAdminSection(id)}
@@ -4543,6 +4550,217 @@ export default function App() {
             )}
 
             {/* ── AUDIT LOG SECTION ── */}
+            {/* ── AUTO REPORTS SECTION ── */}
+            {adminSection === "auto_reports" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Header + new button */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
+                    <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
+                  </div>
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setShowNewSchedule(true); }}
+                    style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
+                    + NEW REPORT
+                  </button>
+                </div>
+
+                {/* New schedule form */}
+                {showNewSchedule && (
+                  <div style={{ background: C.surface, border: `2px solid ${C.primary}33`, borderRadius: 12, padding: 24 }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 16 }}>NEW SCHEDULED REPORT</div>
+
+                    {/* Name */}
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REPORT NAME</label>
+                      <input value={scheduleForm.name} onChange={e => setScheduleForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Monthly ICU Compliance — St. Mary's"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif", boxSizing: "border-box" }} />
+                    </div>
+
+                    {/* Hospital multi-select */}
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>HOSPITALS ({scheduleForm.hospitals.length} selected)</label>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                        {scheduleForm.hospitals.map(h => (
+                          <div key={h} style={{ display: "flex", alignItems: "center", gap: 4, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px" }}>
+                            <span style={{ fontSize: 11, color: C.primary }}>{h}</span>
+                            <button onClick={() => setScheduleForm(f => ({ ...f, hospitals: f.hospitals.filter(x => x !== h) }))}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: C.primary, fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                      <select value="" onChange={e => { const h = e.target.value; if (h && !scheduleForm.hospitals.includes(h)) setScheduleForm(f => ({ ...f, hospitals: [...f.hospitals, h] })); }}
+                        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.inkMid, outline: "none", cursor: "pointer", width: "100%" }}>
+                        <option value="">+ Add hospital...</option>
+                        {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort()
+                          .filter(h => !scheduleForm.hospitals.includes(h))
+                          .map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+
+                    {/* Recipients */}
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>RECIPIENT EMAILS (comma-separated)</label>
+                      <input value={scheduleForm.recipients} onChange={e => setScheduleForm(f => ({ ...f, recipients: e.target.value }))} placeholder="nurse@hospital.com, director@hospital.com"
+                        style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif", boxSizing: "border-box" }} />
+                    </div>
+
+                    {/* Frequency + Period row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FREQUENCY</label>
+                        <select value={scheduleForm.frequency} onChange={e => setScheduleForm(f => ({ ...f, frequency: e.target.value }))}
+                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                        </select>
+                      </div>
+                      {scheduleForm.frequency === "weekly" && (
+                        <div>
+                          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DAY OF WEEK</label>
+                          <select value={scheduleForm.dayOfWeek} onChange={e => setScheduleForm(f => ({ ...f, dayOfWeek: e.target.value }))}
+                            style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                            {["Monday","Tuesday","Wednesday","Thursday","Friday"].map((d, i) => <option key={d} value={String(i+1)}>{d}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {scheduleForm.frequency === "monthly" && (
+                        <div>
+                          <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DAY OF MONTH</label>
+                          <select value={scheduleForm.dayOfMonth} onChange={e => setScheduleForm(f => ({ ...f, dayOfMonth: e.target.value }))}
+                            style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                            {[1,2,3,4,5,6,7,8,10,14,15,20,25,28].map(d => <option key={d} value={String(d)}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REPORT PERIOD</label>
+                        <select value={scheduleForm.period} onChange={e => setScheduleForm(f => ({ ...f, period: e.target.value }))}
+                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                          <option value="7d">Last 7 days</option>
+                          <option value="30d">Last 30 days</option>
+                          <option value="mtd">Month to date</option>
+                          <option value="all">All time</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <button onClick={() => setShowNewSchedule(false)}
+                        style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                        CANCEL
+                      </button>
+                      <button disabled={scheduleSaving || !scheduleForm.name || scheduleForm.hospitals.length === 0 || !scheduleForm.recipients} onClick={async () => {
+                        setScheduleSaving(true);
+                        const { data, error } = await supabase.from("report_schedules").insert([{
+                          name: scheduleForm.name,
+                          hospitals: scheduleForm.hospitals,
+                          recipients: scheduleForm.recipients.split(",").map(e => e.trim()).filter(Boolean),
+                          frequency: scheduleForm.frequency,
+                          day_of_month: scheduleForm.frequency === "monthly" ? parseInt(scheduleForm.dayOfMonth) : null,
+                          day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
+                          period: scheduleForm.period,
+                          is_active: true,
+                          created_by: user?.email,
+                        }]).select().single();
+                        setScheduleSaving(false);
+                        if (!error && data) {
+                          setReportSchedules(prev => [data, ...prev]);
+                          setShowNewSchedule(false);
+                          await logAudit("REPORT_SCHEDULE_CREATED", { name: scheduleForm.name, hospitals: scheduleForm.hospitals });
+                        } else {
+                          alert("Failed to save: " + (error?.message || "Unknown error"));
+                        }
+                      }}
+                        style={{ background: scheduleSaving ? C.border : C.primary, border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: scheduleSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em" }}>
+                        {scheduleSaving ? "SAVING..." : "SAVE SCHEDULE"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Schedule list */}
+                {reportSchedules.length === 0 && !showNewSchedule && (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>📬</div>
+                    <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No scheduled reports yet</div>
+                    <div style={{ fontSize: 13, color: C.inkMid }}>Create a schedule to automatically send compliance PDFs to external recipients.</div>
+                  </div>
+                )}
+
+                {reportSchedules.map(sched => {
+                  const freqLabel = sched.frequency === "weekly"
+                    ? `Weekly · ${["","Mon","Tue","Wed","Thu","Fri"][sched.day_of_week] || ""}`
+                    : `Monthly · ${sched.day_of_month}${sched.day_of_month===1?"st":sched.day_of_month===2?"nd":sched.day_of_month===3?"rd":"th"}`;
+                  const periodLabel = { "7d":"Last 7 days","30d":"Last 30 days","mtd":"Month to date","all":"All time" }[sched.period] || sched.period;
+                  const lastSent = sched.last_sent ? new Date(sched.last_sent).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "Never sent";
+
+                  return (
+                    <div key={sched.id} style={{ background: C.surface, border: `1px solid ${sched.is_active ? C.border : C.border}`, borderRadius: 12, padding: "20px 24px", opacity: sched.is_active ? 1 : 0.6 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: C.ink }}>{sched.name}</div>
+                            {!sched.is_active && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkLight, borderRadius: 6, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>PAUSED</span>}
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                            {(sched.hospitals || []).map(h => (
+                              <span key={h} style={{ background: C.primaryLight, color: C.primary, borderRadius: 6, padding: "2px 10px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}>{h}</span>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.inkLight, display: "flex", flexWrap: "wrap", gap: 16 }}>
+                            <span>📅 {freqLabel}</span>
+                            <span>📊 {periodLabel}</span>
+                            <span>📨 {(sched.recipients || []).join(", ")}</span>
+                            <span style={{ color: sched.last_sent ? C.green : C.inkFaint }}>✉ Last sent: {lastSent}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                          {/* Send now */}
+                          <button disabled={scheduleSending === sched.id} onClick={async () => {
+                            setScheduleSending(sched.id);
+                            try {
+                              const res = await supabase.functions.invoke("send-scheduled-reports", { body: { scheduleId: sched.id, preview: false } });
+                              if (res.error) throw new Error(res.error.message);
+                              alert(`Report sent to ${(sched.recipients || []).join(", ")}`);
+                              const { data: updated } = await supabase.from("report_schedules").select("*").order("created_at", { ascending: false });
+                              setReportSchedules(updated || []);
+                            } catch (err) {
+                              alert("Send failed: " + err.message);
+                            } finally {
+                              setScheduleSending(null);
+                            }
+                          }}
+                            style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: scheduleSending === sched.id ? "not-allowed" : "pointer" }}>
+                            {scheduleSending === sched.id ? "SENDING..." : "SEND NOW"}
+                          </button>
+                          {/* Pause/resume */}
+                          <button onClick={async () => {
+                            const { error } = await supabase.from("report_schedules").update({ is_active: !sched.is_active }).eq("id", sched.id);
+                            if (!error) setReportSchedules(prev => prev.map(s => s.id === sched.id ? { ...s, is_active: !s.is_active } : s));
+                          }}
+                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                            {sched.is_active ? "PAUSE" : "RESUME"}
+                          </button>
+                          {/* Delete */}
+                          <button onClick={async () => {
+                            if (!window.confirm(`Delete schedule "${sched.name}"?`)) return;
+                            await supabase.from("report_schedules").delete().eq("id", sched.id);
+                            setReportSchedules(prev => prev.filter(s => s.id !== sched.id));
+                            await logAudit("REPORT_SCHEDULE_DELETED", { name: sched.name });
+                          }}
+                            style={{ background: C.redLight, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer" }}>
+                            DELETE
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {adminSection === "audit" && (
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>AUDIT LOG · {auditLog.length} EVENTS</div>
