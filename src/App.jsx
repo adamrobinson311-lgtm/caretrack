@@ -1589,12 +1589,14 @@ export default function App() {
     const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
 
     const thisMonthEntries = filteredDashboard.filter(e => {
-      const d = new Date(e.date);
-      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+      if (!e.date) return false;
+      const [y, m] = e.date.split("-").map(Number);
+      return m - 1 === thisMonth && y === thisYear;
     });
     const lastMonthEntries = filteredDashboard.filter(e => {
-      const d = new Date(e.date);
-      return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+      if (!e.date) return false;
+      const [y, m] = e.date.split("-").map(Number);
+      return m - 1 === lastMonth && y === lastMonthYear;
     });
 
     const avg = (arr) => {
