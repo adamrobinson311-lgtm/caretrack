@@ -396,10 +396,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // ── GROUPED METRIC LAYOUT ─────────────────────────────────────────────────
   const GROUPS = [
-    { label: null,               ids: ["turning_criteria"] },
-    { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"] },
-    { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-    { label: "AIR SUPPLY",       ids: ["air_supply"] },
+    { label: "PATIENT MET CRITERIA", ids: ["turning_criteria"] },
+    { label: "MATT COMPLIANCE",      ids: ["matt_applied", "matt_proper"] },
+    { label: "WEDGE COMPLIANCE",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+    { label: "AIR SUPPLY",           ids: ["air_supply"] },
   ];
   if (hasMayo) GROUPS.splice(3, 0, { label: "AIR REPOSITIONING", ids: ["air_reposition"] });
 
@@ -416,7 +416,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       if (vals.length) NATL[m.id] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     });
   }
-  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 38, GAP = 3, SECTION_H = 6;
+  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 42, GAP = 3, SECTION_H = 6;
   let curY = 48;
 
   const drawCard = (m, cx, cy, cw) => {
@@ -452,35 +452,33 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     // National avg tick + label + delta
     const natl = NATL[m.id];
-    if (natl !== undefined) {
+    if (natl !== undefined && natl !== null) {
       const tickX = barX + barW * natl / 100;
       doc.setFillColor(...BRAND.inkLight);
       doc.rect(tickX - 0.4, barY - 1, 0.8, 4.5, "F");
       doc.setTextColor(...BRAND.inkLight);
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
-      doc.text(`National avg: ${natl}%`, cx + 4, cy + 34);
+      doc.text(`National avg: ${natl}%`, cx + 4, cy + CARD_H - 3);
       if (m.avg !== null) {
         const delta = m.avg - natl;
         const dColor = delta >= 0 ? BRAND.green : BRAND.red;
         doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
+        doc.text(`${delta >= 0 ? "+" : ""}${delta}%`, cx + cw - 4, cy + CARD_H - 3, { align: "right" });
       }
     }
   };
 
   GROUPS.forEach(group => {
-    if (group.label) {
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      doc.text(group.label, PAGE_LEFT, curY + 4);
-      curY += SECTION_H;
-    } else {
-      curY += 1;
-    }
+    // Always show bucket label
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.text(group.label, PAGE_LEFT, curY + 4);
+    curY += SECTION_H;
+
     const n = group.ids.length;
     const cardW = (PAGE_W - GAP * (n - 1)) / n;
     group.ids.forEach((id, idx) => {
