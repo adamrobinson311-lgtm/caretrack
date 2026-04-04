@@ -414,7 +414,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       if (vals.length) NATL[m.id] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     });
   }
-  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 44, GAP = 3, SECTION_H = 6;
+  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 40, GAP = 3, SECTION_H = 6;
   let curY = 48;
 
   const drawCard = (m, cx, cy, cw) => {
@@ -457,28 +457,32 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.setTextColor(...BRAND.inkLight);
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
-      doc.text(`National avg: ${natl}%`, cx + 4, cy + 38);
+      doc.text(`National avg: ${natl}%`, cx + 4, cy + 36);
       if (m.avg !== null) {
         const delta = m.avg - natl;
         const dColor = delta >= 0 ? BRAND.green : BRAND.red;
         doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 38, { align: "right" });
+        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 36, { align: "right" });
       }
     }
   };
 
   GROUPS.forEach(group => {
-    if (group.label) {
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      doc.text(group.label, PAGE_LEFT, curY + 4);
-      curY += SECTION_H;
-    } else {
-      curY += 1;
+    const rowH = SECTION_H + CARD_H + 5;
+    if (curY + rowH > 276) {
+      doc.addPage();
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      curY = 20;
     }
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.text(group.label, PAGE_LEFT, curY + 4);
+    curY += SECTION_H;
     const n = group.ids.length;
     const cardW = (PAGE_W - GAP * (n - 1)) / n;
     group.ids.forEach((id, idx) => {
@@ -491,6 +495,13 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // Legend
   const legendY = curY + 2;
+  if (legendY + 20 > 276) {
+    doc.addPage();
+    addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+    curY = 20;
+  }
   [[BRAND.green, "90%+ \u2014 On Target"], [BRAND.amber, "70-89% \u2014 Monitor"], [BRAND.red, "< 70% \u2014 Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
@@ -510,7 +521,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
     });
 
-    const shelfY = legendY + 10;
+    let shelfY = legendY + 10;
+    if (shelfY + 52 > 276) {
+      doc.addPage();
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      shelfY = 20;
+    }
     const SHELF_H = 42;
     const SHELF_CARD_H = 28;
 
