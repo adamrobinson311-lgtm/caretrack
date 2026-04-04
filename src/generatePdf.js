@@ -255,97 +255,155 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...BRAND.inkLight);
   doc.text(`Across all ${entries.length} logged sessions`, 14, 42);
 
-  // Metric cards — grouped by bucket, in display order
-  const cardW = 44, cardH = 50, gap = 2;
+  // Metric cards — full-width horizontal cards, grouped by bucket
+  const pageW = 182; // usable width (14mm margins each side)
+  const cardLeft = 14;
   let curY = 50;
+
+  // Draw one full-width horizontal metric card
+  const drawMetricCard = (m, cy) => {
+    const cardH = 28;
+    const color = pctColor(m.avg);
+
+    // Card background
+    doc.setFillColor(...BRAND.white);
+    doc.roundedRect(cardLeft, cy, pageW, cardH, 2, 2, "F");
+
+    // Top colour bar
+    doc.setFillColor(...color);
+    doc.rect(cardLeft, cy, pageW, 2, "F");
+
+    // Metric label — top left
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...BRAND.inkLight);
+    doc.text(m.label, cardLeft + 4, cy + 8);
+
+    // Icon — top right
+    drawIcon(doc, m.id, cardLeft + pageW - 10, cy + 9, 10, color);
+
+    // Large % — bottom left
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...color);
+    doc.text(m.avg !== null ? `${m.avg}%` : "—", cardLeft + 4, cy + 22);
+
+    // Progress bar — full width, bottom section
+    const barX = cardLeft + 4;
+    const barY = cy + 24;
+    const barW = pageW - 8;
+    const barH = 2.5;
+    doc.setFillColor(...BRAND.light);
+    doc.rect(barX, barY, barW, barH, "F");
+    if (m.avg !== null) {
+      doc.setFillColor(...color);
+      doc.rect(barX, barY, Math.max(1, (barW * m.avg) / 100), barH, "F");
+    }
+
+    // National avg tick mark on bar
+    if (m.nat !== null) {
+      const tickX = barX + (barW * m.nat) / 100;
+      doc.setFillColor(...BRAND.inkLight);
+      doc.rect(tickX - 0.4, barY - 0.5, 0.8, barH + 1, "F");
+    }
+
+    // National avg label — bottom left below bar
+    if (m.nat !== null) {
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.text(`National avg: ${m.nat}%`, cardLeft + 4, cy + cardH - 0.5);
+    }
+
+    // Delta — bottom right
+    if (m.diff !== null) {
+      const diffStr = m.diff > 0 ? `+${m.diff}%` : `${m.diff}%`;
+      const diffColor = m.diff >= 0 ? BRAND.green : BRAND.red;
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...diffColor);
+      doc.text(diffStr, cardLeft + pageW - 4, cy + cardH - 0.5, { align: "right" });
+    }
+
+    return cardH;
+  };
 
   BUCKETS.forEach(bucketLabel => {
     const bucketMetrics = avgMetrics.filter(m => m.bucket === bucketLabel);
     if (!bucketMetrics.length) return;
 
+    // Check if we need a new page
+    const needed = 6 + bucketMetrics.length * 32;
+    if (curY + needed > 275) {
+      doc.addPage();
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      curY = 20;
+    }
+
     // Bucket label
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...BRAND.inkLight);
-    doc.text(bucketLabel.toUpperCase(), 14, curY - 2);
+    doc.text(bucketLabel.toUpperCase(), cardLeft, curY + 4);
+    curY += 8;
 
-    bucketMetrics.forEach((m, i) => {
-      const cx = 14 + i * (cardW + gap);
-      const cy = curY;
-      const color = pctColor(m.avg);
-
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "F");
-      doc.setFillColor(...color);
-      doc.rect(cx, cy, cardW, 2, "F");
-
-      drawIcon(doc, m.id, cx + cardW / 2, cy + 12, 10, color);
-
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(m.label, cardW - 4);
-      doc.text(lines, cx + cardW / 2, cy + 19, { align: "center" });
-
-      doc.setTextColor(...color);
-      doc.setFontSize(20);
-      doc.setFont("helvetica", "bold");
-      doc.text(m.avg !== null ? `${m.avg}%` : "—", cx + cardW / 2, cy + 30, { align: "center" });
-
-      // Progress bar
-      doc.setFillColor(...BRAND.light);
-      doc.rect(cx + 4, cy + 33, cardW - 8, 3, "F");
-      if (m.avg !== null) {
-        doc.setFillColor(...color);
-        doc.rect(cx + 4, cy + 33, Math.max(1, ((cardW - 8) * m.avg) / 100), 3, "F");
-      }
-
-      const status = m.avg === null ? "N/A" : m.avg >= 90 ? "ON TARGET" : m.avg >= 70 ? "MONITOR" : "NEEDS ATTENTION";
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...color);
-      doc.text(status, cx + cardW / 2, cy + 39, { align: "center" });
-
-      // National avg line
-      if (m.nat !== null && m.avg !== null) {
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...BRAND.inkLight);
-        const diffStr = m.diff > 0 ? `+${m.diff}%` : `${m.diff}%`;
-        const diffColor = m.diff >= 0 ? BRAND.green : BRAND.red;
-        const natText = `National avg: ${m.nat}%`;
-        doc.text(natText, cx + cardW / 2, cy + 45, { align: "center" });
-        const natW = doc.getTextWidth(natText);
-        doc.setTextColor(...diffColor);
-        doc.setFont("helvetica", "bold");
-        doc.text(` ${diffStr}`, cx + cardW / 2 + natW / 2, cy + 45);
-      }
+    bucketMetrics.forEach(m => {
+      drawMetricCard(m, curY);
+      curY += 32;
     });
-
-    curY += cardH + 8;
   });
 
-  // Kaiser-specific extra metrics section
+  // Kaiser-specific extra section
   if (hasKaiser) {
+    if (curY + 44 > 275) {
+      doc.addPage();
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      curY = 20;
+    }
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...BRAND.inkLight);
-    doc.text("KAISER PERMANENTE", 14, curY - 2);
+    doc.text("KAISER PERMANENTE", cardLeft, curY + 4);
+    curY += 8;
+
+    const kCardW = (pageW / 2) - 2;
     KAISER_METRICS.forEach((km, i) => {
-      const cx = 14 + i * (cardW + gap);
+      const cx = cardLeft + i * (kCardW + 4);
+      const cardH = 28;
       doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, curY, cardW, cardH - 8, 2, 2, "F");
+      doc.roundedRect(cx, curY, kCardW, cardH, 2, 2, "F");
       doc.setFillColor(...BRAND.light);
-      doc.rect(cx, curY, cardW, 2, "F");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
+      doc.rect(cx, curY, kCardW, 2, "F");
+      // Label
+      doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
-      doc.text(km.label, cx + cardW / 2, curY + 14, { align: "center" });
+      doc.setTextColor(...BRAND.inkLight);
+      doc.text(km.label, cx + 4, curY + 8);
+      // Icon
+      drawIcon(doc, km.id === "heel_boots" ? "matt_applied" : "turning_criteria", cx + kCardW - 10, curY + 9, 10, BRAND.inkLight);
+      // Check for actual data
+      const heelVals = km.id === "heel_boots"
+        ? entries.map(e => pct(e.heel_boots_num, e.heel_boots_den)).filter(v => v !== null)
+        : entries.map(e => pct(e.turn_clock_num, e.turn_clock_den)).filter(v => v !== null);
+      const heelAvg = heelVals.length ? Math.round(heelVals.reduce((a, b) => a + b, 0) / heelVals.length) : null;
+      const kColor = heelAvg !== null ? pctColor(heelAvg) : BRAND.inkLight;
       doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
-      doc.text("—", cx + cardW / 2, curY + 26, { align: "center" });
+      doc.setTextColor(...kColor);
+      doc.text(heelAvg !== null ? `${heelAvg}%` : "—", cx + 4, curY + 22);
+      if (heelAvg !== null) {
+        const barX = cx + 4, barY = curY + 24, barW = kCardW - 8;
+        doc.setFillColor(...BRAND.light);
+        doc.rect(barX, barY, barW, 2.5, "F");
+        doc.setFillColor(...kColor);
+        doc.rect(barX, barY, Math.max(1, (barW * heelAvg) / 100), 2.5, "F");
+      }
     });
-    curY += cardH;
+    curY += 32;
   }
 
   // Legend
