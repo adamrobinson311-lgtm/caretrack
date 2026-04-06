@@ -1466,11 +1466,7 @@ export default function App() {
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
     const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
     if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
-    // Per Bed mode: require at least one explicit YES/NO tap (den > 0 means beds were counted)
-    if (inputMode === "grid" && bedGrid.length > 0) {
-      const anyTapped = bedGrid.some(b => !b.na && METRICS.some(m => !b[`${m.id}_na`] && (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 || b[`${m.id}_a`] === "0" || b[`${m.id}_a`] === 0)));
-      if (!anyTapped) { setSaveError("Please tap YES or NO for at least one metric on at least one bed before saving."); return; }
-    }
+
 
     // Duplicate detection — same date OR logged within last 4 hours for same unit
     const fourHoursAgo = Date.now() - (4 * 60 * 60 * 1000);
