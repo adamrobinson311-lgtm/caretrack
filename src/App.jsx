@@ -1175,14 +1175,6 @@ export default function App() {
   }, []);
 
   // Active hospital branding
-  // Use branding for the selected hospital, or auto-detect if only one hospital in view
-  const activeBranding = (() => {
-    if (hospitalFilter !== "All" && hospitalBranding[hospitalFilter]) return hospitalBranding[hospitalFilter];
-    const visibleHospitals = [...new Set(filteredDashboard?.map(e => e.hospital).filter(Boolean))];
-    if (visibleHospitals.length === 1 && hospitalBranding[visibleHospitals[0]]) return hospitalBranding[visibleHospitals[0]];
-    return null;
-  })();
-
   // Excel export handler
   const handleExportXlsx = async () => {
     setExportingXlsx(true);
@@ -1584,6 +1576,14 @@ export default function App() {
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => !isTrialHospital(e.hospital));
+
+  // Use branding for the selected hospital, or auto-detect if only one hospital in view
+  const activeBranding = (() => {
+    if (hospitalFilter !== "All" && hospitalBranding[hospitalFilter]) return hospitalBranding[hospitalFilter];
+    const visibleHospitals = [...new Set(filteredDashboard.map(e => e.hospital).filter(Boolean))];
+    if (visibleHospitals.length === 1 && hospitalBranding[visibleHospitals[0]]) return hospitalBranding[visibleHospitals[0]];
+    return null;
+  })();
   const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter).filter(e => {
     if ((isDirector || isVP) && repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (!historySearch.trim()) return true;
