@@ -1053,13 +1053,11 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "2.9";
+  const CURRENT_VERSION = "3.0";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
-  const [hospitalBranding, setHospitalBranding] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("caretrack_branding") || "{}"); } catch { return {}; }
-  });
+  const [hospitalBranding, setHospitalBranding] = useState({});
   const [showBrandingEditor, setShowBrandingEditor] = useState(false);
 
   // Excel export
@@ -1078,7 +1076,7 @@ export default function App() {
   const [editPhotos, setEditPhotos] = useState([]); // files staged for edit
 
   // Bed-level grid input mode
-  const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "simple"); // "simple" | "grid"
+  const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "grid"); // "simple" | "grid"
   const [auditHeelBoots, setAuditHeelBoots] = useState(false);
   const [auditTurnClock, setAuditTurnClock] = useState(false);
   const [bedGrid, setBedGrid] = useState([]);
@@ -1404,6 +1402,25 @@ export default function App() {
     setForm(f => ({ ...f, ...updates }));
   }, [bedGrid, inputMode, form.hospital]);
 
+  // Fetch hospital branding from Supabase on load
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase.from("hospital_branding").select("*");
+      if (data && data.length > 0) {
+        const mapped = {};
+        data.forEach(row => {
+          mapped[row.hospital] = {
+            logoUrl: row.logo_url || "",
+            accentColor: row.accent_color || "",
+            isTrial: row.is_trial || false,
+          };
+        });
+        setHospitalBranding(mapped);
+      }
+    })();
+  }, [user]);
+
   // Persist room numbers to localStorage when grid changes
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
@@ -1448,15 +1465,25 @@ export default function App() {
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
     const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
     if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
+    // Per Bed mode: require at least one explicit YES/NO tap (den > 0 means beds were counted)
+    if (inputMode === "grid" && bedGrid.length > 0) {
+      const anyTapped = bedGrid.some(b => !b.na && METRICS.some(m => !b[`${m.id}_na`] && (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 || b[`${m.id}_a`] === "0" || b[`${m.id}_a`] === 0)));
+      if (!anyTapped) { setSaveError("Please tap YES or NO for at least one metric on at least one bed before saving."); return; }
+    }
 
-    // Duplicate detection
+    // Duplicate detection — same date OR logged within last 4 hours for same unit
+    const fourHoursAgo = Date.now() - (4 * 60 * 60 * 1000);
     const duplicate = entries.find(e =>
-      e.date === form.date &&
       e.hospital?.toLowerCase().trim() === form.hospital.toLowerCase().trim() &&
-      e.location?.toLowerCase().trim() === form.location.toLowerCase().trim()
+      e.location?.toLowerCase().trim() === form.location.toLowerCase().trim() &&
+      (e.date === form.date || (e.created_at && new Date(e.created_at).getTime() > fourHoursAgo))
     );
     if (duplicate) {
-      const proceed = window.confirm(`⚠️ A session for ${form.hospital} — ${form.location} on ${form.date} already exists. Save anyway?`);
+      const isRecent = duplicate.created_at && new Date(duplicate.created_at).getTime() > fourHoursAgo && duplicate.date !== form.date;
+      const msg = isRecent
+        ? `⚠️ A session for ${form.hospital} — ${form.location} was logged ${Math.round((Date.now() - new Date(duplicate.created_at).getTime()) / 60000)} minutes ago. Save another?`
+        : `⚠️ A session for ${form.hospital} — ${form.location} on ${form.date} already exists. Save anyway?`;
+      const proceed = window.confirm(msg);
       if (!proceed) return;
     }
 
@@ -2419,8 +2446,11 @@ export default function App() {
                             onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
                         </div>
                         {bedCount > 0 && (
-                          <div style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", paddingTop: 16 }}>
+                          <div style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", paddingTop: 16, display: "flex", alignItems: "center", gap: 6 }}>
                             {form.location} · {bedCount} bed{bedCount !== 1 ? "s" : ""}
+                            {getBedCount(form.hospital, form.location) > 0 && (
+                              <span style={{ background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 7px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>SAVED</span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -4536,10 +4566,11 @@ export default function App() {
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>TRIAL</span>
-                              <div onClick={() => {
-                                const updated = { ...hospitalBranding, [h]: { ...(hospitalBranding[h] || {}), isTrial: !isTrial } };
+                              <div onClick={async () => {
+                                const newTrial = !isTrial;
+                                const updated = { ...hospitalBranding, [h]: { ...(hospitalBranding[h] || {}), isTrial: newTrial } };
                                 setHospitalBranding(updated);
-                                localStorage.setItem("caretrack_branding", JSON.stringify(updated));
+                                await supabase.from("hospital_branding").upsert([{ hospital: h, is_trial: newTrial }], { onConflict: "hospital" });
                                 logAudit(isTrial ? "HOSPITAL_TRIAL_REMOVED" : "HOSPITAL_TRIAL_SET", { hospital: h });
                               }}
                                 style={{ width: 36, height: 20, borderRadius: 10, background: isTrial ? C.amber : C.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
@@ -5036,6 +5067,13 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
+              { version: "3.0", date: "April 2026", badge: "LATEST", items: [
+                "Hospital branding (logos, colors, trial flags) now stored in Supabase — changes apply instantly across all devices",
+                "Per Bed mode is now the default — switch to Simple mode if needed",
+                "Duplicate detection now also catches sessions logged within the last 4 hours for the same unit",
+                "Per Bed mode now requires at least one YES/NO tap before saving — prevents accidental empty sessions",
+                "Bed count shows a SAVED badge when it auto-populates from a previous visit",
+              ]},
               { version: "2.9", date: "April 2026", badge: "LATEST", items: [
                 "Session confirmation email — automatically receive a summary of every session you log, including all metric results and notes",
                 "Weekly summary email — every Monday morning you'll receive your prior week's stats: sessions logged, hospitals visited, and avg compliance vs the week before",
@@ -5195,8 +5233,14 @@ export default function App() {
                 </div>
               );
             })}
-            <button onClick={() => {
-              localStorage.setItem("caretrack_branding", JSON.stringify(hospitalBranding));
+            <button onClick={async () => {
+              const rows = Object.entries(hospitalBranding).map(([hospital, b]) => ({
+                hospital,
+                logo_url: b.logoUrl || null,
+                accent_color: b.accentColor || null,
+                is_trial: b.isTrial || false,
+              }));
+              if (rows.length > 0) await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
               setShowBrandingEditor(false);
               alert("Branding saved!");
             }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
