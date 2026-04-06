@@ -432,13 +432,13 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
     onChange(updated);
   };
 
-  // Per-metric totals — exclude N/A beds and per-metric N/A flags
+  // Per-metric totals — eligible bed count as denominator, YES taps as numerator
   const totals = {};
   const activeBeds = beds.filter(b => !b.na);
   metrics.forEach(m => {
     const eligible = activeBeds.filter(b => !b[`${m.id}_na`]);
-    totals[`${m.id}_q`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_q`]) || 0), 0);
-    totals[`${m.id}_a`] = eligible.reduce((s, b) => s + (parseFloat(b[`${m.id}_a`]) || 0), 0);
+    totals[`${m.id}_q`] = eligible.length;
+    totals[`${m.id}_a`] = eligible.reduce((s, b) => s + (b[`${m.id}_a`] === '1' || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
   });
 
   const openCamera = async () => {
@@ -1388,16 +1388,18 @@ export default function App() {
   }, [form.hospital, form.location, inputMode]);
 
   // Auto-sum bed grid values into the form's metric fields
+  // Denominator = eligible (non-N/A) bed count; numerator = YES taps only
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0) return;
     const activeMetrics = getMetrics(form.hospital);
+    const activeBeds2 = bedGrid.filter(b => !b.na);
     const updates = {};
     activeMetrics.forEach(m => {
-      const totalQ = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_q`]) || 0), 0);
-      const totalA = bedGrid.reduce((sum, b) => sum + (parseInt(b[`${m.id}_a`]) || 0), 0);
-      const hasAny = bedGrid.some(b => b[`${m.id}_q`] !== "" || b[`${m.id}_a`] !== "");
-      updates[`${m.id}_den`] = hasAny ? String(totalQ) : "";
-      updates[`${m.id}_num`] = hasAny ? String(totalA) : "";
+      const eligible = activeBeds2.filter(b => !b[`${m.id}_na`]);
+      const totalQ = eligible.length;
+      const totalA = eligible.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
+      updates[`${m.id}_den`] = totalQ > 0 ? String(totalQ) : "";
+      updates[`${m.id}_num`] = totalQ > 0 ? String(totalA) : "";
     });
     setForm(f => ({ ...f, ...updates }));
   }, [bedGrid, inputMode, form.hospital]);
