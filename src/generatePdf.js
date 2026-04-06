@@ -821,11 +821,28 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock",
     };
 
-    // Single header row — bucket prefix + metric name e.g. "Matt / App."
-    const getBucketLabel = (id) => BED_BUCKETS.find(b => b.ids.includes(id))?.label || "";
-    const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
-      ...orderedBedMetrics.map(m => `${getBucketLabel(m.id)}
-${METRIC_SHORT_PDF[m.id] || m.label}`)]];
+    // Two-row header: bucket labels (row 1) + metric names (row 2)
+    const bucketSpans = BED_BUCKETS
+      .map(b => ({ label: b.label, metrics: b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean) }))
+      .filter(b => b.metrics.length > 0);
+
+    const headerRow1 = [
+      { content: "Date",     rowSpan: 2, styles: { valign: "middle" } },
+      { content: "Hospital", rowSpan: 2, styles: { valign: "middle" } },
+      { content: "Location", rowSpan: 2, styles: { valign: "middle" } },
+      { content: "Bed",      rowSpan: 2, styles: { valign: "middle" } },
+      { content: "Room",     rowSpan: 2, styles: { valign: "middle" } },
+      ...bucketSpans.map(b => ({
+        content: b.label,
+        colSpan: b.metrics.length,
+        styles: { halign: "center", fontStyle: "bold", fillColor: [40, 62, 75] },
+      })),
+    ];
+    const headerRow2 = orderedBedMetrics.map(m => ({
+      content: METRIC_SHORT_PDF[m.id] || m.label,
+      styles: { halign: "center", fontStyle: "normal", fontSize: 5.5, fillColor: [...brandHeader] },
+    }));
+    const bedHead = [headerRow1, headerRow2];
 
     const BED_FIXED_COLS = 5;
     const bedFixedW = 76;
