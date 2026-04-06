@@ -125,6 +125,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   if (hasBedData) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
+  // Detect if cover is light or dark to pick contrasting text colors
+  const coverLuminance = (brandCover[0] * 299 + brandCover[1] * 587 + brandCover[2] * 114) / 1000;
+  const coverIsDark = coverLuminance < 160;
+  const coverHeading1 = coverIsDark ? BRAND.white : brandText;
+  const coverHeading2 = coverIsDark ? [222, 218, 217] : brandHeader;
+  const coverMeta     = coverIsDark ? [168, 200, 208] : brandText;
+  const coverSub      = coverIsDark ? BRAND.white : brandHeader;
+  const coverSubLight = coverIsDark ? [168, 200, 208] : [...brandText, 180].slice(0,3);
+
   doc.setFillColor(...brandCover);
   doc.rect(0, 0, 210, 297, "F");
   doc.setFillColor(...brandSecondary);
@@ -132,26 +141,26 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFillColor(...brandSecondary);
   doc.rect(202, 0, 8, 297, "F");
 
-  doc.setTextColor(...BRAND.white);
+  doc.setTextColor(...coverHeading1);
   doc.setFontSize(36);
   doc.setFont("helvetica", "bold");
   doc.text("Wound Care", 20, 110);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(32);
-  doc.setTextColor(222, 218, 217);
+  doc.setTextColor(...coverHeading2);
   doc.text("Compliance Report", 20, 128);
 
   doc.setFillColor(...brandSecondary);
   doc.rect(20, 138, 60, 0.8, "F");
 
-  doc.setTextColor(168, 200, 208);
+  doc.setTextColor(...coverMeta);
   doc.setFontSize(11);
   doc.text(`Generated ${today}`, 20, 148);
   doc.text(`${entries.length} units audited`, 20, 156);
   doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
   if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
 
-  // Hospital logo on title page (if branding provided and logo URL is accessible as base64)
+  // Hospital logo on title page
   if (branding?.logoBase64 && branding?.logoMime) {
     try {
       doc.addImage(branding.logoBase64, branding.logoMime.toUpperCase().replace("JPG","JPEG"), 20, 210, 60, 20, undefined, "FAST");
@@ -160,14 +169,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(...BRAND.white);
+  doc.setTextColor(...coverSub);
   doc.text("HOVERTECH", 105, 248, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
-  doc.setTextColor(168, 200, 208);
+  doc.setTextColor(...coverMeta);
   doc.text("an Etac Company", 105, 258, { align: "center" });
   doc.setFontSize(8);
-  doc.setTextColor(124, 168, 180);
+  doc.setTextColor(...coverMeta);
   doc.text("CARETRACK", 105, 280, { align: "center" });
 
   // ── PAGE 2: COMPLIANCE SUMMARY ────────────────────────────────────────────
