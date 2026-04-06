@@ -592,7 +592,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...BRAND.ink); doc.setFontSize(20);
     doc.text("Monthly Performance", 14, 35);
     doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(...BRAND.inkLight);
-    doc.text(`${mom.lastMonth}  →  ${mom.thisMonth}`, 14, 42);
+    doc.text(`${mom.lastMonth}  vs  ${mom.thisMonth}`, 14, 42);
     [{ label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
      { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : BRAND.red },
@@ -793,10 +793,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
             dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
             ...summaryMetrics.map(m => {
               if (bed[`${m.id}_na`]) return "N/A";
-              const a = bed[`${m.id}_a`];
-              if (a === "1" || a === 1) return "YES";
-              if (a === "0" || a === 0) return "NO";
-              return "—";
+              const q = parseInt(bed[`${m.id}_q`]) || 0;
+              const a = parseInt(bed[`${m.id}_a`]) || 0;
+              return q > 0 ? `${Math.round((a / q) * 100)}%` : "—";
             }),
           ]);
         }
@@ -814,11 +813,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
           bedColorData.push(summaryMetrics.map(() => null));
         } else {
           bedColorData.push(summaryMetrics.map(m => {
-            if (bed[`${m.id}_na`]) return "na";
-            const a = bed[`${m.id}_a`];
-            if (a === "1" || a === 1) return "yes";
-            if (a === "0" || a === 0) return "no";
-            return null;
+            if (bed[`${m.id}_na`]) return null;
+            const q = parseInt(bed[`${m.id}_q`]) || 0;
+            const a = parseInt(bed[`${m.id}_a`]) || 0;
+            return q > 0 ? Math.round((a / q) * 100) : null;
           }));
         }
       });
@@ -852,16 +850,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         if (mIdx >= summaryMetrics.length) return;
         const pVal = bedColorData[absIdx]?.[mIdx];
         const fc = data.cell.styles.fillColor;
-        // Background fill
-        const bgColor = pVal === "yes" ? [232, 244, 238] : pVal === "no" ? [253, 240, 240] : Array.isArray(fc) ? fc : BRAND.white;
-        doc.setFillColor(...bgColor);
+        doc.setFillColor(...(Array.isArray(fc) ? fc : BRAND.white));
         doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
-        // Text color and weight
-        if (pVal === "yes") {
-          doc.setTextColor(...BRAND.green);
-          doc.setFont("helvetica", "bold");
-        } else if (pVal === "no") {
-          doc.setTextColor(...BRAND.red);
+        if (pVal !== null) {
+          doc.setTextColor(...pctColor(pVal));
           doc.setFont("helvetica", "bold");
         } else {
           doc.setTextColor(...BRAND.inkLight);
