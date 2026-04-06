@@ -95,8 +95,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     if (parts.some(isNaN)) return null;
     return parts;
   };
-  const brandHeader    = hexToRgb(branding?.accentColor)  || BRAND.primary;
+  const brandHeader    = hexToRgb(branding?.accentColor)   || BRAND.primary;
   const brandSecondary = hexToRgb(branding?.secondaryColor) || BRAND.accent;
+  const brandTertiary  = hexToRgb(branding?.tertiaryColor)  || BRAND.secondary;
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));

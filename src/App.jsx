@@ -1175,9 +1175,13 @@ export default function App() {
   }, []);
 
   // Active hospital branding
-  const activeBranding = hospitalFilter !== "All" && hospitalBranding[hospitalFilter]
-    ? hospitalBranding[hospitalFilter]
-    : null;
+  // Use branding for the selected hospital, or auto-detect if only one hospital in view
+  const activeBranding = (() => {
+    if (hospitalFilter !== "All" && hospitalBranding[hospitalFilter]) return hospitalBranding[hospitalFilter];
+    const visibleHospitals = [...new Set(filteredDashboard?.map(e => e.hospital).filter(Boolean))];
+    if (visibleHospitals.length === 1 && hospitalBranding[visibleHospitals[0]]) return hospitalBranding[visibleHospitals[0]];
+    return null;
+  })();
 
   // Excel export handler
   const handleExportXlsx = async () => {
@@ -1415,6 +1419,7 @@ export default function App() {
             logoUrl: row.logo_url || "",
             accentColor: row.accent_color || "",
             secondaryColor: row.secondary_color || "",
+            tertiaryColor: row.tertiary_color || "",
             isTrial: row.is_trial || false,
           };
         });
@@ -5272,6 +5277,12 @@ export default function App() {
                                 style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
                                 onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], secondaryColor: ev.target.value } }))} />
                             </div>
+                            <div>
+                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TERTIARY COLOR</label>
+                              <input type="color" value={b.tertiaryColor || "#3a7d5c"}
+                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], tertiaryColor: ev.target.value } }))} />
+                            </div>
                           </div>
                         </div>
                         {b.logoUrl && (
@@ -5292,6 +5303,7 @@ export default function App() {
                 logo_url: b.logoUrl || null,
                 accent_color: b.accentColor || null,
                 secondary_color: b.secondaryColor || null,
+                tertiary_color: b.tertiaryColor || null,
                 is_trial: b.isTrial || false,
               }));
               if (rows.length > 0) {
