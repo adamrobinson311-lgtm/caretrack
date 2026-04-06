@@ -1059,6 +1059,7 @@ export default function App() {
   // White-label
   const [hospitalBranding, setHospitalBranding] = useState({});
   const [showBrandingEditor, setShowBrandingEditor] = useState(false);
+  const [expandedBrandingHospital, setExpandedBrandingHospital] = useState(null);
 
   // Excel export
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -5204,35 +5205,59 @@ export default function App() {
 
       {/* ── WHITE-LABEL BRANDING EDITOR (ADMIN ONLY) ───────────────────────── */}
       {showBrandingEditor && isAdmin && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setShowBrandingEditor(false)}>
-          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }}>
+          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Hospital Branding</h2>
-              <button onClick={() => setShowBrandingEditor(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
+              <button onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
-            <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>Customize the logo and accent color shown when a specific hospital is filtered. Affects dashboard header and exports.</p>
-            {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(hospital => {
-              const b = hospitalBranding[hospital] || {};
-              return (
-                <div key={hospital} style={{ marginBottom: 20, padding: "16px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: C.ink, marginBottom: 12 }}>{hospital}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                    <div>
-                      <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
-                      <input type="text" placeholder="https://example.com/logo.png" defaultValue={b.logoUrl || ""}
-                        style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
-                        onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COLOR</label>
-                      <input type="color" defaultValue={b.accentColor || "#4a6f7a"}
-                        style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                        onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
-                    </div>
+            <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16 }}>Tap a hospital to edit its logo and accent color.</p>
+            <div style={{ overflowY: "auto", flex: 1, marginBottom: 16 }}>
+              {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(hospital => {
+                const b = hospitalBranding[hospital] || {};
+                const isOpen = expandedBrandingHospital === hospital;
+                const hasConfig = b.logoUrl || b.accentColor;
+                return (
+                  <div key={hospital} style={{ marginBottom: 6, borderRadius: 10, border: `1px solid ${isOpen ? C.primary + "66" : C.border}`, overflow: "hidden", transition: "border-color 0.15s" }}>
+                    {/* Accordion header */}
+                    <button onClick={() => setExpandedBrandingHospital(isOpen ? null : hospital)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: isOpen ? C.primaryLight : C.bg, border: "none", cursor: "pointer", textAlign: "left", transition: "background 0.15s" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {b.accentColor && <div style={{ width: 12, height: 12, borderRadius: "50%", background: b.accentColor, flexShrink: 0 }} />}
+                        <span style={{ fontSize: 13, fontWeight: 500, color: isOpen ? C.primary : C.ink }}>{hospital}</span>
+                        {hasConfig && <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "1px 6px", letterSpacing: "0.05em" }}>CONFIGURED</span>}
+                      </div>
+                      <span style={{ fontSize: 12, color: C.inkLight, transition: "transform 0.15s", display: "inline-block", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+                    </button>
+                    {/* Accordion body */}
+                    {isOpen && (
+                      <div style={{ padding: "14px 14px 16px", background: C.surface, borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                          <div>
+                            <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
+                            <input type="text" placeholder="https://example.com/logo.png" defaultValue={b.logoUrl || ""}
+                              style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
+                              onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COLOR</label>
+                            <input type="color" defaultValue={b.accentColor || "#4a6f7a"}
+                              style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                              onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
+                          </div>
+                        </div>
+                        {b.logoUrl && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>PREVIEW</div>
+                            <img src={b.logoUrl} alt={hospital} style={{ height: 32, maxWidth: 160, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white" }} onError={e => e.target.style.display = "none"} />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
             <button onClick={async () => {
               const rows = Object.entries(hospitalBranding).map(([hospital, b]) => ({
                 hospital,
@@ -5242,8 +5267,9 @@ export default function App() {
               }));
               if (rows.length > 0) await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
               setShowBrandingEditor(false);
+              setExpandedBrandingHospital(null);
               alert("Branding saved!");
-            }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em" }}>
+            }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em", flexShrink: 0 }}>
               SAVE BRANDING
             </button>
           </div>
