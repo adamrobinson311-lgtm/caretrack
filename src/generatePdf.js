@@ -805,19 +805,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     // ── Bucketed metric order matching dashboard ──────────────────────────────
     const BED_BUCKETS = [
-      { label: "Patient Met Criteria", ids: ["turning_criteria"] },
-      { label: "Matt Compliance",      ids: ["matt_applied", "matt_proper"] },
-      { label: "Wedge Compliance",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-      { label: "Air Supply",           ids: ["air_supply", "air_reposition"] },
-      { label: "Kaiser Metrics",       ids: ["heel_boots", "turn_clock"] },
+      { label: "Pt Criteria", ids: ["turning_criteria"] },
+      { label: "Matt",        ids: ["matt_applied", "matt_proper"] },
+      { label: "Wedge",       ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+      { label: "Air",         ids: ["air_supply", "air_reposition"] },
+      { label: "Kaiser",      ids: ["heel_boots", "turn_clock"] },
     ];
-    // Build ordered metric list from buckets, only including metrics present in summaryMetrics
-    const orderedBedMetrics = BED_BUCKETS.flatMap(b => b.ids.map(id => summaryMetrics.find(m => m.id === id)).filter(Boolean));
-    // Build bucket spans for the double header row
-    const bucketSpans = BED_BUCKETS.map(b => {
-      const count = b.ids.filter(id => summaryMetrics.find(m => m.id === id)).length;
-      return { label: b.label, count };
-    }).filter(b => b.count > 0);
+    const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
+      b.ids.map(id => summaryMetrics.find(m => m.id === id)).filter(Boolean)
+    );
 
     const METRIC_SHORT_PDF = {
       matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turning",
@@ -825,21 +821,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock",
     };
 
-    const BED_FIXED_COLS = 5; // Date, Hospital, Location, Bed, Room
+    // Single header row — bucket prefix + metric name e.g. "Matt / App."
+    const getBucketLabel = (id) => BED_BUCKETS.find(b => b.ids.includes(id))?.label || "";
+    const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
+      ...orderedBedMetrics.map(m => `${getBucketLabel(m.id)}
+${METRIC_SHORT_PDF[m.id] || m.label}`)]];
+
+    const BED_FIXED_COLS = 5;
     const bedFixedW = 76;
     const bedMetricW = Math.floor((182 - bedFixedW) / orderedBedMetrics.length);
-
-    // Two-row header: row 1 = bucket labels spanning cols, row 2 = metric names
-    const bucketHeaderRow = ["Date", "Hospital", "Location", "Bed", "Room"];
-    bucketSpans.forEach(b => {
-      bucketHeaderRow.push({ content: b.label, colSpan: b.count, styles: { halign: "center", fillColor: [...brandHeader, 220].slice(0,3), fontStyle: "bold" } });
-      for (let i = 1; i < b.count; i++) bucketHeaderRow.push({ content: "", colSpan: 1 });
-    });
-    const metricHeaderRow = [
-      { content: "", colSpan: 5 },
-      ...orderedBedMetrics.map(m => ({ content: METRIC_SHORT_PDF[m.id] || m.label, styles: { halign: "center" } })),
-    ];
-    const bedHead = [bucketHeaderRow, metricHeaderRow];
 
     // Flatten all beds into rows using bucketed column order
     const bedRows = [];
