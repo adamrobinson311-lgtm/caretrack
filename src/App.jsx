@@ -31,7 +31,7 @@ let C = { ...LIGHT };
 
 const METRICS = [
   { id: "turning_criteria", label: "Turning & Repositioning",desc: "Can patient tolerate Q2 turning?" },
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Is a tatt under patient?" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Is a matt under patient?" },
   { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Is matt correctly positioned under patient?" },
   { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Are there wedges in patient room?" },
   { id: "wedges_applied",   label: "Wedges Applied",         desc: "Were wedges being used to offload patient?" },
