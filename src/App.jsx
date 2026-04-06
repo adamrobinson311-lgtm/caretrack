@@ -1053,7 +1053,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.1";
+  const CURRENT_VERSION = "3.2";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -1412,6 +1412,8 @@ export default function App() {
             accentColor: row.accent_color || "",
             secondaryColor: row.secondary_color || "",
             tertiaryColor: row.tertiary_color || "",
+            textColor: row.text_color || "",
+            coverColor: row.cover_color || "",
             isTrial: row.is_trial || false,
           };
         });
@@ -5088,6 +5090,10 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
+              { version: "3.2", date: "April 2026", badge: "LATEST", items: [
+                "Hospital branding: Primary Text Color — controls heading and title text color in PDF exports",
+                "Hospital branding: Cover Color — sets the title page background independently from the header color on other pages",
+              ]},
               { version: "3.1", date: "April 2026", badge: "LATEST", items: [
                 "Hospital branding now applies correctly to PDF exports — primary color, secondary color, and logo all render",
                 "Secondary color added to hospital branding — controls accent bar on PDF header and title page",
@@ -5283,6 +5289,18 @@ export default function App() {
                                 style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
                                 onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], tertiaryColor: ev.target.value } }))} />
                             </div>
+                            <div>
+                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TEXT COLOR</label>
+                              <input type="color" value={b.textColor || "#2a2624"}
+                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], textColor: ev.target.value } }))} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COVER COLOR</label>
+                              <input type="color" value={b.coverColor || "#4F6E77"}
+                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], coverColor: ev.target.value } }))} />
+                            </div>
                           </div>
                         </div>
                         {b.logoUrl && (
@@ -5304,6 +5322,8 @@ export default function App() {
                 accent_color: b.accentColor || null,
                 secondary_color: b.secondaryColor || null,
                 tertiary_color: b.tertiaryColor || null,
+                text_color: b.textColor || null,
+                cover_color: b.coverColor || null,
                 is_trial: b.isTrial || false,
               }));
               if (rows.length > 0) {

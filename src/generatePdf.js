@@ -98,6 +98,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const brandHeader    = hexToRgb(branding?.accentColor)   || BRAND.primary;
   const brandSecondary = hexToRgb(branding?.secondaryColor) || BRAND.accent;
   const brandTertiary  = hexToRgb(branding?.tertiaryColor)  || BRAND.secondary;
+  const brandText      = hexToRgb(branding?.textColor)      || BRAND.ink;
+  const brandCover     = hexToRgb(branding?.coverColor)     || brandHeader;
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
@@ -123,7 +125,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   if (hasBedData) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
-  doc.setFillColor(...brandHeader);
+  doc.setFillColor(...brandCover);
   doc.rect(0, 0, 210, 297, "F");
   doc.setFillColor(...brandSecondary);
   doc.rect(0, 0, 8, 297, "F");
@@ -180,7 +182,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFont("helvetica", "bold");
   doc.text("COMPLIANCE SUMMARY", 14, 24);
 
-  doc.setTextColor(...BRAND.ink);
+  doc.setTextColor(...brandText);
   doc.setFontSize(20);
   doc.text("Average Compliance by Metric", 14, 35);
   doc.setFontSize(9);
@@ -650,7 +652,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFont("helvetica", "bold");
   doc.text("SESSION HISTORY", 14, 24);
 
-  doc.setTextColor(...BRAND.ink);
+  doc.setTextColor(...brandText);
   doc.setFontSize(20);
   doc.text("Session Log", 14, 35);
 
