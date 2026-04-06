@@ -53,11 +53,11 @@ const pctColor = (v) => {
   return BRAND.red;
 };
 
-const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAND.primary) => {
+const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAND.primary, accentBar = BRAND.accent) => {
   // Top bar
   doc.setFillColor(...headerColor);
   doc.rect(0, 0, 210, 14, "F");
-  doc.setFillColor(...BRAND.accent);
+  doc.setFillColor(...accentBar);
   doc.rect(0, 0, 4, 14, "F");
 
   doc.setTextColor(...BRAND.white);
@@ -86,11 +86,17 @@ const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAN
 export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = [], mom = null, allEntries = []) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-  // Apply branding accent colour if provided
-  const brandAccent = branding?.accentColor
-    ? branding.accentColor.replace("#","").match(/.{2}/g).map(v => parseInt(v,16))
-    : BRAND.primary;
-  const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
+  // Robust hex→RGB helper
+  const hexToRgb = (hex) => {
+    if (!hex || typeof hex !== "string") return null;
+    const clean = hex.replace("#", "").trim();
+    if (clean.length !== 6) return null;
+    const parts = clean.match(/.{2}/g).map(v => parseInt(v, 16));
+    if (parts.some(isNaN)) return null;
+    return parts;
+  };
+  const brandHeader    = hexToRgb(branding?.accentColor)  || BRAND.primary;
+  const brandSecondary = hexToRgb(branding?.secondaryColor) || BRAND.accent;
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
@@ -118,9 +124,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
   doc.setFillColor(...brandHeader);
   doc.rect(0, 0, 210, 297, "F");
-  doc.setFillColor(...BRAND.accent);
+  doc.setFillColor(...brandSecondary);
   doc.rect(0, 0, 8, 297, "F");
-  doc.setFillColor(65, 96, 105);
+  doc.setFillColor(...brandSecondary);
   doc.rect(202, 0, 8, 297, "F");
 
   doc.setTextColor(...BRAND.white);
@@ -132,7 +138,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(222, 218, 217);
   doc.text("Compliance Report", 20, 128);
 
-  doc.setFillColor(124, 168, 180);
+  doc.setFillColor(...brandSecondary);
   doc.rect(20, 138, 60, 0.8, "F");
 
   doc.setTextColor(168, 200, 208);
@@ -142,21 +148,28 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
   if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
 
+  // Hospital logo on title page (if branding provided and logo URL is accessible as base64)
+  if (branding?.logoBase64 && branding?.logoMime) {
+    try {
+      doc.addImage(branding.logoBase64, branding.logoMime.toUpperCase().replace("JPG","JPEG"), 20, 210, 60, 20, undefined, "FAST");
+    } catch (e) { /* logo load failed silently */ }
+  }
+
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...BRAND.white);
-  doc.text("HOVERTECH", 105, 220, { align: "center" });
+  doc.text("HOVERTECH", 105, 248, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
   doc.setTextColor(168, 200, 208);
-  doc.text("an Etac Company", 105, 230, { align: "center" });
+  doc.text("an Etac Company", 105, 258, { align: "center" });
   doc.setFontSize(8);
   doc.setTextColor(124, 168, 180);
-  doc.text("CARETRACK", 105, 270, { align: "center" });
+  doc.text("CARETRACK", 105, 280, { align: "center" });
 
   // ── PAGE 2: COMPLIANCE SUMMARY ────────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+  addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -473,7 +486,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     const rowH = SECTION_H + CARD_H + 5;
     if (curY + rowH > 276) {
       doc.addPage();
-      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
       doc.setFillColor(...BRAND.bg);
       doc.rect(0, 14, 210, 283, "F");
       curY = 20;
@@ -497,7 +510,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const legendY = curY + 2;
   if (legendY + 20 > 276) {
     doc.addPage();
-    addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+    addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
     curY = 20;
@@ -524,7 +537,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     let shelfY = legendY + 10;
     if (shelfY + 52 > 276) {
       doc.addPage();
-      addHeader(doc, 2, totalPages, preparedBy, brandHeader);
+      addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
       doc.setFillColor(...BRAND.bg);
       doc.rect(0, 14, 210, 283, "F");
       shelfY = 20;
@@ -584,7 +597,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   let histPageNum = 3;
   if (mom?.hasData) {
     doc.addPage();
-    addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader);
+    addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader, brandSecondary);
     histPageNum++;
     doc.setFillColor(...BRAND.bg); doc.rect(0, 14, 210, 283, "F");
     doc.setTextColor(...brandHeader); doc.setFontSize(7); doc.setFont("helvetica", "bold");
@@ -626,7 +639,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader);
+  addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader, brandSecondary);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -760,7 +773,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const bedEntries = [...entries].reverse().filter(e => e.bed_data && e.bed_data.length > 0).slice(0, 10);
   if (bedEntries.length > 0) {
     doc.addPage();
-    addHeader(doc, 4, totalPages, preparedBy, brandHeader);
+    addHeader(doc, 4, totalPages, preparedBy, brandHeader, brandSecondary);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
@@ -872,7 +885,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   let pageNum = hasBedData ? 5 : 4;
   if (hospitals.length > 1) {
     doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
     pageNum++;
 
     doc.setFillColor(...BRAND.bg);
@@ -950,7 +963,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   // ── PAGE: AI SUMMARY ──────────────────────────────────────────────────────
   if (summary && summary.length > 10) {
     doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");

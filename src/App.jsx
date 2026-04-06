@@ -1053,7 +1053,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.0";
+  const CURRENT_VERSION = "3.1";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -1414,6 +1414,7 @@ export default function App() {
           mapped[row.hospital] = {
             logoUrl: row.logo_url || "",
             accentColor: row.accent_color || "",
+            secondaryColor: row.secondary_color || "",
             isTrial: row.is_trial || false,
           };
         });
@@ -1820,7 +1821,21 @@ export default function App() {
 
   const handlePdfExport = async () => {
     setExportingPdf(true);
-    try { await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData, allEntries); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PDF export failed. Please try again."); }
+    try {
+      // Fetch logo as base64 so jsPDF can embed it
+      let brandingWithLogo = activeBranding ? { ...activeBranding } : null;
+      if (activeBranding?.logoUrl) {
+        try {
+          const resp = await fetch(activeBranding.logoUrl);
+          const blob = await resp.blob();
+          const mime = blob.type.split("/")[1] || "png";
+          const b64 = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.readAsDataURL(blob); });
+          brandingWithLogo = { ...brandingWithLogo, logoBase64: b64, logoMime: mime };
+        } catch { /* logo fetch failed, continue without it */ }
+      }
+      await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries);
+      localStorage.setItem("caretrack_exported", "true");
+    } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
   };
 
@@ -5068,6 +5083,11 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
+              { version: "3.1", date: "April 2026", badge: "LATEST", items: [
+                "Hospital branding now applies correctly to PDF exports — primary color, secondary color, and logo all render",
+                "Secondary color added to hospital branding — controls accent bar on PDF header and title page",
+                "Hospital logo now embeds in PDF title page when a logo URL is configured",
+              ]},
               { version: "3.0", date: "April 2026", badge: "LATEST", items: [
                 "Hospital branding (logos, colors, trial flags) now stored in Supabase — changes apply instantly across all devices",
                 "Per Bed mode is now the default — switch to Simple mode if needed",
@@ -5239,11 +5259,19 @@ export default function App() {
                               style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
                               onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
                           </div>
-                          <div>
-                            <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COLOR</label>
-                            <input type="color" value={b.accentColor || "#4a6f7a"}
-                              style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                              onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>PRIMARY COLOR</label>
+                              <input type="color" value={b.accentColor || "#4a6f7a"}
+                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>SECONDARY COLOR</label>
+                              <input type="color" value={b.secondaryColor || "#7C5366"}
+                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], secondaryColor: ev.target.value } }))} />
+                            </div>
                           </div>
                         </div>
                         {b.logoUrl && (
@@ -5263,6 +5291,7 @@ export default function App() {
                 hospital,
                 logo_url: b.logoUrl || null,
                 accent_color: b.accentColor || null,
+                secondary_color: b.secondaryColor || null,
                 is_trial: b.isTrial || false,
               }));
               if (rows.length > 0) {
