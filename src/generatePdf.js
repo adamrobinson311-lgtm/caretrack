@@ -803,7 +803,45 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...BRAND.inkLight);
     doc.text("Sessions recorded using Per Bed mode — individual bed data", 14, 42);
 
-    // Flatten all beds from all bed-entry sessions into one table
+    // ── Bucketed metric order matching dashboard ──────────────────────────────
+    const BED_BUCKETS = [
+      { label: "Patient Met Criteria", ids: ["turning_criteria"] },
+      { label: "Matt Compliance",      ids: ["matt_applied", "matt_proper"] },
+      { label: "Wedge Compliance",     ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
+      { label: "Air Supply",           ids: ["air_supply", "air_reposition"] },
+      { label: "Kaiser Metrics",       ids: ["heel_boots", "turn_clock"] },
+    ];
+    // Build ordered metric list from buckets, only including metrics present in summaryMetrics
+    const orderedBedMetrics = BED_BUCKETS.flatMap(b => b.ids.map(id => summaryMetrics.find(m => m.id === id)).filter(Boolean));
+    // Build bucket spans for the double header row
+    const bucketSpans = BED_BUCKETS.map(b => {
+      const count = b.ids.filter(id => summaryMetrics.find(m => m.id === id)).length;
+      return { label: b.label, count };
+    }).filter(b => b.count > 0);
+
+    const METRIC_SHORT_PDF = {
+      matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turning",
+      matt_proper: "Matt Prop.", wedges_in_room: "Wdg Room", wedge_offload: "Offloading",
+      air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock",
+    };
+
+    const BED_FIXED_COLS = 5; // Date, Hospital, Location, Bed, Room
+    const bedFixedW = 76;
+    const bedMetricW = Math.floor((182 - bedFixedW) / orderedBedMetrics.length);
+
+    // Two-row header: row 1 = bucket labels spanning cols, row 2 = metric names
+    const bucketHeaderRow = ["Date", "Hospital", "Location", "Bed", "Room"];
+    bucketSpans.forEach(b => {
+      bucketHeaderRow.push({ content: b.label, colSpan: b.count, styles: { halign: "center", fillColor: [...brandHeader, 220].slice(0,3), fontStyle: "bold" } });
+      for (let i = 1; i < b.count; i++) bucketHeaderRow.push({ content: "", colSpan: 1 });
+    });
+    const metricHeaderRow = [
+      { content: "", colSpan: 5 },
+      ...orderedBedMetrics.map(m => ({ content: METRIC_SHORT_PDF[m.id] || m.label, styles: { halign: "center" } })),
+    ];
+    const bedHead = [bucketHeaderRow, metricHeaderRow];
+
+    // Flatten all beds into rows using bucketed column order
     const bedRows = [];
     bedEntries.forEach(e => {
       const dateStr = e.created_at
@@ -812,11 +850,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       e.bed_data.forEach((bed, idx) => {
         if (bed.na) {
           bedRows.push([dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...summaryMetrics.map(() => "N/A")]);
+            ...orderedBedMetrics.map(() => "N/A")]);
         } else {
           bedRows.push([
             dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...summaryMetrics.map(m => {
+            ...orderedBedMetrics.map(m => {
               if (bed[`${m.id}_na`]) return "N/A";
               const a = bed[`${m.id}_a`];
               if (a === "1" || a === 1) return "YES";
@@ -828,17 +866,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       });
     });
 
-    const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
-      ...summaryMetrics.map(m => m.label.replace("Turning & Repositioning", "Turning").replace("Matt Applied Properly", "Matt Prop.").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Wedges in Room", "Wdg Room").replace("Wedges Applied", "Wdg App.").replace("Matt Applied", "Matt App.").replace("Air Used to Reposition Patient", "Air Repos.").replace("Heel Boots", "Heel Boots").replace("Turn Clock", "Trn Clock"))]];
-
-    // Build color lookup for bed rows
+    // Color lookup using bucketed order
     const bedColorData = [];
     bedEntries.forEach(e => {
       e.bed_data.forEach((bed) => {
         if (bed.na) {
-          bedColorData.push(summaryMetrics.map(() => null));
+          bedColorData.push(orderedBedMetrics.map(() => null));
         } else {
-          bedColorData.push(summaryMetrics.map(m => {
+          bedColorData.push(orderedBedMetrics.map(m => {
             if (bed[`${m.id}_na`]) return "na";
             const a = bed[`${m.id}_a`];
             if (a === "1" || a === 1) return "yes";
@@ -849,12 +884,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       });
     });
 
-    // Dynamic metric column widths: 18+22+16+8+12 = 76mm fixed, remaining split among metrics
-    const bedFixedW = 76;
-    const bedMetricW = Math.floor((182 - bedFixedW) / summaryMetrics.length);
-    const bedMetricColStyles = Object.fromEntries(summaryMetrics.map((_, i) => [i + 5, { cellWidth: bedMetricW }]));
-
-    const BED_METRIC_OFFSET = 5;
+    const bedMetricColStyles = Object.fromEntries(
+      orderedBedMetrics.map((_, i) => [i + BED_FIXED_COLS, { cellWidth: bedMetricW, halign: "center" }])
+    );
 
     autoTable(doc, {
       startY: 48,
@@ -871,10 +903,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       margin: { left: 14, right: 14 },
       theme: "plain",
       didDrawCell: (data) => {
-        if (data.section !== "body" || data.column.index < BED_METRIC_OFFSET) return;
+        if (data.section !== "body" || data.column.index < BED_FIXED_COLS) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
-        const mIdx = data.column.index - BED_METRIC_OFFSET;
-        if (mIdx >= summaryMetrics.length) return;
+        const mIdx = data.column.index - BED_FIXED_COLS;
+        if (mIdx >= orderedBedMetrics.length) return;
         const pVal = bedColorData[absIdx]?.[mIdx];
         const fc = data.cell.styles.fillColor;
         const bgColor = pVal === "yes" ? [232, 244, 238] : pVal === "no" ? [253, 240, 240] : Array.isArray(fc) ? fc : BRAND.white;
@@ -892,7 +924,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         }
         doc.setFontSize(6);
         const textVal = data.cell.raw || "";
-        doc.text(String(textVal), data.cell.x + (data.cell.padding("left") || 1.5), data.cell.y + data.cell.height / 2 + 1.5, { align: "left" });
+        doc.text(String(textVal), data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2 + 1.5, { align: "center" });
         doc.setTextColor(...BRAND.ink);
         doc.setFont("helvetica", "normal");
       },

@@ -406,7 +406,7 @@ const createEmptyBed = (metrics, roomNum) => {
   return bed;
 };
 
-const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
+const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = "" }) => {
   const [activeBed, setActiveBed] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState(""); // "", "starting", "ready", "reading", "error"
@@ -635,30 +635,39 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed }) => {
         </div>
       </div>
 
-      {/* ── Totals summary strip ── */}
+      {/* ── Totals summary strip — grouped by bucket ── */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", fontWeight: 600 }}>ALL BEDS — TOTALS</div>
           {beds.some(b => b.na) && <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.amber, letterSpacing: "0.06em" }}>{beds.filter(b => b.na).length} N/A EXCLUDED</div>}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {metrics.map(m => {
-            const q = totals[`${m.id}_q`];
-            const a = totals[`${m.id}_a`];
-            const p = q > 0 ? Math.round((a / q) * 100) : null;
-            return (
-              <div key={m.id} style={{ background: p !== null ? pctBg2(p) : C.bg, border: `1px solid ${p !== null ? pctCol(p) + "33" : C.border}`, borderRadius: 8, padding: "7px 12px", minWidth: 90, flex: "1 1 90px" }}>
-                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{METRIC_SHORT[m.id] || m.label}</div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                  <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 15, fontWeight: 700, color: p !== null ? pctCol(p) : C.inkFaint }}>
-                    {p !== null ? `${p}%` : "—"}
-                  </span>
-                  {q > 0 && <span style={{ fontSize: 10, color: C.inkLight }}>{a}/{q}</span>}
-                </div>
+        {getBuckets(hospital).map(bucket => {
+          const bucketMetrics = metrics.filter(m => bucket.ids.includes(m.id));
+          if (bucketMetrics.length === 0) return null;
+          return (
+            <div key={bucket.label} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>{bucket.label.toUpperCase()}</div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(bucketMetrics.length, 4)}, 1fr)`, gap: 8 }}>
+                {bucketMetrics.map(m => {
+                  const q = totals[`${m.id}_q`];
+                  const a = totals[`${m.id}_a`];
+                  const p = q > 0 ? Math.round((a / q) * 100) : null;
+                  return (
+                    <div key={m.id} style={{ background: p !== null ? pctBg2(p) : C.bg, border: `1px solid ${p !== null ? pctCol(p) + "33" : C.border}`, borderRadius: 8, padding: "7px 12px" }}>
+                      <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, marginBottom: 4, lineHeight: 1.3 }}>{METRIC_SHORT[m.id] || m.label}</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 15, fontWeight: 700, color: p !== null ? pctCol(p) : C.inkFaint }}>
+                          {p !== null ? `${p}%` : "—"}
+                        </span>
+                        {q > 0 && <span style={{ fontSize: 10, color: C.inkLight }}>{a}/{q}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Camera scan modal ── */}
@@ -2476,6 +2485,7 @@ export default function App() {
                       {bedCount > 0 && bedGrid.length > 0 && (
                         <BedGrid
                           metrics={getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock))}
+                          hospital={form.hospital}
                           beds={bedGrid}
                           onChange={setBedGrid}
                           onAddBed={() => {
