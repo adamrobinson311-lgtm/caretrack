@@ -30,17 +30,17 @@ const DARK = {
 let C = { ...LIGHT };
 
 const METRICS = [
-  { id: "turning_criteria", label: "Turning & Repositioning",desc: "Patients that met criteria for turning and repositioning" },
-  { id: "matt_applied",     label: "Matt Applied",           desc: "Qualifying patients that had Matt applied" },
-  { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Patients that had Matt applied properly" },
-  { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Patients that had wedges in room" },
-  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Qualifying patients that had wedges applied" },
-  { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Patients properly offloaded with wedges" },
-  { id: "air_supply",       label: "Air Supply in Room",     desc: "Qualifying patients that had air supply in room" },
+  { id: "turning_criteria", label: "Turning & Repositioning",desc: "Can patient tolerate Q2 turning?" },
+  { id: "matt_applied",     label: "Matt Applied",           desc: "Is a tatt under patient?" },
+  { id: "matt_proper",      label: "Matt Applied Properly",  desc: "Is matt correctly positioned under patient?" },
+  { id: "wedges_in_room",   label: "Wedges in Room",         desc: "Are there wedges in patient room?" },
+  { id: "wedges_applied",   label: "Wedges Applied",         desc: "Were wedges being used to offload patient?" },
+  { id: "wedge_offload",    label: "Proper Wedge Offloading",desc: "Were wedges properly placed under patient?" },
+  { id: "air_supply",       label: "Air Supply in Room",     desc: "Was there an Air Supply in the patient room, if applicable?" },
 ];
 
 const MAYO_METRICS = [
-  { id: "air_reposition",   label: "Air Used to Reposition Patient", desc: "Patients where air was used to assist repositioning" },
+  { id: "air_reposition",   label: "Air Used to Reposition Patient", desc: "Rep observed or confirmed air is being used to reposition patient" },
 ];
 
 const KAISER_METRICS = [
