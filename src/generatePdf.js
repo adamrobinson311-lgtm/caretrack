@@ -804,44 +804,58 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.text("Sessions recorded using Per Bed mode — individual bed data", 14, 42);
 
     // ── Bucketed metric order matching dashboard ──────────────────────────────
+    // Single-metric buckets (Turn Protocol, Air Supply) span both header rows
+    // Multi-metric buckets (Matt, Wedge) get a label row + sub-metric row
     const BED_BUCKETS = [
-      { label: "Pt Criteria", ids: ["turning_criteria"] },
-      { label: "Matt",        ids: ["matt_applied", "matt_proper"] },
-      { label: "Wedge",       ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
-      { label: "Air",         ids: ["air_supply", "air_reposition"] },
-      { label: "Kaiser",      ids: ["heel_boots", "turn_clock"] },
+      { label: "Turn Protocol",   ids: ["turning_criteria"], single: true  },
+      { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"],                     single: false },
+      { label: "Wedge Compliance",ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], single: false },
+      { label: "Air Supply",      ids: ["air_supply", "air_reposition"], single: true  },
+      { label: "Kaiser Metrics",  ids: ["heel_boots", "turn_clock"],     single: false },
     ];
     const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
       b.ids.map(id => summaryMetrics.find(m => m.id === id)).filter(Boolean)
     );
 
     const METRIC_SHORT_PDF = {
-      matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turning",
+      matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turn Protocol",
       matt_proper: "Matt Prop.", wedges_in_room: "Wdg Room", wedge_offload: "Offloading",
       air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock",
     };
 
-    // Two-row header: bucket labels (row 1) + metric names (row 2)
-    const bucketSpans = BED_BUCKETS
-      .map(b => ({ label: b.label, metrics: b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean) }))
-      .filter(b => b.metrics.length > 0);
+    const darkHeader = [Math.max(0,brandHeader[0]-30), Math.max(0,brandHeader[1]-30), Math.max(0,brandHeader[2]-30)];
 
+    // Row 1: fixed cols (rowSpan 2) + bucket labels
+    //   single-metric buckets use rowSpan 2 (no row 2 entry needed)
+    //   multi-metric buckets use colSpan
     const headerRow1 = [
       { content: "Date",     rowSpan: 2, styles: { valign: "middle" } },
       { content: "Hospital", rowSpan: 2, styles: { valign: "middle" } },
       { content: "Location", rowSpan: 2, styles: { valign: "middle" } },
       { content: "Bed",      rowSpan: 2, styles: { valign: "middle" } },
       { content: "Room",     rowSpan: 2, styles: { valign: "middle" } },
-      ...bucketSpans.map(b => ({
-        content: b.label,
-        colSpan: b.metrics.length,
-        styles: { halign: "center", fontStyle: "bold", fillColor: [40, 62, 75] },
-      })),
     ];
-    const headerRow2 = orderedBedMetrics.map(m => ({
-      content: METRIC_SHORT_PDF[m.id] || m.label,
-      styles: { halign: "center", fontStyle: "normal", fontSize: 5.5, fillColor: [...brandHeader] },
-    }));
+    BED_BUCKETS.forEach(b => {
+      const present = b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean);
+      if (present.length === 0) return;
+      if (b.single) {
+        headerRow1.push({ content: b.label, rowSpan: 2, styles: { halign: "center", fontStyle: "bold", fillColor: darkHeader } });
+      } else {
+        headerRow1.push({ content: b.label, colSpan: present.length, styles: { halign: "center", fontStyle: "bold", fillColor: darkHeader } });
+      }
+    });
+
+    // Row 2: only sub-labels for multi-metric buckets
+    const headerRow2 = [];
+    BED_BUCKETS.forEach(b => {
+      const present = b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean);
+      if (present.length === 0 || b.single) return;
+      present.forEach(m => headerRow2.push({
+        content: METRIC_SHORT_PDF[m.id] || m.label,
+        styles: { halign: "center", fontStyle: "normal", fontSize: 5.5, fillColor: [...brandHeader] },
+      }));
+    });
+
     const bedHead = [headerRow1, headerRow2];
 
     const BED_FIXED_COLS = 5;
