@@ -5235,13 +5235,13 @@ export default function App() {
                         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                           <div>
                             <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
-                            <input type="text" placeholder="https://example.com/logo.png" defaultValue={b.logoUrl || ""}
+                            <input type="text" placeholder="https://example.com/logo.png" value={b.logoUrl || ""}
                               style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
                               onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
                           </div>
                           <div>
                             <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COLOR</label>
-                            <input type="color" defaultValue={b.accentColor || "#4a6f7a"}
+                            <input type="color" value={b.accentColor || "#4a6f7a"}
                               style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
                               onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
                           </div>
@@ -5265,7 +5265,10 @@ export default function App() {
                 accent_color: b.accentColor || null,
                 is_trial: b.isTrial || false,
               }));
-              if (rows.length > 0) await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
+              if (rows.length > 0) {
+                const { error } = await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
+                if (error) { alert("Save failed: " + error.message); return; }
+              }
               setShowBrandingEditor(false);
               setExpandedBrandingHospital(null);
               alert("Branding saved!");
