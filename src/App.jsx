@@ -5032,7 +5032,6 @@ export default function App() {
                       metricTotals[`${m.id}_den`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0) || null;
                       metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0) || null;
                     });
-                    if (!METRICS.some(m => metricTotals[`${m.id}_den`] > 0)) { setPracticeError("Tap YES or NO on at least one bed to continue."); return; }
                     setPracticeError(null); setPracticeSaving(true);
                     const { data, error } = await supabase.from("sessions").insert([{
                       date: new Date().toISOString().slice(0, 10),
