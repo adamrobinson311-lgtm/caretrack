@@ -1069,6 +1069,7 @@ export default function App() {
   const [hospitalBranding, setHospitalBranding] = useState({});
   const [showBrandingEditor, setShowBrandingEditor] = useState(false);
   const [expandedBrandingHospital, setExpandedBrandingHospital] = useState(null);
+  const [copyBrandingTo, setCopyBrandingTo] = useState(null); // hospital name being targeted for copy
 
   // Excel export
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -5314,6 +5315,33 @@ export default function App() {
                             <img src={b.logoUrl} alt={hospital} style={{ height: 32, maxWidth: 160, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white" }} onError={e => e.target.style.display = "none"} />
                           </div>
                         )}
+                        {/* Copy to another hospital */}
+                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>COPY TO ANOTHER HOSPITAL</div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <select value={copyBrandingTo || ""}
+                              onChange={ev => setCopyBrandingTo(ev.target.value || null)}
+                              style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}>
+                              <option value="">Select hospital...</option>
+                              {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort()
+                                .filter(h => h !== hospital)
+                                .map(h => <option key={h} value={h}>{h}</option>)}
+                            </select>
+                            <button onClick={() => {
+                              if (!copyBrandingTo) return;
+                              setHospitalBranding(prev => ({
+                                ...prev,
+                                [copyBrandingTo]: { ...b, isTrial: prev[copyBrandingTo]?.isTrial || false },
+                              }));
+                              setCopyBrandingTo(null);
+                              alert(`Branding copied to ${copyBrandingTo}. Hit Save to persist.`);
+                            }}
+                              disabled={!copyBrandingTo}
+                              style={{ background: copyBrandingTo ? C.primary : C.surfaceAlt, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: copyBrandingTo ? "white" : C.inkFaint, cursor: copyBrandingTo ? "pointer" : "not-allowed", letterSpacing: "0.05em", flexShrink: 0 }}>
+                              COPY
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
