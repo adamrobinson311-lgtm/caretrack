@@ -144,27 +144,27 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setTextColor(...coverHeading1);
   doc.setFontSize(36);
   doc.setFont("helvetica", "bold");
-  doc.text("Wound Care", 20, 110);
+  doc.text("Wound Care", 20, 70);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(32);
   doc.setTextColor(...coverHeading2);
-  doc.text("Compliance Report", 20, 128);
+  doc.text("Compliance Report", 20, 88);
 
   doc.setFillColor(...brandSecondary);
-  doc.rect(20, 138, 60, 0.8, "F");
+  doc.rect(20, 98, 60, 0.8, "F");
 
   doc.setTextColor(...coverMeta);
   doc.setFontSize(11);
-  doc.text(`Generated ${today}`, 20, 148);
-  doc.text(`${entries.length} units audited`, 20, 156);
-  doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
-  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
+  doc.text(`Generated ${today}`, 20, 108);
+  doc.text(`${entries.length} units audited`, 20, 116);
+  doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 124);
+  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 132); }
 
   // Hospital logo — top left, proportionally scaled using dimensions passed from App
   if (branding?.logoBase64 && branding?.logoMime) {
     try {
       const mime = branding.logoMime.toUpperCase().replace("JPG","JPEG");
-      const maxW = 70, maxH = 28;
+      const maxW = 60, maxH = 16;
       const ratio = (branding.logoWidth && branding.logoHeight) ? branding.logoWidth / branding.logoHeight : 3;
       let w = maxW, h = maxW / ratio;
       if (h > maxH) { h = maxH; w = maxH * ratio; }
