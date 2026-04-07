@@ -160,10 +160,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
   if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
 
-  // Hospital logo — top left of title page
+  // Hospital logo — top left, proportionally scaled using dimensions passed from App
   if (branding?.logoBase64 && branding?.logoMime) {
     try {
-      doc.addImage(branding.logoBase64, branding.logoMime.toUpperCase().replace("JPG","JPEG"), 20, 40, 60, 20, undefined, "FAST");
+      const mime = branding.logoMime.toUpperCase().replace("JPG","JPEG");
+      const maxW = 70, maxH = 28;
+      const ratio = (branding.logoWidth && branding.logoHeight) ? branding.logoWidth / branding.logoHeight : 3;
+      let w = maxW, h = maxW / ratio;
+      if (h > maxH) { h = maxH; w = maxH * ratio; }
+      doc.addImage(branding.logoBase64, mime, 20, 24, w, h, undefined, "FAST");
     } catch (e) { /* logo load failed silently */ }
   }
 

@@ -1843,7 +1843,14 @@ export default function App() {
           const blob = await resp.blob();
           const mime = blob.type.split("/")[1] || "png";
           const b64 = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.readAsDataURL(blob); });
-          brandingWithLogo = { ...brandingWithLogo, logoBase64: b64, logoMime: mime };
+          // Measure natural dimensions for proportional scaling in PDF
+          const { w: logoW, h: logoH } = await new Promise(res => {
+            const img = new Image();
+            img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+            img.onerror = () => res({ w: 300, h: 100 });
+            img.src = URL.createObjectURL(blob);
+          });
+          brandingWithLogo = { ...brandingWithLogo, logoBase64: b64, logoMime: mime, logoWidth: logoW, logoHeight: logoH };
         } catch { /* logo fetch failed, continue without it */ }
       }
       await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries);
