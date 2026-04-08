@@ -4795,7 +4795,25 @@ export default function App() {
                           <button disabled={scheduleSending === sched.id} onClick={async () => {
                             setScheduleSending(sched.id);
                             try {
-                              const res = await supabase.functions.invoke("send-scheduled-reports", { body: { scheduleId: sched.id, preview: false } });
+                              // Generate PDF client-side and pass as base64 attachment
+                              let pdfBase64 = null;
+                              try {
+                                const now = new Date();
+                                let cutoff = null;
+                                if (sched.period === "7d") cutoff = new Date(now.getTime() - 7*86400000).toISOString().slice(0,10);
+                                else if (sched.period === "30d") cutoff = new Date(now.getTime() - 30*86400000).toISOString().slice(0,10);
+                                else if (sched.period === "mtd") cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+                                const schedHospitals = sched.hospitals || [];
+                                const filtered = allEntriesFull.filter(e =>
+                                  schedHospitals.includes(e.hospital) && (!cutoff || (e.date && e.date >= cutoff))
+                                );
+                                pdfBase64 = await generatePdf(filtered, "", true, schedHospitals.join(", "), "CareTrack Auto Report");
+                              } catch (pdfErr) {
+                                console.warn("PDF generation failed, sending without attachment:", pdfErr);
+                              }
+                              const res = await supabase.functions.invoke("send-scheduled-reports", {
+                                body: { scheduleId: sched.id, preview: false, pdfBase64 }
+                              });
                               if (res.error) throw new Error(res.error.message);
                               alert(`Report sent to ${(sched.recipients || []).join(", ")}`);
                               const { data: updated } = await supabase.from("report_schedules").select("*").order("created_at", { ascending: false });
