@@ -1425,6 +1425,7 @@ export default function App() {
             textColor: row.text_color || "",
             coverColor: row.cover_color || "",
             isTrial: row.is_trial || false,
+            enabledMetrics: row.enabled_metrics || null,
           };
         });
         setHospitalBranding(mapped);
@@ -2764,7 +2765,8 @@ export default function App() {
                 })()}
 
                 {METRIC_BUCKETS.map(bucket => {
-                  const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id));
+                  const hospitalEnabledMetrics = hospitalFilter !== "All" ? (hospitalBranding[hospitalFilter]?.enabledMetrics || null) : null;
+                  const bucketMetrics = avgByMetric.filter(m => bucket.ids.includes(m.id) && !hiddenMetrics.includes(m.id) && (!hospitalEnabledMetrics || hospitalEnabledMetrics.includes(m.id)));
                   if (bucketMetrics.length === 0) return null;
                   return (
                     <div key={bucket.label} style={{ marginBottom: 20 }}>
@@ -4795,25 +4797,7 @@ export default function App() {
                           <button disabled={scheduleSending === sched.id} onClick={async () => {
                             setScheduleSending(sched.id);
                             try {
-                              // Generate PDF client-side and pass as base64 attachment
-                              let pdfBase64 = null;
-                              try {
-                                const now = new Date();
-                                let cutoff = null;
-                                if (sched.period === "7d") cutoff = new Date(now.getTime() - 7*86400000).toISOString().slice(0,10);
-                                else if (sched.period === "30d") cutoff = new Date(now.getTime() - 30*86400000).toISOString().slice(0,10);
-                                else if (sched.period === "mtd") cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-                                const schedHospitals = sched.hospitals || [];
-                                const filtered = allEntriesFull.filter(e =>
-                                  schedHospitals.includes(e.hospital) && (!cutoff || (e.date && e.date >= cutoff))
-                                );
-                                pdfBase64 = await generatePdf(filtered, "", true, schedHospitals.join(", "), "CareTrack Auto Report");
-                              } catch (pdfErr) {
-                                console.warn("PDF generation failed, sending without attachment:", pdfErr);
-                              }
-                              const res = await supabase.functions.invoke("send-scheduled-reports", {
-                                body: { scheduleId: sched.id, preview: false, pdfBase64 }
-                              });
+                              const res = await supabase.functions.invoke("send-scheduled-reports", { body: { scheduleId: sched.id, preview: false } });
                               if (res.error) throw new Error(res.error.message);
                               alert(`Report sent to ${(sched.recipients || []).join(", ")}`);
                               const { data: updated } = await supabase.from("report_schedules").select("*").order("created_at", { ascending: false });
@@ -5270,7 +5254,7 @@ export default function App() {
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }}>
           <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Hospital Branding</h2>
+              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Hospital Configuration</h2>
               <button onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16 }}>Tap a hospital to edit its logo and accent color.</p>
@@ -5340,6 +5324,36 @@ export default function App() {
                             <img src={b.logoUrl} alt={hospital} style={{ height: 32, maxWidth: 160, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white" }} onError={e => e.target.style.display = "none"} />
                           </div>
                         )}
+                        {/* Enabled metrics */}
+                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 2 }}>DASHBOARD METRICS</div>
+                          <div style={{ fontSize: 11, color: C.inkMid, marginBottom: 8 }}>Select which metrics appear on the dashboard for this hospital. Default is all.</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            {getMetrics(hospital).map(m => {
+                              const enabled = b.enabledMetrics ? b.enabledMetrics.includes(m.id) : true;
+                              return (
+                                <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                                  <input type="checkbox" checked={enabled} onChange={() => {
+                                    const allIds = getMetrics(hospital).map(x => x.id);
+                                    const current = b.enabledMetrics || allIds;
+                                    const next = current.includes(m.id) ? current.filter(x => x !== m.id) : [...current, m.id];
+                                    // If all metrics enabled, store null (= default)
+                                    const value = next.length === allIds.length ? null : next;
+                                    setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], enabledMetrics: value } }));
+                                  }} style={{ accentColor: C.primary, width: 14, height: 14, cursor: "pointer" }} />
+                                  <span style={{ fontSize: 12, color: enabled ? C.ink : C.inkFaint }}>{m.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {b.enabledMetrics && (
+                            <button onClick={() => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], enabledMetrics: null } }))}
+                              style={{ marginTop: 8, background: "none", border: "none", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", padding: 0, letterSpacing: "0.05em" }}>
+                              RESET TO ALL METRICS
+                            </button>
+                          )}
+                        </div>
+
                         {/* Copy to another hospital */}
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
                           <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>COPY TO ANOTHER HOSPITAL</div>
@@ -5383,6 +5397,7 @@ export default function App() {
                 text_color: b.textColor || null,
                 cover_color: b.coverColor || null,
                 is_trial: b.isTrial || false,
+                enabled_metrics: b.enabledMetrics || null,
               }));
               if (rows.length > 0) {
                 const { error } = await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
@@ -5392,7 +5407,7 @@ export default function App() {
               setExpandedBrandingHospital(null);
               alert("Branding saved!");
             }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em", flexShrink: 0 }}>
-              SAVE BRANDING
+              SAVE HOSPITAL CONFIGURATION
             </button>
           </div>
         </div>
