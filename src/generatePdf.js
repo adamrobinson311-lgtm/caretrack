@@ -82,10 +82,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
   const hasMayo = entries.some(e => isMayo(e.hospital));
-  const allSummaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
-  const summaryMetrics = branding?.enabledMetrics
-    ? allSummaryMetrics.filter(m => branding.enabledMetrics.includes(m.id))
-    : allSummaryMetrics;
+  const summaryMetrics = hasMayo ? [...METRICS, ...MAYO_METRICS] : METRICS;
 
   const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
