@@ -104,8 +104,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
   const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : [])];
+  // Per-hospital metric visibility — admin configured, PDF only
+  const visibleMetrics = branding?.enabledMetrics
+    ? summaryMetrics.filter(m => branding.enabledMetrics.includes(m.id))
+    : summaryMetrics;
 
-  const avgMetrics = summaryMetrics.map(m => {
+  const avgMetrics = visibleMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
   }).sort((a, b) => {
@@ -430,11 +434,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   const metricLookup = {};
   avgMetrics.forEach(m => { metricLookup[m.id] = m; });
-  summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
+  visibleMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
 
   const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
   if (allEntries.length > 0) {
-    summaryMetrics.forEach(m => {
+    visibleMetrics.forEach(m => {
       const vals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
       if (vals.length) NATL[m.id] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     });
@@ -814,7 +818,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       { label: "Kaiser Metrics",  ids: ["heel_boots", "turn_clock"],     single: false },
     ];
     const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
-      b.ids.map(id => summaryMetrics.find(m => m.id === id)).filter(Boolean)
+      b.ids.map(id => visibleMetrics.find(m => m.id === id)).filter(Boolean)
     );
 
     const METRIC_SHORT_PDF = {
@@ -977,7 +981,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       return {
         hospital: h,
         sessions: hEntries.length,
-        metrics: summaryMetrics.map(m => {
+        metrics: visibleMetrics.map(m => {
           if (!hMetrics.find(x => x.id === m.id)) return null;
           const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
           return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
@@ -1014,9 +1018,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     });
 
     // Detailed comparison table
-    const compRows = summaryMetrics.map(m => [
+    const compRows = visibleMetrics.map(m => [
       m.label,
-      ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
+      ...hospitalData.map(h => h.metrics[visibleMetrics.indexOf(m)] !== null ? `${h.metrics[visibleMetrics.indexOf(m)]}%` : "—")
     ]);
 
     autoTable(doc, {
