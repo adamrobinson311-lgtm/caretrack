@@ -631,16 +631,7 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
               </button>
             )}
           </div>
-          {beds.length > 1 && (
-            <button onClick={() => {
-              if (!window.confirm(`Delete Bed ${safeIdx + 1}${beds[safeIdx]?.room ? ` (${beds[safeIdx].room})` : ""}? This cannot be undone.`)) return;
-              onRemoveBed(safeIdx);
-              goTo(Math.max(0, safeIdx - 1));
-            }}
-              style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.red}44`, background: C.redLight, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.04em" }}>
-              DELETE BED
-            </button>
-          )}
+
         </div>
       </div>
 
@@ -1003,6 +994,7 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
   const [reportSchedules, setReportSchedules] = useState([]);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" });
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSending, setScheduleSending] = useState(null);
@@ -4643,7 +4635,7 @@ export default function App() {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
                     <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
                   </div>
-                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setShowNewSchedule(true); }}
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
                     style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
                     + NEW REPORT
                   </button>
@@ -4652,7 +4644,7 @@ export default function App() {
                 {/* New schedule form */}
                 {showNewSchedule && (
                   <div style={{ background: C.surface, border: `2px solid ${C.primary}33`, borderRadius: 12, padding: 24 }}>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 16 }}>NEW SCHEDULED REPORT</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 16 }}>{editingScheduleId ? "EDIT SCHEDULED REPORT" : "NEW SCHEDULED REPORT"}</div>
 
                     {/* Name */}
                     <div style={{ marginBottom: 14 }}>
@@ -4730,13 +4722,13 @@ export default function App() {
                     </div>
 
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                      <button onClick={() => setShowNewSchedule(false)}
+                      <button onClick={() => { setShowNewSchedule(false); setEditingScheduleId(null); }}
                         style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
                         CANCEL
                       </button>
                       <button disabled={scheduleSaving || !scheduleForm.name || scheduleForm.hospitals.length === 0 || !scheduleForm.recipients} onClick={async () => {
                         setScheduleSaving(true);
-                        const { data, error } = await supabase.from("report_schedules").insert([{
+                        const payload = {
                           name: scheduleForm.name,
                           hospitals: scheduleForm.hospitals,
                           recipients: scheduleForm.recipients.split(",").map(e => e.trim()).filter(Boolean),
@@ -4744,20 +4736,34 @@ export default function App() {
                           day_of_month: scheduleForm.frequency === "monthly" ? parseInt(scheduleForm.dayOfMonth) : null,
                           day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
                           period: scheduleForm.period,
-                          is_active: true,
-                          created_by: user?.email,
-                        }]).select().single();
-                        setScheduleSaving(false);
-                        if (!error && data) {
-                          setReportSchedules(prev => [data, ...prev]);
-                          setShowNewSchedule(false);
-                          await logAudit("REPORT_SCHEDULE_CREATED", { name: scheduleForm.name, hospitals: scheduleForm.hospitals });
+                        };
+                        if (editingScheduleId) {
+                          // Update existing
+                          const { error } = await supabase.from("report_schedules").update(payload).eq("id", editingScheduleId);
+                          setScheduleSaving(false);
+                          if (!error) {
+                            setReportSchedules(prev => prev.map(s => s.id === editingScheduleId ? { ...s, ...payload } : s));
+                            setShowNewSchedule(false);
+                            setEditingScheduleId(null);
+                            await logAudit("REPORT_SCHEDULE_UPDATED", { name: scheduleForm.name });
+                          } else {
+                            alert("Failed to save: " + (error?.message || "Unknown error"));
+                          }
                         } else {
-                          alert("Failed to save: " + (error?.message || "Unknown error"));
+                          // Create new
+                          const { data, error } = await supabase.from("report_schedules").insert([{ ...payload, is_active: true, created_by: user?.email }]).select().single();
+                          setScheduleSaving(false);
+                          if (!error && data) {
+                            setReportSchedules(prev => [data, ...prev]);
+                            setShowNewSchedule(false);
+                            await logAudit("REPORT_SCHEDULE_CREATED", { name: scheduleForm.name, hospitals: scheduleForm.hospitals });
+                          } else {
+                            alert("Failed to save: " + (error?.message || "Unknown error"));
+                          }
                         }
                       }}
                         style={{ background: scheduleSaving ? C.border : C.primary, border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: scheduleSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em" }}>
-                        {scheduleSaving ? "SAVING..." : "SAVE SCHEDULE"}
+                        {scheduleSaving ? "SAVING..." : editingScheduleId ? "UPDATE SCHEDULE" : "SAVE SCHEDULE"}
                       </button>
                     </div>
                   </div>
@@ -4800,6 +4806,24 @@ export default function App() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                          {/* Edit */}
+                          <button onClick={() => {
+                            setScheduleForm({
+                              name: sched.name,
+                              hospitals: sched.hospitals || [],
+                              recipients: (sched.recipients || []).join(", "),
+                              frequency: sched.frequency || "monthly",
+                              dayOfMonth: String(sched.day_of_month || "1"),
+                              dayOfWeek: String(sched.day_of_week || "1"),
+                              period: sched.period || "30d",
+                            });
+                            setEditingScheduleId(sched.id);
+                            setShowNewSchedule(true);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                            EDIT
+                          </button>
                           {/* Send now */}
                           <button disabled={scheduleSending === sched.id} onClick={async () => {
                             setScheduleSending(sched.id);
