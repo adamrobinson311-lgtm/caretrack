@@ -994,7 +994,6 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
   const [reportSchedules, setReportSchedules] = useState([]);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
-  const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" });
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSending, setScheduleSending] = useState(null);
@@ -1426,6 +1425,8 @@ export default function App() {
             textColor: row.text_color || "",
             coverColor: row.cover_color || "",
             isTrial: row.is_trial || false,
+            enabledMetrics: row.enabled_metrics || null,
+            isShared: row.is_shared || false,
           };
         });
         setHospitalBranding(mapped);
@@ -1433,7 +1434,26 @@ export default function App() {
     })();
   }, [user]);
 
-  // Persist room numbers to localStorage when grid changes
+  // Fetch sessions from shared hospitals (other reps' sessions)
+  useEffect(() => {
+    if (!user || !Object.keys(hospitalBranding).length) return;
+    const sharedHospitals = Object.entries(hospitalBranding)
+      .filter(([, b]) => b.isShared)
+      .map(([h]) => h);
+    if (sharedHospitals.length === 0) return;
+    (async () => {
+      const { data } = await supabase.from("sessions").select("*")
+        .in("hospital", sharedHospitals)
+        .order("created_at", { ascending: true });
+      if (data && data.length > 0) {
+        setEntries(prev => {
+          const existingIds = new Set(prev.map(e => e.id));
+          const newEntries = data.filter(e => !existingIds.has(e.id));
+          return newEntries.length > 0 ? [...prev, ...newEntries] : prev;
+        });
+      }
+    })();
+  }, [user, JSON.stringify(Object.entries(hospitalBranding).map(([h, b]) => [h, b.isShared]))]); // eslint-disable-line
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
     const rooms = bedGrid.map(b => b.room || "");
@@ -1546,6 +1566,15 @@ export default function App() {
         });
         if (error) console.warn("Session confirmation email error:", error);
       } catch (e) { console.warn("Session confirmation email failed:", e); }
+
+      // Notify shared reps if this hospital is a shared account
+      try {
+        if (hospitalBranding[finalData.hospital]?.isShared) {
+          await supabase.functions.invoke("notify-shared-reps", {
+            body: { session: finalData, senderEmail: user.email, senderName: userName },
+          });
+        }
+      } catch (e) { console.warn("Shared rep notification failed:", e); }
     }, 500);
 
     setTimeout(() => setSaved(false), 4000);
@@ -4635,7 +4664,7 @@ export default function App() {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
                     <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
                   </div>
-                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setShowNewSchedule(true); }}
                     style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
                     + NEW REPORT
                   </button>
@@ -4644,7 +4673,7 @@ export default function App() {
                 {/* New schedule form */}
                 {showNewSchedule && (
                   <div style={{ background: C.surface, border: `2px solid ${C.primary}33`, borderRadius: 12, padding: 24 }}>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 16 }}>{editingScheduleId ? "EDIT SCHEDULED REPORT" : "NEW SCHEDULED REPORT"}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 16 }}>NEW SCHEDULED REPORT</div>
 
                     {/* Name */}
                     <div style={{ marginBottom: 14 }}>
@@ -4722,13 +4751,13 @@ export default function App() {
                     </div>
 
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                      <button onClick={() => { setShowNewSchedule(false); setEditingScheduleId(null); }}
+                      <button onClick={() => setShowNewSchedule(false)}
                         style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
                         CANCEL
                       </button>
                       <button disabled={scheduleSaving || !scheduleForm.name || scheduleForm.hospitals.length === 0 || !scheduleForm.recipients} onClick={async () => {
                         setScheduleSaving(true);
-                        const payload = {
+                        const { data, error } = await supabase.from("report_schedules").insert([{
                           name: scheduleForm.name,
                           hospitals: scheduleForm.hospitals,
                           recipients: scheduleForm.recipients.split(",").map(e => e.trim()).filter(Boolean),
@@ -4736,34 +4765,20 @@ export default function App() {
                           day_of_month: scheduleForm.frequency === "monthly" ? parseInt(scheduleForm.dayOfMonth) : null,
                           day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
                           period: scheduleForm.period,
-                        };
-                        if (editingScheduleId) {
-                          // Update existing
-                          const { error } = await supabase.from("report_schedules").update(payload).eq("id", editingScheduleId);
-                          setScheduleSaving(false);
-                          if (!error) {
-                            setReportSchedules(prev => prev.map(s => s.id === editingScheduleId ? { ...s, ...payload } : s));
-                            setShowNewSchedule(false);
-                            setEditingScheduleId(null);
-                            await logAudit("REPORT_SCHEDULE_UPDATED", { name: scheduleForm.name });
-                          } else {
-                            alert("Failed to save: " + (error?.message || "Unknown error"));
-                          }
+                          is_active: true,
+                          created_by: user?.email,
+                        }]).select().single();
+                        setScheduleSaving(false);
+                        if (!error && data) {
+                          setReportSchedules(prev => [data, ...prev]);
+                          setShowNewSchedule(false);
+                          await logAudit("REPORT_SCHEDULE_CREATED", { name: scheduleForm.name, hospitals: scheduleForm.hospitals });
                         } else {
-                          // Create new
-                          const { data, error } = await supabase.from("report_schedules").insert([{ ...payload, is_active: true, created_by: user?.email }]).select().single();
-                          setScheduleSaving(false);
-                          if (!error && data) {
-                            setReportSchedules(prev => [data, ...prev]);
-                            setShowNewSchedule(false);
-                            await logAudit("REPORT_SCHEDULE_CREATED", { name: scheduleForm.name, hospitals: scheduleForm.hospitals });
-                          } else {
-                            alert("Failed to save: " + (error?.message || "Unknown error"));
-                          }
+                          alert("Failed to save: " + (error?.message || "Unknown error"));
                         }
                       }}
                         style={{ background: scheduleSaving ? C.border : C.primary, border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: scheduleSaving ? "not-allowed" : "pointer", letterSpacing: "0.05em" }}>
-                        {scheduleSaving ? "SAVING..." : editingScheduleId ? "UPDATE SCHEDULE" : "SAVE SCHEDULE"}
+                        {scheduleSaving ? "SAVING..." : "SAVE SCHEDULE"}
                       </button>
                     </div>
                   </div>
@@ -4806,24 +4821,6 @@ export default function App() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                          {/* Edit */}
-                          <button onClick={() => {
-                            setScheduleForm({
-                              name: sched.name,
-                              hospitals: sched.hospitals || [],
-                              recipients: (sched.recipients || []).join(", "),
-                              frequency: sched.frequency || "monthly",
-                              dayOfMonth: String(sched.day_of_month || "1"),
-                              dayOfWeek: String(sched.day_of_week || "1"),
-                              period: sched.period || "30d",
-                            });
-                            setEditingScheduleId(sched.id);
-                            setShowNewSchedule(true);
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                            style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
-                            EDIT
-                          </button>
                           {/* Send now */}
                           <button disabled={scheduleSending === sched.id} onClick={async () => {
                             setScheduleSending(sched.id);
@@ -5303,6 +5300,7 @@ export default function App() {
                         {b.accentColor && <div style={{ width: 12, height: 12, borderRadius: "50%", background: b.accentColor, flexShrink: 0 }} />}
                         <span style={{ fontSize: 13, fontWeight: 500, color: isOpen ? C.primary : C.ink }}>{hospital}</span>
                         {hasConfig && <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "1px 6px", letterSpacing: "0.05em" }}>CONFIGURED</span>}
+                            {b.isShared && <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.green, background: C.greenLight, border: `1px solid ${C.green}33`, borderRadius: 8, padding: "1px 6px", letterSpacing: "0.05em" }}>SHARED</span>}
                       </div>
                       <span style={{ fontSize: 12, color: C.inkLight, transition: "transform 0.15s", display: "inline-block", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
                     </button>
@@ -5355,6 +5353,23 @@ export default function App() {
                             <img src={b.logoUrl} alt={hospital} style={{ height: 32, maxWidth: 160, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white" }} onError={e => e.target.style.display = "none"} />
                           </div>
                         )}
+                        {/* Shared Account toggle */}
+                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>SHARED ACCOUNT</div>
+                          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                            <div onClick={() => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], isShared: !b.isShared } }))}
+                              style={{ width: 36, height: 20, borderRadius: 10, background: b.isShared ? C.primary : C.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                              <div style={{ position: "absolute", top: 3, left: b.isShared ? 18 : 3, width: 14, height: 14, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, color: C.ink, fontWeight: b.isShared ? 500 : 400 }}>
+                                {b.isShared ? "Shared — all reps see each other's sessions" : "Not shared — reps only see their own sessions"}
+                              </div>
+                              <div style={{ fontSize: 10, color: C.inkFaint, marginTop: 2 }}>Reps at shared accounts receive email notifications when a session is logged</div>
+                            </div>
+                          </label>
+                        </div>
+
                         {/* Copy to another hospital */}
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
                           <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>COPY TO ANOTHER HOSPITAL</div>
@@ -5398,6 +5413,8 @@ export default function App() {
                 text_color: b.textColor || null,
                 cover_color: b.coverColor || null,
                 is_trial: b.isTrial || false,
+                enabled_metrics: b.enabledMetrics || null,
+                is_shared: b.isShared || false,
               }));
               if (rows.length > 0) {
                 const { error } = await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
@@ -5405,9 +5422,9 @@ export default function App() {
               }
               setShowBrandingEditor(false);
               setExpandedBrandingHospital(null);
-              alert("Branding saved!");
+              alert("Configuration saved!");
             }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em", flexShrink: 0 }}>
-              SAVE BRANDING
+              SAVE HOSPITAL CONFIGURATION
             </button>
           </div>
         </div>
