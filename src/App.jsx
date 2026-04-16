@@ -1309,14 +1309,24 @@ export default function App() {
       // Step 2: Get the unique hospitals this user has logged for
       const userHospitals = [...new Set((ownData || []).map(e => e.hospital).filter(Boolean))];
 
-      // Step 3: Fetch ALL sessions for those hospitals (from any user)
+      // Step 3: Fetch sessions from shared hospitals only (not all hospitals)
       let allHospitalData = ownData || [];
       if (userHospitals.length > 0) {
-        const { data: hospitalData } = await supabase.from("sessions")
-          .select("*")
-          .in("hospital", userHospitals)
-          .order("created_at", { ascending: true });
-        allHospitalData = hospitalData || ownData || [];
+        // Get branding to check which hospitals are shared
+        const { data: brandingData } = await supabase.from("hospital_branding").select("hospital, is_shared");
+        const sharedSet = new Set((brandingData || []).filter(b => b.is_shared).map(b => b.hospital));
+        const sharedUserHospitals = userHospitals.filter(h => sharedSet.has(h));
+        if (sharedUserHospitals.length > 0) {
+          const { data: sharedData } = await supabase.from("sessions")
+            .select("*")
+            .in("hospital", sharedUserHospitals)
+            .order("created_at", { ascending: true });
+          // Merge own sessions + shared hospital sessions, dedup by id
+          const merged = [...(ownData || [])];
+          const ownIds = new Set(merged.map(e => e.id));
+          (sharedData || []).forEach(e => { if (!ownIds.has(e.id)) merged.push(e); });
+          allHospitalData = merged;
+        }
       }
 
       setEntries(allHospitalData);
@@ -1452,26 +1462,6 @@ export default function App() {
     })();
   }, [user]);
 
-  // Fetch sessions from shared hospitals (other reps' sessions)
-  useEffect(() => {
-    if (!user || !Object.keys(hospitalBranding).length) return;
-    const sharedHospitals = Object.entries(hospitalBranding)
-      .filter(([, b]) => b.isShared)
-      .map(([h]) => h);
-    if (sharedHospitals.length === 0) return;
-    (async () => {
-      const { data } = await supabase.from("sessions").select("*")
-        .in("hospital", sharedHospitals)
-        .order("created_at", { ascending: true });
-      if (data && data.length > 0) {
-        setEntries(prev => {
-          const existingIds = new Set(prev.map(e => e.id));
-          const newEntries = data.filter(e => !existingIds.has(e.id));
-          return newEntries.length > 0 ? [...prev, ...newEntries] : prev;
-        });
-      }
-    })();
-  }, [user, JSON.stringify(Object.entries(hospitalBranding).map(([h, b]) => [h, b.isShared]))]); // eslint-disable-line
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0 || !form.hospital || !form.location) return;
     const rooms = bedGrid.map(b => b.room || "");
