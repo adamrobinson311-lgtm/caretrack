@@ -1850,6 +1850,12 @@ export default function App() {
     setEntries(prev => prev.filter(e => e.id !== id));
     setAllEntriesFull(prev => prev.filter(e => e.id !== id));
     await logAudit("DELETION_APPROVED", { hospital: session?.hospital, location: session?.location, date: session?.date, logged_by: session?.logged_by }, session?.logged_by, id);
+    // Delete from Salesforce if hospital is mapped
+    try {
+      if (session?.hospital && hospitalBranding[session.hospital]?.salesforceAccountId) {
+        await supabase.functions.invoke("salesforce-sync", { body: { action: "delete", sessionId: id } });
+      }
+    } catch (e) { console.warn("SF delete failed:", e); }
   };
 
   const handleDenyDeletion = async (id) => {
@@ -1873,6 +1879,12 @@ export default function App() {
     await logAudit("SESSION_DELETED", { hospital: session?.hospital, location: session?.location, date: session?.date, logged_by: session?.logged_by }, session?.logged_by, id);
     const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
     if (freshAudit) setAuditLog(freshAudit);
+    // Delete from Salesforce if hospital is mapped
+    try {
+      if (session?.hospital && hospitalBranding[session.hospital]?.salesforceAccountId) {
+        await supabase.functions.invoke("salesforce-sync", { body: { action: "delete", sessionId: id } });
+      }
+    } catch (e) { console.warn("SF delete failed:", e); }
   };
 
   const handleExport = async () => {
