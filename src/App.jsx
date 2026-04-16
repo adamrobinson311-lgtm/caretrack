@@ -631,7 +631,16 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
               </button>
             )}
           </div>
-
+          {beds.length > 1 && (
+            <button onClick={() => {
+              if (!window.confirm(`Delete Bed ${safeIdx + 1}${beds[safeIdx]?.room ? ` (${beds[safeIdx].room})` : ""}? This cannot be undone.`)) return;
+              onRemoveBed(safeIdx);
+              goTo(Math.max(0, safeIdx - 1));
+            }}
+              style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.red}44`, background: C.redLight, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.04em" }}>
+              DELETE BED
+            </button>
+          )}
         </div>
       </div>
 
