@@ -5351,15 +5351,14 @@ export default function App() {
                             <div style={{ marginTop: 6 }}>
                               {!sfSuggestions[hospital] ? (
                                 <button onClick={async () => {
-                                  const { data } = await supabase.rpc('search_sf_accounts', { query: hospital, max_results: 5 }).catch(() => ({ data: null }));
-                                  // Fallback: use ilike search
-                                  if (!data) {
-                                    const words = hospital.toLowerCase().split(' ').filter(w => w.length > 3);
-                                    const { data: results } = await supabase.from('salesforce_accounts').select('id, name').ilike('name', `%${words[0] || hospital}%`).limit(8);
-                                    setSfSuggestions(prev => ({ ...prev, [hospital]: results || [] }));
-                                  } else {
-                                    setSfSuggestions(prev => ({ ...prev, [hospital]: data || [] }));
-                                  }
+                                  const words = hospital.toLowerCase().split(' ').filter(w => w.length > 3);
+                                  const searchWord = words[0] || hospital;
+                                  const { data: results } = await supabase
+                                    .from('salesforce_accounts')
+                                    .select('id, name')
+                                    .ilike('name', `%${searchWord}%`)
+                                    .limit(8);
+                                  setSfSuggestions(prev => ({ ...prev, [hospital]: results || [] }));
                                 }}
                                   style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: "none", border: "none", cursor: "pointer", padding: 0, letterSpacing: "0.05em" }}>
                                   🔍 FIND IN SALESFORCE
