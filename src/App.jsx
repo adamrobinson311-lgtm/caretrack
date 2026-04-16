@@ -1078,7 +1078,8 @@ export default function App() {
   const [hospitalBranding, setHospitalBranding] = useState({});
   const [showBrandingEditor, setShowBrandingEditor] = useState(false);
   const [expandedBrandingHospital, setExpandedBrandingHospital] = useState(null);
-  const [copyBrandingTo, setCopyBrandingTo] = useState(null); // hospital name being targeted for copy
+  const [copyBrandingTo, setCopyBrandingTo] = useState(null);
+  const [sfSuggestions, setSfSuggestions] = useState({}); // { hospitalName: [{ id, name }] }
 
   // Excel export
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -5345,6 +5346,46 @@ export default function App() {
                             style={{ width: "100%", background: C.bg, border: `1px solid ${b.salesforceAccountId ? C.primary + "66" : C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none", fontFamily: "'IBM Plex Mono', monospace" }}
                             onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: ev.target.value } }))} />
                           {b.salesforceAccountId && <div style={{ fontSize: 9, color: C.primary, marginTop: 3, fontFamily: "'IBM Plex Mono', monospace" }}>✓ MAPPED TO SALESFORCE</div>}
+                          {/* Auto-suggest SF accounts */}
+                          {!b.salesforceAccountId && (
+                            <div style={{ marginTop: 6 }}>
+                              {!sfSuggestions[hospital] ? (
+                                <button onClick={async () => {
+                                  const { data } = await supabase.rpc('search_sf_accounts', { query: hospital, max_results: 5 }).catch(() => ({ data: null }));
+                                  // Fallback: use ilike search
+                                  if (!data) {
+                                    const words = hospital.toLowerCase().split(' ').filter(w => w.length > 3);
+                                    const { data: results } = await supabase.from('salesforce_accounts').select('id, name').ilike('name', `%${words[0] || hospital}%`).limit(8);
+                                    setSfSuggestions(prev => ({ ...prev, [hospital]: results || [] }));
+                                  } else {
+                                    setSfSuggestions(prev => ({ ...prev, [hospital]: data || [] }));
+                                  }
+                                }}
+                                  style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: "none", border: "none", cursor: "pointer", padding: 0, letterSpacing: "0.05em" }}>
+                                  🔍 FIND IN SALESFORCE
+                                </button>
+                              ) : sfSuggestions[hospital].length === 0 ? (
+                                <div style={{ fontSize: 10, color: C.inkFaint }}>No matches found — enter ID manually</div>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>SELECT MATCH:</div>
+                                  {sfSuggestions[hospital].map((s: any) => (
+                                    <button key={s.id} onClick={() => {
+                                      setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: s.id } }));
+                                      setSfSuggestions(prev => ({ ...prev, [hospital]: [] }));
+                                    }}
+                                      style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "5px 10px", fontSize: 11, color: C.ink, cursor: "pointer", textAlign: "left" }}>
+                                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>{s.id}</span> — {s.name}
+                                    </button>
+                                  ))}
+                                  <button onClick={() => setSfSuggestions(prev => ({ ...prev, [hospital]: undefined }))}
+                                    style={{ fontSize: 9, color: C.inkFaint, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                                    ✕ clear
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                           <div>
