@@ -4652,6 +4652,7 @@ export default function App() {
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
                               {isTrial && <span style={{ background: C.amber, color: "white", borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, letterSpacing: "0.06em" }}>TRIAL</span>}
+                              {hospitalBranding[h]?.salesforceAccountId && <span style={{ background: "#1a6bb5", color: "white", borderRadius: 6, padding: "1px 8px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, letterSpacing: "0.06em" }}>SFDC</span>}
                             </div>
                             <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>{reps.join(", ")}</div>
                           </div>
