@@ -1185,10 +1185,17 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
-        setUser(null); // don't log them in yet
+        setUser(null);
         setShowPasswordReset(true);
       } else {
         setUser(session?.user ?? null);
+        // Update last_login on every sign-in (covers password, magic link, token refresh)
+        if (event === "SIGNED_IN" && session?.user?.email) {
+          supabase.from("user_profiles")
+            .update({ last_login: new Date().toISOString() })
+            .eq("email", session.user.email)
+            .then(() => {});
+        }
       }
     });
     return () => subscription.unsubscribe();
