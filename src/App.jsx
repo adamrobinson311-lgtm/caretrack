@@ -1436,6 +1436,7 @@ export default function App() {
             isTrial: row.is_trial || false,
             enabledMetrics: row.enabled_metrics || null,
             isShared: row.is_shared || false,
+            salesforceAccountId: row.salesforce_account_id || "",
           };
         });
         setHospitalBranding(mapped);
@@ -1584,6 +1585,15 @@ export default function App() {
           });
         }
       } catch (e) { console.warn("Shared rep notification failed:", e); }
+
+      // Push to Salesforce if hospital is mapped
+      try {
+        if (hospitalBranding[finalData.hospital]?.salesforceAccountId) {
+          await supabase.functions.invoke("salesforce-sync", {
+            body: { session: finalData },
+          });
+        }
+      } catch (e) { console.warn("Salesforce sync failed:", e); }
     }, 500);
 
     setTimeout(() => setSaved(false), 4000);
@@ -5316,6 +5326,14 @@ export default function App() {
                     {/* Accordion body */}
                     {isOpen && (
                       <div style={{ padding: "14px 14px 16px", background: C.surface, borderTop: `1px solid ${C.border}` }}>
+                        {/* Salesforce Account ID */}
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>SALESFORCE ACCOUNT ID</label>
+                          <input type="text" placeholder="001PW00000sZNnS" value={b.salesforceAccountId || ""}
+                            style={{ width: "100%", background: C.bg, border: `1px solid ${b.salesforceAccountId ? C.primary + "66" : C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none", fontFamily: "'IBM Plex Mono', monospace" }}
+                            onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: ev.target.value } }))} />
+                          {b.salesforceAccountId && <div style={{ fontSize: 9, color: C.primary, marginTop: 3, fontFamily: "'IBM Plex Mono', monospace" }}>✓ MAPPED TO SALESFORCE</div>}
+                        </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                           <div>
                             <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
@@ -5424,6 +5442,7 @@ export default function App() {
                 is_trial: b.isTrial || false,
                 enabled_metrics: b.enabledMetrics || null,
                 is_shared: b.isShared || false,
+                salesforce_account_id: b.salesforceAccountId || null,
               }));
               if (rows.length > 0) {
                 const { error } = await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
