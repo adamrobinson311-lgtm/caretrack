@@ -2331,7 +2331,7 @@ export default function App() {
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             <Tab id="performers" label="PERFORMERS" />
             <Tab id="planner" label="PLANNER" />
-            {(isDirector || isVP) && <Tab id="region" label={isVP ? "ALL REGIONS" : "MY REGION"} />}
+            {(isDirector || isVP || isAdmin) && <Tab id="region" label={isVP || isAdmin ? "ALL REGIONS" : "MY REGION"} />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
 
@@ -3564,30 +3564,34 @@ export default function App() {
           );
         })()}
 
-        {tab === "region" && (isDirector || isVP) && (
+        {tab === "region" && (isDirector || isVP || isAdmin) && (
           <div>
             {/* Header */}
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>{isVP ? "ALL REGIONS" : "MY REGION"}</div>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{isVP ? "All Regions" : (myRegion || "Region")}</h1>
-              <p style={{ color: C.inkMid, fontSize: 13 }}>{regionReps.length} rep{regionReps.length !== 1 ? "s" : ""} · {regionEntries.length} sessions logged</p>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 4 }}>{(isVP || isAdmin) ? "ALL REGIONS" : "MY REGION"}</div>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>{(isVP || isAdmin) ? "All Regions" : (myRegion || "Region")}</h1>
+              <p style={{ color: C.inkMid, fontSize: 13 }}>{(isAdmin ? userProfiles.filter(p => !ADMIN_EMAILS.includes(p.email) && p.role !== 'vp' && p.role !== 'director') : regionReps).length} rep{regionReps.length !== 1 ? "s" : ""} · {(isAdmin ? allEntriesFull : regionEntries).length} sessions logged</p>
             </div>
 
-            {regionLoading ? (
+            {regionLoading && !isAdmin ? (
               <div style={{ fontSize: 13, color: C.inkLight, padding: "40px 0", textAlign: "center" }}>Loading region data...</div>
-            ) : regionReps.length === 0 ? (
-              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
-                <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No reps in your region yet</div>
-                <div style={{ fontSize: 13, color: C.inkMid }}>Ask your admin to assign reps to the <strong>{isVP ? "organisation" : myRegion}</strong> region.</div>
-              </div>
-            ) : (
+            ) : (() => {
+              const tabReps = isAdmin
+                ? userProfiles.filter(p => !ADMIN_EMAILS.includes(p.email) && p.role !== 'vp' && p.role !== 'director' && p.is_active !== false)
+                : regionReps;
+              const tabEntries = isAdmin ? allEntriesFull : regionEntries;
+              if (tabReps.length === 0) return (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
+                  <div style={{ fontSize: 15, fontWeight: 500, color: C.ink, marginBottom: 8 }}>No reps found</div>
+                  <div style={{ fontSize: 13, color: C.inkMid }}>No reps have been assigned yet.</div>
+                </div>
+              );
+              return (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
                 {/* ── Rep Session Comparison Chart ── */}
-
-                {/* ── Rep Session Comparison Chart ── */}
-                {regionEntries.length > 0 && (() => {
+                {tabEntries.length > 0 && (() => {
                   const now = new Date();
                   const chartMode = repChartMode;
                   const setChartMode = setRepChartMode;
@@ -3610,9 +3614,9 @@ export default function App() {
                     return sum + (parseInt(e.matt_applied_den) || 0);
                   }, 0);
 
-                  const chartData = regionReps.map(rep => {
+                  const chartData = tabReps.map(rep => {
                     const name = rep.full_name || rep.email;
-                    const repSessions = filterByPeriod(regionEntries.filter(e => e.logged_by === name));
+                    const repSessions = filterByPeriod(tabEntries.filter(e => e.logged_by === name));
                     const shortName = name.split(" ")[0];
                     return { name: shortName, fullName: name, sessions: repSessions.length, beds: bedsAudited(repSessions) };
                   }).sort((a, b) => b[chartMode] - a[chartMode]);
@@ -3670,9 +3674,9 @@ export default function App() {
                 })()}
 
                 {/* ── Regional Aggregated Metrics ── */}
-                {regionEntries.length > 0 && (() => {
+                {tabEntries.length > 0 && (() => {
                   const regionAvgByMetric = METRICS.map(m => {
-                    const vals = regionEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+                    const vals = tabEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
                     const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
                     return { ...m, avg };
                   });
@@ -3714,9 +3718,9 @@ export default function App() {
                 })()}
 
                 {/* ── Hospital Rankings across region ── */}
-                {regionEntries.length > 0 && (() => {
+                {tabEntries.length > 0 && (() => {
                   const hospMap = {};
-                  regionEntries.forEach(e => {
+                  tabEntries.forEach(e => {
                     if (!e.hospital) return;
                     if (!hospMap[e.hospital]) hospMap[e.hospital] = [];
                     hospMap[e.hospital].push(e);
@@ -3747,7 +3751,8 @@ export default function App() {
                 })()}
 
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
