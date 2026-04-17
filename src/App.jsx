@@ -3885,18 +3885,6 @@ export default function App() {
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>ALL SESSIONS ({allEntriesFull.length})</div>
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm(`Delete ALL ${allEntriesFull.length} sessions? This cannot be undone.`)) return;
-                      const ids = allEntriesFull.map(e => e.id);
-                      const { error } = await supabase.from("sessions").delete().in("id", ids);
-                      if (error) { alert("Failed: " + error.message); return; }
-                      await logAudit("ALL_SESSIONS_DELETED", { count: ids.length });
-                      setAllEntriesFull([]); setEntries([]);
-                    }}
-                    style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
-                    DELETE ALL SESSIONS
-                  </button>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {[...allEntriesFull].reverse().map(e => {
