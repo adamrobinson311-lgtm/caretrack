@@ -1782,6 +1782,14 @@ export default function App() {
     await logAudit("SESSION_EDITED", { changed, hospital: finalData.hospital, date: finalData.date }, null, editingId);
     const { data: freshAudit } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
     if (freshAudit) setAuditLog(freshAudit);
+
+    // Sync edited session to Salesforce if hospital is mapped
+    try {
+      if (finalData.hospital && hospitalBranding[finalData.hospital]?.salesforceAccountId) {
+        await supabase.functions.invoke("salesforce-sync", { body: { session: finalData } });
+      }
+    } catch (e) { console.warn("Salesforce sync on edit failed:", e); }
+
     setEditingId(null);
     setEditForm({});
     setEditSaving(false);
