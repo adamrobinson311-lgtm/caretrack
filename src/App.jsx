@@ -1071,7 +1071,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.2";
+  const CURRENT_VERSION = "3.3";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -5156,7 +5156,22 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "3.2", date: "April 2026", badge: "LATEST", items: [
+              { version: "3.3", date: "April 2026", badge: "LATEST", items: [
+                "Salesforce integration — compliance sessions automatically sync to the matching Salesforce Account record when logged; deletions in CareTrack also remove the Salesforce record [Admin]",
+                "Salesforce Account ID mapping — admins can map any hospital to its Salesforce Account ID directly in Hospital Configuration, with a built-in search across all 8,000+ HoverTech accounts [Admin]",
+                "Shared hospital accounts — admins can mark a hospital as a shared account; reps who have logged there see each other's sessions across Dashboard, History, and Performers [Admin]",
+                "Shared account notifications — when any rep logs a session at a shared hospital, all reps who share that account receive an email notification with the session details and metrics",
+                "Per-hospital dashboard metric visibility — admins can control which metrics appear on the dashboard for each hospital; applies to PDF exports as well [Admin]",
+                "Bed layout editor — admins can define the bed count and room labels for any hospital unit; reps see the layout pre-populated with a 'LAYOUT LOADED' badge when they select that unit [Admin]",
+                "Delete Bed — a new Delete Bed button appears in the per-bed grid during session entry, with a confirmation dialog showing the bed number and room label",
+                "Auto report PDF attachments — Send Now generates and attaches the full branded PDF report to the email; scheduled cron sends generate a PDF via PDFShift automatically",
+                "Auto report editing — existing scheduled reports can now be edited directly from the Auto Reports panel [Admin]",
+                "All Regions view — admins now have access to the All Regions tab, showing rep activity and compliance across the entire organisation [Admin]",
+                "SFDC badge — hospitals mapped to a Salesforce account show a blue SFDC badge in the Admin Hospitals list [Admin]",
+                "Login tracking fix — Last Login now accurately reflects the most recent sign-in for all users [Admin]",
+                "Delete All Sessions removed — the bulk delete button has been removed from the Admin panel for safety [Admin]",
+              ]},
+              { version: "3.2", date: "April 2026", badge: null, items: [
                 "Hospital branding: Primary Text Color — controls heading and title text color in PDF exports",
                 "Hospital branding: Cover Color — sets the title page background independently from the header color on other pages",
               ]},
