@@ -1013,6 +1013,7 @@ export default function App() {
   const [hospitalRenameFrom, setHospitalRenameFrom] = useState("");
   const [hospitalRenameTo, setHospitalRenameTo] = useState("");
   const [hospitalRenaming, setHospitalRenaming] = useState(false);
+  const [sfSyncing, setSfSyncing] = useState({}); // { hospitalName: { status, count } }
   const [hospitalRenameResult, setHospitalRenameResult] = useState(null);
   const [dismissedDuplicates, setDismissedDuplicates] = useState(() => {
     try { return JSON.parse(localStorage.getItem("caretrack_dismissed_dupes") || "[]"); } catch { return []; }
@@ -4701,6 +4702,31 @@ export default function App() {
                                 <div style={{ position: "absolute", top: 3, left: isTrial ? 18 : 3, width: 14, height: 14, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
                               </div>
                             </div>
+                            {hospitalBranding[h]?.salesforceAccountId && (
+                              <button
+                                disabled={sfSyncing[h]?.status === "syncing"}
+                                onClick={async () => {
+                                  const sessions = allEntriesFull.filter(e => e.hospital === h);
+                                  setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: 0 } }));
+                                  let synced = 0;
+                                  for (const session of sessions) {
+                                    try {
+                                      await supabase.functions.invoke("salesforce-sync", { body: { session } });
+                                      synced++;
+                                      setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: synced } }));
+                                    } catch (e) { console.warn("SF sync failed for session", session.id, e); }
+                                  }
+                                  setSfSyncing(prev => ({ ...prev, [h]: { status: "done", count: synced } }));
+                                  setTimeout(() => setSfSyncing(prev => { const n = { ...prev }; delete n[h]; return n; }), 4000);
+                                }}
+                                style={{ background: sfSyncing[h]?.status === "done" ? C.greenLight : C.primaryLight, border: `1px solid ${sfSyncing[h]?.status === "done" ? C.green : C.primary}33`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: sfSyncing[h]?.status === "done" ? C.green : C.primary, cursor: sfSyncing[h]?.status === "syncing" ? "not-allowed" : "pointer", letterSpacing: "0.04em", flexShrink: 0 }}>
+                                {sfSyncing[h]?.status === "syncing"
+                                  ? `↑ ${sfSyncing[h].count}/${count}`
+                                  : sfSyncing[h]?.status === "done"
+                                  ? `✓ ${sfSyncing[h].count} SYNCED`
+                                  : "↑ SYNC TO SF"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
