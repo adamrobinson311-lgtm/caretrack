@@ -4478,11 +4478,6 @@ export default function App() {
                         .update({ hospital: hospitalRenameTo })
                         .eq("hospital", hospitalRenameFrom);
 
-                      // Update hospital_units
-                      await supabase.from("hospital_units")
-                        .update({ hospital: hospitalRenameTo })
-                        .eq("hospital", hospitalRenameFrom);
-
                       setHospitalRenaming(false);
                       setHospitalRenameResult({ count: data.length });
 
