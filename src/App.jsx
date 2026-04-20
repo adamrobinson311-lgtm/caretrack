@@ -1013,7 +1013,8 @@ export default function App() {
   const [hospitalRenameFrom, setHospitalRenameFrom] = useState("");
   const [hospitalRenameTo, setHospitalRenameTo] = useState("");
   const [hospitalRenaming, setHospitalRenaming] = useState(false);
-  const [sfSyncing, setSfSyncing] = useState({}); // { hospitalName: { status, count } }
+  const [sfSyncing, setSfSyncing] = useState({});
+  const [configuringHospital, setConfiguringHospital] = useState(null);
   const [hospitalRenameResult, setHospitalRenameResult] = useState(null);
   const [dismissedDuplicates, setDismissedDuplicates] = useState(() => {
     try { return JSON.parse(localStorage.getItem("caretrack_dismissed_dupes") || "[]"); } catch { return []; }
@@ -3780,10 +3781,6 @@ export default function App() {
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Admin Dashboard</h1>
                 <p style={{ color: C.inkMid, fontSize: 13 }}>Full visibility across all users, sessions, and hospitals.</p>
               </div>
-              <button onClick={() => setShowBrandingEditor(true)}
-                style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
-                🎨 HOSPITAL BRANDING
-              </button>
             </div>
 
             {/* Admin sub-nav */}
@@ -4755,10 +4752,177 @@ export default function App() {
                                 );
                               })()
                             )}
+                            <button onClick={() => setConfiguringHospital(configuringHospital === h ? null : h)}
+                              style={{ background: configuringHospital === h ? C.primary : "none", border: `1px solid ${configuringHospital === h ? C.primary : C.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: configuringHospital === h ? "white" : C.inkLight, cursor: "pointer", letterSpacing: "0.04em", flexShrink: 0 }}>
+                              {configuringHospital === h ? "DONE" : "CONFIGURE"}
+                            </button>
                           </div>
                         </div>
                       );
                     })}
+
+                    {/* Inline Hospital Configuration Panel */}
+                    {configuringHospital && (() => {
+                      const hospital = configuringHospital;
+                      const b = hospitalBranding[hospital] || {};
+                      return (
+                        <div style={{ background: C.surface, border: `2px solid ${C.primary}44`, borderRadius: 12, padding: 24, marginTop: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                            <div>
+                              <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, letterSpacing: "0.1em", marginBottom: 2 }}>CONFIGURING</div>
+                              <div style={{ fontSize: 15, fontWeight: 500, color: C.ink }}>{hospital}</div>
+                            </div>
+                            <button onClick={() => setConfiguringHospital(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: C.inkLight }}>✕</button>
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                            {/* Left column */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+                              {/* SF Account ID */}
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>SALESFORCE ACCOUNT ID</label>
+                                <input type="text" placeholder="001PW00000sZNnS" value={b.salesforceAccountId || ""}
+                                  style={{ width: "100%", background: C.bg, border: `1px solid ${b.salesforceAccountId ? C.primary + "66" : C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none", fontFamily: "'IBM Plex Mono', monospace" }}
+                                  onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: ev.target.value } }))} />
+                                {b.salesforceAccountId && <div style={{ fontSize: 9, color: C.primary, marginTop: 3, fontFamily: "'IBM Plex Mono', monospace" }}>✓ MAPPED TO SALESFORCE</div>}
+                                {!b.salesforceAccountId && (
+                                  <div style={{ marginTop: 6 }}>
+                                    {!sfSuggestions[hospital] ? (
+                                      <button onClick={async () => {
+                                        const words = hospital.toLowerCase().split(' ').filter(w => w.length > 3);
+                                        const { data: results } = await supabase.from('salesforce_accounts').select('id, name').ilike('name', `%${words[0] || hospital}%`).limit(8);
+                                        setSfSuggestions(prev => ({ ...prev, [hospital]: results || [] }));
+                                      }} style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: "none", border: "none", cursor: "pointer", padding: 0, letterSpacing: "0.05em" }}>
+                                        🔍 FIND IN SALESFORCE
+                                      </button>
+                                    ) : sfSuggestions[hospital].length === 0 ? (
+                                      <div style={{ fontSize: 10, color: C.inkFaint }}>No matches — enter ID manually</div>
+                                    ) : (
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                                        <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>SELECT MATCH:</div>
+                                        {sfSuggestions[hospital].map((s: any) => (
+                                          <button key={s.id} onClick={() => { setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: s.id } })); setSfSuggestions(prev => ({ ...prev, [hospital]: [] })); }}
+                                            style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "5px 10px", fontSize: 11, color: C.ink, cursor: "pointer", textAlign: "left" }}>
+                                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>{s.id}</span> — {s.name}
+                                          </button>
+                                        ))}
+                                        <button onClick={() => setSfSuggestions(prev => ({ ...prev, [hospital]: undefined }))} style={{ fontSize: 9, color: C.inkFaint, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>✕ clear</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Logo URL */}
+                              <div>
+                                <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
+                                <input type="text" placeholder="https://example.com/logo.png" value={b.logoUrl || ""}
+                                  style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
+                                  onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
+                                {b.logoUrl && <img src={b.logoUrl} alt={hospital} style={{ height: 28, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white", marginTop: 6 }} onError={e => e.target.style.display = "none"} />}
+                              </div>
+
+                              {/* Shared Account */}
+                              <div>
+                                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>SHARED ACCOUNT</div>
+                                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                                  <div onClick={() => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], isShared: !b.isShared } }))}
+                                    style={{ width: 36, height: 20, borderRadius: 10, background: b.isShared ? C.primary : C.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                                    <div style={{ position: "absolute", top: 3, left: b.isShared ? 18 : 3, width: 14, height: 14, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
+                                  </div>
+                                  <span style={{ fontSize: 12, color: C.ink }}>{b.isShared ? "Shared — all reps see each other's sessions" : "Not shared"}</span>
+                                </label>
+                              </div>
+
+                              {/* Dashboard Metrics */}
+                              <div>
+                                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>DASHBOARD METRICS</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                  {getMetrics(hospital).map(m => {
+                                    const enabled = b.enabledMetrics ? b.enabledMetrics.includes(m.id) : true;
+                                    return (
+                                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                                        <input type="checkbox" checked={enabled} onChange={() => {
+                                          const allIds = getMetrics(hospital).map(x => x.id);
+                                          const current = b.enabledMetrics || allIds;
+                                          const next = current.includes(m.id) ? current.filter(x => x !== m.id) : [...current, m.id];
+                                          setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], enabledMetrics: next.length === allIds.length ? null : next } }));
+                                        }} style={{ accentColor: C.primary, width: 13, height: 13, cursor: "pointer" }} />
+                                        <span style={{ fontSize: 12, color: enabled ? C.ink : C.inkFaint }}>{m.label}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Copy to another hospital */}
+                              <div style={{ paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                                <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>COPY TO ANOTHER HOSPITAL</div>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                  <select value={copyBrandingTo || ""} onChange={ev => setCopyBrandingTo(ev.target.value || null)}
+                                    style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}>
+                                    <option value="">Select hospital...</option>
+                                    {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().filter(hh => hh !== hospital).map(hh => <option key={hh} value={hh}>{hh}</option>)}
+                                  </select>
+                                  <button onClick={() => { if (!copyBrandingTo) return; setHospitalBranding(prev => ({ ...prev, [copyBrandingTo]: { ...b, isTrial: prev[copyBrandingTo]?.isTrial || false } })); setCopyBrandingTo(null); alert(`Copied to ${copyBrandingTo}. Save to persist.`); }}
+                                    disabled={!copyBrandingTo}
+                                    style={{ background: copyBrandingTo ? C.primary : C.surfaceAlt, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: copyBrandingTo ? "white" : C.inkFaint, cursor: copyBrandingTo ? "pointer" : "not-allowed", letterSpacing: "0.05em", flexShrink: 0 }}>
+                                    COPY
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right column — colors */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                              {[
+                                ["PRIMARY COLOR", "accentColor", "#4a6f7a"],
+                                ["SECONDARY COLOR", "secondaryColor", "#7C5366"],
+                                ["TERTIARY COLOR", "tertiaryColor", "#3a7d5c"],
+                                ["TEXT COLOR", "textColor", "#2a2624"],
+                                ["COVER COLOR", "coverColor", "#4F6E77"],
+                              ].map(([label, key, def]) => (
+                                <div key={key}>
+                                  <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>{label}</label>
+                                  <input type="color" value={b[key] || def}
+                                    style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
+                                    onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], [key]: ev.target.value } }))} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+                            <button onClick={() => setConfiguringHospital(null)}
+                              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
+                              CANCEL
+                            </button>
+                            <button onClick={async () => {
+                              const row = {
+                                hospital,
+                                logo_url: b.logoUrl || null,
+                                accent_color: b.accentColor || null,
+                                secondary_color: b.secondaryColor || null,
+                                tertiary_color: b.tertiaryColor || null,
+                                text_color: b.textColor || null,
+                                cover_color: b.coverColor || null,
+                                is_trial: b.isTrial || false,
+                                enabled_metrics: b.enabledMetrics || null,
+                                is_shared: b.isShared || false,
+                                salesforce_account_id: b.salesforceAccountId || null,
+                              };
+                              const { error } = await supabase.from("hospital_branding").upsert([row], { onConflict: "hospital" });
+                              if (error) { alert("Save failed: " + error.message); return; }
+                              setConfiguringHospital(null);
+                            }}
+                              style={{ background: C.primary, border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.06em" }}>
+                              SAVE CONFIGURATION
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -5404,206 +5568,6 @@ export default function App() {
       )}
 
       {/* ── WHITE-LABEL BRANDING EDITOR (ADMIN ONLY) ───────────────────────── */}
-      {showBrandingEditor && isAdmin && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }}>
-          <div style={{ background: C.surface, borderRadius: 16, maxWidth: 480, width: "100%", padding: "36px 40px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Hospital Branding</h2>
-              <button onClick={() => { setShowBrandingEditor(false); setExpandedBrandingHospital(null); }} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
-            </div>
-            <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16 }}>Tap a hospital to edit its logo and accent color.</p>
-            <div style={{ overflowY: "auto", flex: 1, marginBottom: 16 }}>
-              {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().map(hospital => {
-                const b = hospitalBranding[hospital] || {};
-                const isOpen = expandedBrandingHospital === hospital;
-                const hasConfig = b.logoUrl || b.accentColor;
-                return (
-                  <div key={hospital} style={{ marginBottom: 6, borderRadius: 10, border: `1px solid ${isOpen ? C.primary + "66" : C.border}`, overflow: "hidden", transition: "border-color 0.15s" }}>
-                    {/* Accordion header */}
-                    <button onClick={() => setExpandedBrandingHospital(isOpen ? null : hospital)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: isOpen ? C.primaryLight : C.bg, border: "none", cursor: "pointer", textAlign: "left", transition: "background 0.15s" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        {b.accentColor && <div style={{ width: 12, height: 12, borderRadius: "50%", background: b.accentColor, flexShrink: 0 }} />}
-                        <span style={{ fontSize: 13, fontWeight: 500, color: isOpen ? C.primary : C.ink }}>{hospital}</span>
-                        {hasConfig && <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 8, padding: "1px 6px", letterSpacing: "0.05em" }}>CONFIGURED</span>}
-                            {b.isShared && <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.green, background: C.greenLight, border: `1px solid ${C.green}33`, borderRadius: 8, padding: "1px 6px", letterSpacing: "0.05em" }}>SHARED</span>}
-                      </div>
-                      <span style={{ fontSize: 12, color: C.inkLight, transition: "transform 0.15s", display: "inline-block", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
-                    </button>
-                    {/* Accordion body */}
-                    {isOpen && (
-                      <div style={{ padding: "14px 14px 16px", background: C.surface, borderTop: `1px solid ${C.border}` }}>
-                        {/* Salesforce Account ID */}
-                        <div style={{ marginBottom: 12 }}>
-                          <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>SALESFORCE ACCOUNT ID</label>
-                          <input type="text" placeholder="001PW00000sZNnS" value={b.salesforceAccountId || ""}
-                            style={{ width: "100%", background: C.bg, border: `1px solid ${b.salesforceAccountId ? C.primary + "66" : C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none", fontFamily: "'IBM Plex Mono', monospace" }}
-                            onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: ev.target.value } }))} />
-                          {b.salesforceAccountId && <div style={{ fontSize: 9, color: C.primary, marginTop: 3, fontFamily: "'IBM Plex Mono', monospace" }}>✓ MAPPED TO SALESFORCE</div>}
-                          {/* Auto-suggest SF accounts */}
-                          {!b.salesforceAccountId && (
-                            <div style={{ marginTop: 6 }}>
-                              {!sfSuggestions[hospital] ? (
-                                <button onClick={async () => {
-                                  const words = hospital.toLowerCase().split(' ').filter(w => w.length > 3);
-                                  const searchWord = words[0] || hospital;
-                                  const { data: results } = await supabase
-                                    .from('salesforce_accounts')
-                                    .select('id, name')
-                                    .ilike('name', `%${searchWord}%`)
-                                    .limit(8);
-                                  setSfSuggestions(prev => ({ ...prev, [hospital]: results || [] }));
-                                }}
-                                  style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: "none", border: "none", cursor: "pointer", padding: 0, letterSpacing: "0.05em" }}>
-                                  🔍 FIND IN SALESFORCE
-                                </button>
-                              ) : sfSuggestions[hospital].length === 0 ? (
-                                <div style={{ fontSize: 10, color: C.inkFaint }}>No matches found — enter ID manually</div>
-                              ) : (
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.06em" }}>SELECT MATCH:</div>
-                                  {sfSuggestions[hospital].map((s: any) => (
-                                    <button key={s.id} onClick={() => {
-                                      setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], salesforceAccountId: s.id } }));
-                                      setSfSuggestions(prev => ({ ...prev, [hospital]: [] }));
-                                    }}
-                                      style={{ background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "5px 10px", fontSize: 11, color: C.ink, cursor: "pointer", textAlign: "left" }}>
-                                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary }}>{s.id}</span> — {s.name}
-                                    </button>
-                                  ))}
-                                  <button onClick={() => setSfSuggestions(prev => ({ ...prev, [hospital]: undefined }))}
-                                    style={{ fontSize: 9, color: C.inkFaint, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
-                                    ✕ clear
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                          <div>
-                            <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>LOGO URL</label>
-                            <input type="text" placeholder="https://example.com/logo.png" value={b.logoUrl || ""}
-                              style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}
-                              onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], logoUrl: ev.target.value } }))} />
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            <div>
-                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>PRIMARY COLOR</label>
-                              <input type="color" value={b.accentColor || "#4a6f7a"}
-                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], accentColor: ev.target.value } }))} />
-                            </div>
-                            <div>
-                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>SECONDARY COLOR</label>
-                              <input type="color" value={b.secondaryColor || "#7C5366"}
-                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], secondaryColor: ev.target.value } }))} />
-                            </div>
-                            <div>
-                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TERTIARY COLOR</label>
-                              <input type="color" value={b.tertiaryColor || "#3a7d5c"}
-                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], tertiaryColor: ev.target.value } }))} />
-                            </div>
-                            <div>
-                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TEXT COLOR</label>
-                              <input type="color" value={b.textColor || "#2a2624"}
-                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], textColor: ev.target.value } }))} />
-                            </div>
-                            <div>
-                              <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>COVER COLOR</label>
-                              <input type="color" value={b.coverColor || "#4F6E77"}
-                                style={{ width: 44, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, cursor: "pointer", padding: 2 }}
-                                onChange={ev => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], coverColor: ev.target.value } }))} />
-                            </div>
-                          </div>
-                        </div>
-                        {b.logoUrl && (
-                          <div style={{ marginTop: 10 }}>
-                            <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>PREVIEW</div>
-                            <img src={b.logoUrl} alt={hospital} style={{ height: 32, maxWidth: 160, objectFit: "contain", borderRadius: 4, border: `1px solid ${C.border}`, padding: 4, background: "white" }} onError={e => e.target.style.display = "none"} />
-                          </div>
-                        )}
-                        {/* Shared Account toggle */}
-                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>SHARED ACCOUNT</div>
-                          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                            <div onClick={() => setHospitalBranding(prev => ({ ...prev, [hospital]: { ...prev[hospital], isShared: !b.isShared } }))}
-                              style={{ width: 36, height: 20, borderRadius: 10, background: b.isShared ? C.primary : C.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                              <div style={{ position: "absolute", top: 3, left: b.isShared ? 18 : 3, width: 14, height: 14, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: C.ink, fontWeight: b.isShared ? 500 : 400 }}>
-                                {b.isShared ? "Shared — all reps see each other's sessions" : "Not shared — reps only see their own sessions"}
-                              </div>
-                              <div style={{ fontSize: 10, color: C.inkFaint, marginTop: 2 }}>Reps at shared accounts receive email notifications when a session is logged</div>
-                            </div>
-                          </label>
-                        </div>
-
-                        {/* Copy to another hospital */}
-                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>COPY TO ANOTHER HOSPITAL</div>
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <select value={copyBrandingTo || ""}
-                              onChange={ev => setCopyBrandingTo(ev.target.value || null)}
-                              style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.ink, outline: "none" }}>
-                              <option value="">Select hospital...</option>
-                              {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort()
-                                .filter(h => h !== hospital)
-                                .map(h => <option key={h} value={h}>{h}</option>)}
-                            </select>
-                            <button onClick={() => {
-                              if (!copyBrandingTo) return;
-                              setHospitalBranding(prev => ({
-                                ...prev,
-                                [copyBrandingTo]: { ...b, isTrial: prev[copyBrandingTo]?.isTrial || false },
-                              }));
-                              setCopyBrandingTo(null);
-                              alert(`Branding copied to ${copyBrandingTo}. Hit Save to persist.`);
-                            }}
-                              disabled={!copyBrandingTo}
-                              style={{ background: copyBrandingTo ? C.primary : C.surfaceAlt, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: copyBrandingTo ? "white" : C.inkFaint, cursor: copyBrandingTo ? "pointer" : "not-allowed", letterSpacing: "0.05em", flexShrink: 0 }}>
-                              COPY
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <button onClick={async () => {
-              const rows = Object.entries(hospitalBranding).map(([hospital, b]) => ({
-                hospital,
-                logo_url: b.logoUrl || null,
-                accent_color: b.accentColor || null,
-                secondary_color: b.secondaryColor || null,
-                tertiary_color: b.tertiaryColor || null,
-                text_color: b.textColor || null,
-                cover_color: b.coverColor || null,
-                is_trial: b.isTrial || false,
-                enabled_metrics: b.enabledMetrics || null,
-                is_shared: b.isShared || false,
-                salesforce_account_id: b.salesforceAccountId || null,
-              }));
-              if (rows.length > 0) {
-                const { error } = await supabase.from("hospital_branding").upsert(rows, { onConflict: "hospital" });
-                if (error) { alert("Save failed: " + error.message); return; }
-              }
-              setShowBrandingEditor(false);
-              setExpandedBrandingHospital(null);
-              alert("Configuration saved!");
-            }} style={{ width: "100%", background: C.primary, border: "none", borderRadius: 8, padding: "14px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.08em", flexShrink: 0 }}>
-              SAVE HOSPITAL CONFIGURATION
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── UNIT MANAGER MODAL ──────────────────────────────────────────────── */}
       {showUnitManager && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setShowUnitManager(false)}>
