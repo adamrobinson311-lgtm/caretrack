@@ -1588,9 +1588,12 @@ export default function App() {
       // Push to Salesforce if hospital is mapped
       try {
         if (hospitalBranding[finalData.hospital]?.salesforceAccountId) {
-          await supabase.functions.invoke("salesforce-sync", {
-            body: { session: finalData },
-          });
+          const sfRes = await supabase.functions.invoke("salesforce-sync", { body: { session: finalData } });
+          if (!sfRes.error) {
+            const syncedAt = new Date().toISOString();
+            setEntries(prev => prev.map(e => e.id === finalData.id ? { ...e, sf_synced_at: syncedAt } : e));
+            setAllEntriesFull(prev => prev.map(e => e.id === finalData.id ? { ...e, sf_synced_at: syncedAt } : e));
+          }
         }
       } catch (e) { console.warn("Salesforce sync failed:", e); }
     }, 500);
@@ -1787,7 +1790,12 @@ export default function App() {
     // Sync edited session to Salesforce if hospital is mapped
     try {
       if (finalData.hospital && hospitalBranding[finalData.hospital]?.salesforceAccountId) {
-        await supabase.functions.invoke("salesforce-sync", { body: { session: finalData } });
+        const sfRes = await supabase.functions.invoke("salesforce-sync", { body: { session: finalData } });
+        if (!sfRes.error) {
+          const syncedAt = new Date().toISOString();
+          setEntries(prev => prev.map(e => e.id === finalData.id ? { ...e, sf_synced_at: syncedAt } : e));
+          setAllEntriesFull(prev => prev.map(e => e.id === finalData.id ? { ...e, sf_synced_at: syncedAt } : e));
+        }
       }
     } catch (e) { console.warn("Salesforce sync on edit failed:", e); }
 
@@ -4703,29 +4711,49 @@ export default function App() {
                               </div>
                             </div>
                             {hospitalBranding[h]?.salesforceAccountId && (
-                              <button
-                                disabled={sfSyncing[h]?.status === "syncing"}
-                                onClick={async () => {
-                                  const sessions = allEntriesFull.filter(e => e.hospital === h);
-                                  setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: 0 } }));
-                                  let synced = 0;
-                                  for (const session of sessions) {
-                                    try {
-                                      await supabase.functions.invoke("salesforce-sync", { body: { session } });
-                                      synced++;
-                                      setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: synced } }));
-                                    } catch (e) { console.warn("SF sync failed for session", session.id, e); }
-                                  }
-                                  setSfSyncing(prev => ({ ...prev, [h]: { status: "done", count: synced } }));
-                                  setTimeout(() => setSfSyncing(prev => { const n = { ...prev }; delete n[h]; return n; }), 4000);
-                                }}
-                                style={{ background: sfSyncing[h]?.status === "done" ? C.greenLight : C.primaryLight, border: `1px solid ${sfSyncing[h]?.status === "done" ? C.green : C.primary}33`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: sfSyncing[h]?.status === "done" ? C.green : C.primary, cursor: sfSyncing[h]?.status === "syncing" ? "not-allowed" : "pointer", letterSpacing: "0.04em", flexShrink: 0 }}>
-                                {sfSyncing[h]?.status === "syncing"
-                                  ? `↑ ${sfSyncing[h].count}/${count}`
-                                  : sfSyncing[h]?.status === "done"
-                                  ? `✓ ${sfSyncing[h].count} SYNCED`
-                                  : "↑ SYNC TO SF"}
-                              </button>
+                              (() => {
+                                const synced = allEntriesFull.filter(e => e.hospital === h && e.sf_synced_at).length;
+                                const unsynced = allEntriesFull.filter(e => e.hospital === h && !e.sf_synced_at).length;
+                                const isSyncing = sfSyncing[h]?.status === "syncing";
+                                const isDone = sfSyncing[h]?.status === "done";
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                                    <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>
+                                      <span style={{ color: C.green }}>{synced} synced</span>
+                                      {unsynced > 0 && <span style={{ color: C.amber }}> · {unsynced} pending</span>}
+                                    </div>
+                                    <button
+                                      disabled={isSyncing || unsynced === 0}
+                                      onClick={async () => {
+                                        const unsyncedSessions = allEntriesFull.filter(e => e.hospital === h && !e.sf_synced_at);
+                                        setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: 0 } }));
+                                        let syncedCount = 0;
+                                        for (const session of unsyncedSessions) {
+                                          try {
+                                            const res = await supabase.functions.invoke("salesforce-sync", { body: { session } });
+                                            if (!res.error) {
+                                              syncedCount++;
+                                              // Update local state to reflect sync
+                                              setAllEntriesFull(prev => prev.map(e => e.id === session.id ? { ...e, sf_synced_at: new Date().toISOString() } : e));
+                                              setSfSyncing(prev => ({ ...prev, [h]: { status: "syncing", count: syncedCount } }));
+                                            }
+                                          } catch (e) { console.warn("SF sync failed for session", session.id, e); }
+                                        }
+                                        setSfSyncing(prev => ({ ...prev, [h]: { status: "done", count: syncedCount } }));
+                                        setTimeout(() => setSfSyncing(prev => { const n = { ...prev }; delete n[h]; return n; }), 4000);
+                                      }}
+                                      style={{ background: isDone ? C.greenLight : unsynced === 0 ? C.surfaceAlt : C.primaryLight, border: `1px solid ${isDone ? C.green : unsynced === 0 ? C.border : C.primary}33`, borderRadius: 6, padding: "4px 10px", fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: isDone ? C.green : unsynced === 0 ? C.inkFaint : C.primary, cursor: isSyncing || unsynced === 0 ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+                                      {isSyncing
+                                        ? `↑ ${sfSyncing[h].count}/${unsynced}`
+                                        : isDone
+                                        ? `✓ ${sfSyncing[h].count} SYNCED`
+                                        : unsynced === 0
+                                        ? "✓ ALL SYNCED"
+                                        : `↑ SYNC ${unsynced} TO SF`}
+                                    </button>
+                                  </div>
+                                );
+                              })()
                             )}
                           </div>
                         </div>
