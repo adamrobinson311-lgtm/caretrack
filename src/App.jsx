@@ -4454,40 +4454,71 @@ export default function App() {
                       if (!window.confirm(`Rename "${hospitalRenameFrom}" to "${hospitalRenameTo}" across all sessions?`)) return;
                       setHospitalRenaming(true);
                       setHospitalRenameResult(null);
+
+                      // Update sessions
                       const { data, error } = await supabase
                         .from("sessions")
                         .update({ hospital: hospitalRenameTo })
                         .eq("hospital", hospitalRenameFrom)
                         .select();
-                      setHospitalRenaming(false);
+
                       if (error) {
+                        setHospitalRenaming(false);
                         setHospitalRenameResult({ error: error.message });
-                      } else {
-                        setHospitalRenameResult({ count: data.length });
-                        // Refresh entries
-                        setAllEntriesFull(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
-                        setEntries(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
-                        await logAudit("HOSPITAL_RENAMED", { from: hospitalRenameFrom, to: hospitalRenameTo, count: data.length });
-                        // Clean up localStorage — migrate old hospital name to new name so it doesn't resurface in dropdowns
-                        const hospitalData = getHospitalData();
-                        if (hospitalData[hospitalRenameFrom]) {
-                          const oldData = hospitalData[hospitalRenameFrom];
-                          if (!hospitalData[hospitalRenameTo]) {
-                            hospitalData[hospitalRenameTo] = oldData;
-                          } else {
-                            // Merge units and protocols
-                            const existing = hospitalData[hospitalRenameTo];
-                            const mergedUnits = [...new Set([...(existing.units || []), ...(oldData.units || [])])];
-                            const mergedProtocols = { ...(oldData.protocols || {}), ...(existing.protocols || {}) };
-                            const mergedBedCounts = { ...(oldData.bedCounts || {}), ...(existing.bedCounts || {}) };
-                            hospitalData[hospitalRenameTo] = { units: mergedUnits, protocols: mergedProtocols, bedCounts: mergedBedCounts };
-                          }
-                          delete hospitalData[hospitalRenameFrom];
-                          saveHospitalData(hospitalData);
-                        }
-                        setHospitalRenameFrom("");
-                        setHospitalRenameTo("");
+                        return;
                       }
+
+                      // Update hospital_branding
+                      await supabase.from("hospital_branding")
+                        .update({ hospital: hospitalRenameTo })
+                        .eq("hospital", hospitalRenameFrom);
+
+                      // Update bed_layouts
+                      await supabase.from("bed_layouts")
+                        .update({ hospital: hospitalRenameTo })
+                        .eq("hospital", hospitalRenameFrom);
+
+                      // Update hospital_units
+                      await supabase.from("hospital_units")
+                        .update({ hospital: hospitalRenameTo })
+                        .eq("hospital", hospitalRenameFrom);
+
+                      setHospitalRenaming(false);
+                      setHospitalRenameResult({ count: data.length });
+
+                      // Update branding state
+                      setHospitalBranding(prev => {
+                        const updated = { ...prev };
+                        if (updated[hospitalRenameFrom]) {
+                          updated[hospitalRenameTo] = updated[hospitalRenameFrom];
+                          delete updated[hospitalRenameFrom];
+                        }
+                        return updated;
+                      });
+
+                      // Refresh entries
+                      setAllEntriesFull(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                      setEntries(prev => prev.map(e => e.hospital === hospitalRenameFrom ? { ...e, hospital: hospitalRenameTo } : e));
+                      await logAudit("HOSPITAL_RENAMED", { from: hospitalRenameFrom, to: hospitalRenameTo, count: data.length });
+
+                      // Clean up localStorage
+                      const hospitalData = getHospitalData();
+                      if (hospitalData[hospitalRenameFrom]) {
+                        const oldData = hospitalData[hospitalRenameFrom];
+                        if (!hospitalData[hospitalRenameTo]) {
+                          hospitalData[hospitalRenameTo] = oldData;
+                        } else {
+                          const existing = hospitalData[hospitalRenameTo];
+                          const mergedUnits = [...new Set([...(existing.units || []), ...(oldData.units || [])])];
+                          const mergedProtocols = { ...(oldData.protocols || {}), ...(existing.protocols || {}) };
+                          const mergedBedCounts = { ...(oldData.bedCounts || {}), ...(existing.bedCounts || {}) };
+                          hospitalData[hospitalRenameTo] = { units: mergedUnits, protocols: mergedProtocols, bedCounts: mergedBedCounts };
+                        }
+                        delete hospitalData[hospitalRenameFrom];
+                        saveHospitalData(hospitalData);
+                      }
+                      setHospitalRenameFrom("");
+                      setHospitalRenameTo("");
                     }}
                     style={{ background: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.surfaceAlt : C.primary, color: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? C.inkLight : "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: hospitalRenaming || !hospitalRenameFrom || !hospitalRenameTo || hospitalRenameFrom === hospitalRenameTo ? "not-allowed" : "pointer", letterSpacing: "0.06em" }}>
                     {hospitalRenaming ? "RENAMING..." : "RENAME HOSPITAL"}
