@@ -4681,7 +4681,8 @@ export default function App() {
                       const reps = [...new Set(allEntriesFull.filter(e => e.hospital === h).map(e => e.logged_by))].filter(Boolean);
                       const isTrial = !!(hospitalBranding[h]?.isTrial);
                       return (
-                        <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: isTrial ? C.amberLight : C.bg, borderRadius: 8, border: `1px solid ${isTrial ? C.amber + "44" : "transparent"}` }}>
+                        <div key={h}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: isTrial ? C.amberLight : C.bg, borderRadius: 8, border: `1px solid ${isTrial ? C.amber + "44" : configuringHospital === h ? C.primary + "66" : "transparent"}` }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{h}</div>
@@ -4759,13 +4760,10 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-                      );
-                    })}
-
-                    {/* Inline Hospital Configuration Panel */}
-                    {configuringHospital && (() => {
-                      const hospital = configuringHospital;
-                      const b = hospitalBranding[hospital] || {};
+                        {/* Inline config panel — renders immediately below this hospital */}
+                        {configuringHospital === h && (() => {
+                          const hospital = h;
+                          const b = hospitalBranding[hospital] || {};
                       return (
                         <div style={{ background: C.surface, border: `2px solid ${C.primary}44`, borderRadius: 12, padding: 24, marginTop: 4 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
@@ -4922,8 +4920,11 @@ export default function App() {
                             </button>
                           </div>
                         </div>
+                        );
+                      })()}
+                      </div>
                       );
-                    })()}
+                    })}
                   </div>
                 </div>
               </div>
