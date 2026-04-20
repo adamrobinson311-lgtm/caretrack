@@ -2,6 +2,34 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
+// ── Mobile optimisations ───────────────────────────────────────────────────
+// Injected as a global style tag so they apply universally without
+// touching any component. Safe to add/remove without side effects.
+const mobileStyles = document.createElement('style');
+mobileStyles.textContent = `
+  /* Prevent iOS auto-zoom on input focus (requires font-size >= 16px) */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Remove grey tap highlight flash on iOS */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Remove 300ms tap delay on buttons and interactive elements */
+  button, a, [role="button"] {
+    touch-action: manipulation;
+  }
+
+  /* Prevent accidental text selection during swipe/scroll */
+  button, nav, [role="button"], .metric-card-hover, .hide-metric-btn {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+`;
+document.head.appendChild(mobileStyles);
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
