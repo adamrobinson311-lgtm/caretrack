@@ -4864,7 +4864,7 @@ export default function App() {
                                     <option value="">Select hospital...</option>
                                     {[...new Set(allEntriesFull.map(e => e.hospital).filter(Boolean))].sort().filter(hh => hh !== hospital).map(hh => <option key={hh} value={hh}>{hh}</option>)}
                                   </select>
-                                  <button onClick={() => { if (!copyBrandingTo) return; setHospitalBranding(prev => ({ ...prev, [copyBrandingTo]: { ...b, isTrial: prev[copyBrandingTo]?.isTrial || false } })); setCopyBrandingTo(null); alert(`Copied to ${copyBrandingTo}. Save to persist.`); }}
+                                  <button onClick={() => { if (!copyBrandingTo) return; setHospitalBranding(prev => ({ ...prev, [copyBrandingTo]: { ...prev[copyBrandingTo], logoUrl: b.logoUrl, accentColor: b.accentColor, secondaryColor: b.secondaryColor, tertiaryColor: b.tertiaryColor, textColor: b.textColor, coverColor: b.coverColor } })); setCopyBrandingTo(null); alert(`Branding copied to ${copyBrandingTo}. Save to persist.`); }}
                                     disabled={!copyBrandingTo}
                                     style={{ background: copyBrandingTo ? C.primary : C.surfaceAlt, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: copyBrandingTo ? "white" : C.inkFaint, cursor: copyBrandingTo ? "pointer" : "not-allowed", letterSpacing: "0.05em", flexShrink: 0 }}>
                                     COPY
