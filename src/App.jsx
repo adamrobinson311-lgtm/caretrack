@@ -3635,7 +3635,7 @@ export default function App() {
 
                   const chartData = tabReps.map(rep => {
                     const name = rep.full_name || rep.email;
-                    const repSessions = filterByPeriod(tabEntries.filter(e => e.logged_by === name));
+                    const repSessions = filterByPeriod(tabEntries.filter(e => e.logged_by?.toLowerCase() === name?.toLowerCase()));
                     const parts = name.split(" ");
                     const shortName = parts.length >= 2 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
                     return { name: shortName, fullName: name, sessions: repSessions.length, beds: bedsAudited(repSessions) };
