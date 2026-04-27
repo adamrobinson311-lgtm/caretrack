@@ -3636,7 +3636,8 @@ export default function App() {
                   const chartData = tabReps.map(rep => {
                     const name = rep.full_name || rep.email;
                     const repSessions = filterByPeriod(tabEntries.filter(e => e.logged_by === name));
-                    const shortName = name.split(" ")[0];
+                    const parts = name.split(" ");
+                    const shortName = parts.length >= 2 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
                     return { name: shortName, fullName: name, sessions: repSessions.length, beds: bedsAudited(repSessions) };
                   }).sort((a, b) => b[chartMode] - a[chartMode]);
 
@@ -3673,9 +3674,9 @@ export default function App() {
                               <div style={{ width: 90, fontSize: 11, color: C.inkLight, textAlign: "right", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.fullName}>{d.name}</div>
                               <div style={{ flex: 1, height: 28, background: C.bg, borderRadius: 4, overflow: "hidden", position: "relative" }}>
                                 <div style={{ height: "100%", width: `${barPct}%`, background: C.primary, borderRadius: 4, transition: "width 0.5s ease", minWidth: val > 0 ? 4 : 0 }} />
-                                <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, fontWeight: 500, color: barPct > 50 ? "white" : C.ink, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                  {val > 0 ? val : "—"}
-                                </div>
+                              </div>
+                              <div style={{ width: 32, fontSize: 11, fontWeight: 500, color: C.ink, fontFamily: "'IBM Plex Mono', monospace", textAlign: "right", flexShrink: 0 }}>
+                                {val > 0 ? val : "—"}
                               </div>
                               {i === 0 && <div style={{ width: 16, fontSize: 12 }}>🥇</div>}
                               {i === 1 && <div style={{ width: 16, fontSize: 12 }}>🥈</div>}
