@@ -1122,6 +1122,7 @@ export default function App() {
     });
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
+  const [unitFilter, setUnitFilter] = useState("All");
   const [repFilter, setRepFilter] = useState("All");
   const [regionSortBy, setRegionSortBy] = useState("avg");
   const [regionSortDir, setRegionSortDir] = useState("desc");
@@ -1611,6 +1612,7 @@ export default function App() {
   // Apply all filters
   const applyFilters = (list, hFilter) => list.filter(e => {
     if (hFilter !== "All" && e.hospital !== hFilter) return false;
+    if (unitFilter !== "All" && e.location !== unitFilter) return false;
     if (repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (dateFrom && e.date < dateFrom) return false;
     if (dateTo && e.date > dateTo) return false;
@@ -2674,10 +2676,15 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }} className="dashboard-header">
               <div>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }} className="dashboard-title">Compliance Dashboard</h1>
-                <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${unitFilter !== "All" ? ` · ${unitFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
-                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={setHospitalFilter} label="HOSPITAL" hospitals={hospitals} />}
+                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); }} label="HOSPITAL" hospitals={hospitals} />}
+                {hospitalFilter !== "All" && (() => {
+                  const units = [...new Set(proxyEntries.filter(e => e.hospital === hospitalFilter && e.location).map(e => e.location))].sort();
+                  if (units.length <= 1) return null;
+                  return <FilterBar value={unitFilter} onChange={setUnitFilter} label="UNIT" hospitals={units} />;
+                })()}
                 {(isDirector || isVP) && regionRepNames.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }} className="filter-bar">
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REP</span>
