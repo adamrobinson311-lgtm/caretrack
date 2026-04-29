@@ -1657,7 +1657,7 @@ export default function App() {
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
-  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => !isTrialHospital(e.hospital));
+  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
 
   // Use branding for the selected hospital, or auto-detect if only one hospital in view
   const activeBranding = (() => {
