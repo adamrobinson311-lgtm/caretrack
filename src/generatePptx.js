@@ -314,12 +314,12 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     const tableHeader = [...fixedHdr, ...metricHdrs];
 
     // Calculate max rows that fit on slide — hard cap at 16 to prevent overflow
-    const rowH = 0.19;
+    const rowH = 0.18;
     const tableStartY = 1.38;
     const headerH = 0.40;
     const footerH = 0.25;
     const slideH = 5.625;
-    const maxRows = Math.min(16, Math.floor((slideH - tableStartY - headerH - footerH) / rowH));
+    const maxRows = Math.min(14, Math.floor((slideH - tableStartY - headerH - footerH) / rowH));
 
     // Build rows — limit total beds to maxRows
     const bedTableRows = [];
@@ -355,10 +355,10 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       }
     }
 
-    // Calculate column widths — wider room column prevents number wrapping
-    const fixedW = [1.0, 0.85, 0.28, 0.52];
+    // Calculate column widths — bed col must fit 2-digit numbers without wrapping
+    const fixedW = [1.0, 0.85, 0.38, 0.52];
     const totalFixed = fixedW.reduce((a, b) => a + b, 0);
-    const metricColW = Math.max(0.50, (9.3 - totalFixed) / Math.max(orderedBedMetrics.length, 1));
+    const metricColW = Math.max(0.48, (9.3 - totalFixed) / Math.max(orderedBedMetrics.length, 1));
     const metricColWs = orderedBedMetrics.map(() => metricColW);
 
     sBed.addTable([tableHeader, ...bedTableRows], {
