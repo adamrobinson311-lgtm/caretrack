@@ -4659,11 +4659,29 @@ export default function App() {
                               </span>
                             </div>
                             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                              <button onClick={() => { setHospitalRenameFrom(b); setHospitalRenameTo(a); setAdminSection("hospitals"); }}
+                              <button onClick={async () => {
+                                if (!window.confirm(`Merge all "${b}" sessions into "${a}"? This cannot be undone.`)) return;
+                                await supabase.from("sessions").update({ hospital: a }).eq("hospital", b);
+                                await supabase.from("hospital_branding").update({ hospital: a }).eq("hospital", b);
+                                await supabase.from("bed_layouts").update({ hospital: a }).eq("hospital", b);
+                                setAllEntriesFull(prev => prev.map(e => e.hospital === b ? { ...e, hospital: a } : e));
+                                setEntries(prev => prev.map(e => e.hospital === b ? { ...e, hospital: a } : e));
+                                dismissPair(a, b);
+                                await logAudit("HOSPITAL_MERGED", { from: b, into: a });
+                              }}
                                 style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
                                 MERGE → "{a}"
                               </button>
-                              <button onClick={() => { setHospitalRenameFrom(a); setHospitalRenameTo(b); setAdminSection("hospitals"); }}
+                              <button onClick={async () => {
+                                if (!window.confirm(`Merge all "${a}" sessions into "${b}"? This cannot be undone.`)) return;
+                                await supabase.from("sessions").update({ hospital: b }).eq("hospital", a);
+                                await supabase.from("hospital_branding").update({ hospital: b }).eq("hospital", a);
+                                await supabase.from("bed_layouts").update({ hospital: b }).eq("hospital", a);
+                                setAllEntriesFull(prev => prev.map(e => e.hospital === a ? { ...e, hospital: b } : e));
+                                setEntries(prev => prev.map(e => e.hospital === a ? { ...e, hospital: b } : e));
+                                dismissPair(a, b);
+                                await logAudit("HOSPITAL_MERGED", { from: a, into: b });
+                              }}
                                 style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, background: C.primaryLight, border: `1px solid ${C.primary}33`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
                                 MERGE → "{b}"
                               </button>
