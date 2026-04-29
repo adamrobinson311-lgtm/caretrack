@@ -287,11 +287,19 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { label: "Air Supply",       ids: ["air_supply"],                                          single: true  },
     ];
 
-    // Determine which metrics are actually present in the bed data
-    const allBedMetricIds = [...new Set(bedEntries.flatMap(e =>
-      e.bed_data.flatMap(bed => Object.keys(bed).filter(k => k.endsWith("_a")).map(k => k.replace("_a", "")))
-    ))];
-    const orderedBedMetrics = BED_BUCKETS.flatMap(b => b.ids.filter(id => allBedMetricIds.includes(id)));
+    // Use bucketed metric list directly — don't rely on detecting from bed keys
+    const BED_BUCKETS = [
+      { label: "Turn Protocol",    ids: ["turning_criteria"],                                    single: true  },
+      { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                         single: false },
+      { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"],   single: false },
+      { label: "Air Supply",       ids: ["air_supply"],                                          single: true  },
+      { label: "Kaiser Metrics",   ids: ["heel_boots", "turn_clock"],                            single: false },
+    ];
+
+    // Only include metrics that appear in at least one bed record
+    const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
+      b.ids.filter(id => bedEntries.some(e => e.bed_data.some(bed => bed[`${id}_a`] !== undefined || bed[`${id}_na`] !== undefined)))
+    );
 
     const METRIC_SHORT = {
       matt_applied: "Matt\nApp.", wedges_applied: "Wdg\nApp.", turning_criteria: "Turn\nProt.",
@@ -299,12 +307,11 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       air_supply: "Air\nSupply", heel_boots: "Heel\nBoots", turn_clock: "Trn\nClock",
     };
 
-    // Build bucket header row and metric sub-header row
     const fixedHdr = [
-      { text: "Date",     options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center", rowspan: 2 } },
-      { text: "Location", options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center", rowspan: 2 } },
-      { text: "Bed",      options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center", rowspan: 2 } },
-      { text: "Room",     options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center", rowspan: 2 } },
+      { text: "Date",     options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center" } },
+      { text: "Location", options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center" } },
+      { text: "Bed",      options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center" } },
+      { text: "Room",     options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 7, fontFace: "Calibri", align: "center" } },
     ];
 
     const metricHdrs = orderedBedMetrics.map(id => ({
@@ -314,34 +321,44 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
     const tableHeader = [...fixedHdr, ...metricHdrs];
 
-    // Build rows
+    // Calculate max rows that fit on slide (slide height ~5.6in, header ~0.4in, title area ~1.4in, footer ~0.3in)
+    const rowH = 0.22;
+    const availH = 5.625 - 1.4 - 0.4 - 0.3;
+    const maxRows = Math.floor(availH / rowH);
+
+    // Build rows — limit total beds to maxRows
     const bedTableRows = [];
-    bedEntries.forEach((e, ei) => {
+    let rowCount = 0;
+    for (const e of bedEntries) {
+      if (rowCount >= maxRows) break;
       const dateStr = e.created_at
         ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
         : e.date;
-      e.bed_data.forEach((bed, idx) => {
-        const rowBg = ei % 2 === 0 ? BRAND.white : "F0EDEA";
+      for (let idx = 0; idx < e.bed_data.length; idx++) {
+        if (rowCount >= maxRows) break;
+        const bed = e.bed_data[idx];
+        const rowBg = rowCount % 2 === 0 ? BRAND.white : "F0EDEA";
         const metricCells = orderedBedMetrics.map(id => {
           let val = "—"; let color = BRAND.inkLight; let fill = rowBg; let bold = false;
-          if (bed.na) { val = "N/A"; color = BRAND.inkLight; }
-          else if (bed[`${id}_na`]) { val = "N/A"; color = BRAND.inkLight; }
+          if (bed.na) { val = "N/A"; }
+          else if (bed[`${id}_na`]) { val = "N/A"; }
           else {
             const a = bed[`${id}_a`];
             if (a === "1" || a === 1) { val = "YES"; color = BRAND.green; fill = "E8F4EE"; bold = true; }
-            else if (a === "0" || a === 0) { val = "NO";  color = BRAND.red;   fill = "FDE8E8"; bold = true; }
+            else if (a === "0" || a === 0) { val = "NO"; color = BRAND.red; fill = "FDE8E8"; bold = true; }
           }
           return { text: val, options: { fill: { color: fill }, color, fontSize: 7, fontFace: "Calibri", align: "center", bold } };
         });
         bedTableRows.push([
-          { text: idx === 0 ? dateStr : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6.5, fontFace: "Calibri" } },
-          { text: idx === 0 ? (e.location || "—") : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6.5, fontFace: "Calibri" } },
+          { text: idx === 0 ? dateStr : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6, fontFace: "Calibri" } },
+          { text: idx === 0 ? (e.location || "—") : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6, fontFace: "Calibri" } },
           { text: String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 7, fontFace: "Calibri", align: "center" } },
           { text: bed.room || String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 7, fontFace: "Calibri", align: "center" } },
           ...metricCells,
         ]);
-      });
-    });
+        rowCount++;
+      }
+    }
 
     // Calculate column widths
     const fixedW = [1.1, 0.9, 0.3, 0.35];
@@ -350,15 +367,14 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     const metricColWs = orderedBedMetrics.map(() => metricColW);
 
     sBed.addTable([tableHeader, ...bedTableRows], {
-      x: 0.38, y: 1.4, w: 9.3, rowH: 0.24,
+      x: 0.38, y: 1.4, w: 9.3, rowH: rowH,
       border: { pt: 0.3, color: BRAND.light },
       colW: [...fixedW, ...metricColWs],
     });
 
     const totalBeds = bedEntries.reduce((s, e) => s + e.bed_data.length, 0);
-    const totalSessions = bedEntries.length;
-    if (totalBeds > 30) {
-      sBed.addText(`Showing ${totalBeds} beds across ${totalSessions} most recent sessions`, { x: 0.38, y: 5.3, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
+    if (totalBeds > rowCount) {
+      sBed.addText(`Showing ${rowCount} of ${totalBeds} beds — see PDF export for full detail`, { x: 0.38, y: 5.35, w: 9.3, h: 0.22, fontSize: 8, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
     }
   }
 
