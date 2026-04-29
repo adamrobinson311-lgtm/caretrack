@@ -1150,6 +1150,8 @@ export default function App() {
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
   const [historyUnitFilter, setHistoryUnitFilter] = useState("All");
   const [historySearch, setHistorySearch] = useState("");
+  const [expandedNotes, setExpandedNotes] = useState(new Set());
+  const [perfPeriod, setPerfPeriod] = useState("all");
   const [performersView, setPerformersView] = useState("rankings"); // "rankings" | "planner"
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -2903,7 +2905,7 @@ export default function App() {
                     const diff = m.avg !== null && m.national !== null ? m.avg - m.national : null;
                     const showNational = hospitalFilter !== "All" && m.national !== null;
                     return (
-                    <div key={m.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", position: "relative" }} className="metric-card-hover">
+                    <div key={m.id} style={{ background: C.surface, border: `1px solid ${m.avg !== null ? pctColor(m.avg) + "44" : C.border}`, borderLeft: `4px solid ${m.avg !== null ? pctColor(m.avg) : C.border}`, borderRadius: 10, padding: "16px 18px", position: "relative" }} className="metric-card-hover">
                       <button onClick={() => toggleHideMetric(m.id)} title="Hide this metric" style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", cursor: "pointer", fontSize: 10, color: C.inkFaint, opacity: 0, transition: "opacity 0.15s", padding: "2px 4px", borderRadius: 4, lineHeight: 1 }} className="hide-metric-btn">✕</button>
                       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 11, color: C.inkLight, lineHeight: 1.4, flex: 1, paddingRight: 8 }}>{m.label}</div>
@@ -2994,26 +2996,26 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* Per-metric breakdown */}
+                    {/* Per-metric breakdown — card rows for mobile readability */}
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", marginBottom: 10 }}>BY METRIC</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {momData.metricDeltas.filter(m => m.this !== null || m.last !== null).map(m => (
-                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
-                          <div style={{ fontSize: 12, color: C.ink, flex: 1 }}>{m.label}</div>
-                          <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, minWidth: 36, textAlign: "right" }}>
-                            {m.last !== null ? `${m.last}%` : "—"}
+                        <div key={m.id} style={{ background: C.bg, borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${m.delta !== null ? (m.delta > 0 ? C.green : m.delta < 0 ? C.red : C.border) : C.border}` }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                            <div style={{ fontSize: 12, color: C.ink, fontWeight: 500 }}>{m.label}</div>
+                            {m.delta !== null ? (
+                              <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: m.delta > 0 ? C.green : m.delta < 0 ? C.red : C.inkLight }}>
+                                {m.delta > 0 ? "▲ +" : m.delta < 0 ? "▼ " : "– "}{m.delta !== 0 ? `${Math.abs(m.delta)}%` : "no change"}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint }}>new</div>
+                            )}
                           </div>
-                          <div style={{ fontSize: 10, color: C.inkFaint }}>→</div>
-                          <div style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: m.this !== null ? pctColor(m.this) : C.inkFaint, minWidth: 36, textAlign: "right", fontWeight: 600 }}>
-                            {m.this !== null ? `${m.this}%` : "—"}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight }}>{momData.lastMonth}: <span style={{ color: m.last !== null ? pctColor(m.last) : C.inkFaint }}>{m.last !== null ? `${m.last}%` : "—"}</span></div>
+                            <div style={{ fontSize: 10, color: C.inkFaint }}>→</div>
+                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: m.this !== null ? pctColor(m.this) : C.inkFaint, fontWeight: 600 }}>{momData.thisMonth}: <span>{m.this !== null ? `${m.this}%` : "—"}</span></div>
                           </div>
-                          {m.delta !== null ? (
-                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: m.delta > 0 ? C.green : m.delta < 0 ? C.red : C.inkLight, minWidth: 44, textAlign: "right" }}>
-                              {m.delta > 0 ? "▲ +" : m.delta < 0 ? "▼ " : "– "}{m.delta !== 0 ? `${Math.abs(m.delta)}%` : "no change"}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkFaint, minWidth: 44, textAlign: "right" }}>new</div>
-                          )}
                         </div>
                       ))}
                     </div>
@@ -3192,7 +3194,23 @@ export default function App() {
                           )}
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                          {!isEditing && e.notes && <div style={{ fontSize: 12, color: C.inkMid, maxWidth: 280, textAlign: "right", lineHeight: 1.5, fontStyle: "italic" }} className="history-notes">{e.notes}</div>}
+                          {!isEditing && e.notes && (() => {
+                            const isLong = e.notes.length > 120;
+                            const isExpanded = expandedNotes.has(e.id);
+                            return (
+                              <div style={{ maxWidth: 280, textAlign: "right" }}>
+                                <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5, fontStyle: "italic" }} className="history-notes">
+                                  {isLong && !isExpanded ? e.notes.slice(0, 120) + "…" : e.notes}
+                                </div>
+                                {isLong && (
+                                  <button onClick={() => setExpandedNotes(prev => { const next = new Set(prev); isExpanded ? next.delete(e.id) : next.add(e.id); return next; })}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, padding: "2px 0", letterSpacing: "0.04em" }}>
+                                    {isExpanded ? "SHOW LESS ▲" : "SHOW MORE ▼"}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div style={{ display: "flex", gap: 6 }} className="history-actions">
                             {isEditing ? (
                               <>
@@ -3325,16 +3343,37 @@ export default function App() {
         {/* ── ADMIN ── */}
         {tab === "performers" && (
           <div>
-            <div style={{ marginBottom: 28 }}>
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Performers</h1>
-              <p style={{ color: C.inkMid, fontSize: 13 }}>Ranked by overall average compliance across all metrics.</p>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4 }}>Performers</h1>
+                <p style={{ color: C.inkMid, fontSize: 13 }}>Ranked by overall average compliance across all metrics.</p>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[["all","ALL"],["month","MTH"],["90d","90D"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setPerfPeriod(val)}
+                    style={{ background: perfPeriod === val ? C.primary : "none", border: `1px solid ${perfPeriod === val ? C.primary : C.border}`, borderRadius: 6, padding: "6px 14px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: perfPeriod === val ? "white" : C.inkLight, cursor: "pointer", letterSpacing: "0.05em" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* ── RANKINGS VIEW ── */}
             {(() => {
+              const now = new Date();
+              const filterByPerfPeriod = (entries) => {
+                if (perfPeriod === "all") return entries;
+                return entries.filter(e => {
+                  if (!e.date) return false;
+                  const [y, m, d] = e.date.split("-").map(Number);
+                  if (perfPeriod === "month") return m - 1 === now.getMonth() && y === now.getFullYear();
+                  if (perfPeriod === "90d") { const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 90); return new Date(y, m-1, d) >= cutoff; }
+                  return true;
+                });
+              };
               // Build hospital rankings — use proxyEntries so director sees all region reps
-              const perfEntries = ((isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries)
-                .filter(e => (isDirector || isVP) && repFilter !== "All" ? e.logged_by === repFilter : true);              const hospitalMap = {};
+              const perfEntries = filterByPerfPeriod(((isDirector || isVP) ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i) : isKAM ? kamEntries : entries)
+                .filter(e => (isDirector || isVP) && repFilter !== "All" ? e.logged_by === repFilter : true));              const hospitalMap = {};
               perfEntries.forEach(e => {
                 if (!e.hospital || isTrialHospital(e.hospital)) return;
                 if (!hospitalMap[e.hospital]) hospitalMap[e.hospital] = [];
