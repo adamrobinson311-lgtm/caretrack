@@ -313,10 +313,13 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
     const tableHeader = [...fixedHdr, ...metricHdrs];
 
-    // Calculate max rows that fit on slide (slide height ~5.6in, header ~0.4in, title area ~1.4in, footer ~0.3in)
+    // Calculate max rows that fit on slide
     const rowH = 0.22;
-    const availH = 5.625 - 1.4 - 0.4 - 0.3;
-    const maxRows = Math.floor(availH / rowH);
+    const tableStartY = 1.4;
+    const headerH = 0.38;
+    const footerH = 0.3;
+    const slideH = 5.625;
+    const maxRows = Math.floor((slideH - tableStartY - headerH - footerH) / rowH);
 
     // Build rows — limit total beds to maxRows
     const bedTableRows = [];
@@ -345,7 +348,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
           { text: idx === 0 ? dateStr : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6, fontFace: "Calibri" } },
           { text: idx === 0 ? (e.location || "—") : "", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6, fontFace: "Calibri" } },
           { text: String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 7, fontFace: "Calibri", align: "center" } },
-          { text: bed.room || String(idx + 1), options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 7, fontFace: "Calibri", align: "center" } },
+          { text: String(bed.room || (idx + 1)), options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 6, fontFace: "Calibri", align: "center" } },
           ...metricCells,
         ]);
         rowCount++;
@@ -359,7 +362,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     const metricColWs = orderedBedMetrics.map(() => metricColW);
 
     sBed.addTable([tableHeader, ...bedTableRows], {
-      x: 0.38, y: 1.4, w: 9.3, rowH: rowH,
+      x: 0.38, y: tableStartY, w: 9.3, rowH: rowH,
       border: { pt: 0.3, color: BRAND.light },
       colW: [...fixedW, ...metricColWs],
     });
