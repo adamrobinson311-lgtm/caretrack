@@ -313,13 +313,13 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
 
     const tableHeader = [...fixedHdr, ...metricHdrs];
 
-    // Calculate max rows that fit on slide
-    const rowH = 0.22;
-    const tableStartY = 1.4;
-    const headerH = 0.38;
-    const footerH = 0.3;
+    // Calculate max rows that fit on slide — hard cap at 16 to prevent overflow
+    const rowH = 0.19;
+    const tableStartY = 1.38;
+    const headerH = 0.40;
+    const footerH = 0.25;
     const slideH = 5.625;
-    const maxRows = Math.floor((slideH - tableStartY - headerH - footerH) / rowH);
+    const maxRows = Math.min(16, Math.floor((slideH - tableStartY - headerH - footerH) / rowH));
 
     // Build rows — limit total beds to maxRows
     const bedTableRows = [];
@@ -355,10 +355,10 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       }
     }
 
-    // Calculate column widths
-    const fixedW = [1.1, 0.9, 0.3, 0.35];
+    // Calculate column widths — wider room column prevents number wrapping
+    const fixedW = [1.0, 0.85, 0.28, 0.52];
     const totalFixed = fixedW.reduce((a, b) => a + b, 0);
-    const metricColW = Math.max(0.55, (9.3 - totalFixed) / Math.max(orderedBedMetrics.length, 1));
+    const metricColW = Math.max(0.50, (9.3 - totalFixed) / Math.max(orderedBedMetrics.length, 1));
     const metricColWs = orderedBedMetrics.map(() => metricColW);
 
     sBed.addTable([tableHeader, ...bedTableRows], {
@@ -368,8 +368,9 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     });
 
     const totalBeds = bedEntries.reduce((s, e) => s + e.bed_data.length, 0);
+    const footerY = tableStartY + headerH + (rowCount * rowH) + 0.05;
     if (totalBeds > rowCount) {
-      sBed.addText(`Showing ${rowCount} of ${totalBeds} beds — see PDF export for full detail`, { x: 0.38, y: 5.35, w: 9.3, h: 0.22, fontSize: 8, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
+      sBed.addText(`Showing ${rowCount} of ${totalBeds} beds — see PDF export for full detail`, { x: 0.38, y: Math.min(footerY, 5.35), w: 9.3, h: 0.22, fontSize: 8, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
     }
   }
 
