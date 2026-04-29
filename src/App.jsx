@@ -514,12 +514,30 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
   const bed = beds[safeIdx] || {};
   const isNa = !!bed.na;
 
+  // Progress: count beds that have been touched (any metric tapped)
+  const touchedCount = beds.filter(b => b.na || metrics.some(m => b[`${m.id}_q`] === "1" || b[`${m.id}_q`] === 1)).length;
+  const progressPct = beds.length > 0 ? Math.round((touchedCount / beds.length) * 100) : 0;
+
   // Compliance colour for a pct value
   const pctCol = (p) => p === null ? C.inkFaint : p >= 90 ? C.green : p >= 70 ? C.amber : C.red;
   const pctBg2 = (p) => p === null ? C.surfaceAlt : p >= 90 ? C.greenLight : p >= 70 ? C.amberLight : C.redLight;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Sticky progress bar ── */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.08em" }}>BEDS COMPLETED</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: progressPct === 100 ? C.green : C.primary }}>{touchedCount} / {beds.length}</span>
+        </div>
+        <div style={{ height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${progressPct}%`, background: progressPct === 100 ? C.green : C.primary, borderRadius: 3, transition: "width 0.3s ease" }} />
+        </div>
+        {progressPct === 100 && (
+          <div style={{ fontSize: 10, color: C.green, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4, letterSpacing: "0.05em" }}>✓ ALL BEDS ENTERED</div>
+        )}
+      </div>
 
       {/* ── Navigation bar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1130,6 +1148,7 @@ export default function App() {
   const [repChartMode, setRepChartMode] = useState("sessions");
   const [repChartPeriod, setRepChartPeriod] = useState("all");
   const [historyHospitalFilter, setHistoryHospitalFilter] = useState("All");
+  const [historyUnitFilter, setHistoryUnitFilter] = useState("All");
   const [historySearch, setHistorySearch] = useState("");
   const [performersView, setPerformersView] = useState("rankings"); // "rankings" | "planner"
   const [exporting, setExporting] = useState(false);
@@ -1648,6 +1667,7 @@ export default function App() {
     return null;
   })();
   const filteredHistory = applyFilters(proxyEntries, historyHospitalFilter).filter(e => {
+    if (historyUnitFilter !== "All" && e.location !== historyUnitFilter) return false;
     if ((isDirector || isVP) && repFilter !== "All" && e.logged_by !== repFilter) return false;
     if (!historySearch.trim()) return true;
     const q = historySearch.toLowerCase();
@@ -2710,6 +2730,25 @@ export default function App() {
               <div style={{ padding: "60px 0", textAlign: "center", color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>Loading data...</div>
             ) : (
               <>
+                {/* ── Export buttons — top of dashboard ── */}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }} className="export-row">
+                  <button className="export-btn" onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exporting ? "GENERATING..." : "EXPORT PPTX"}
+                  </button>
+                  <button className="export-btn" onClick={handlePdfExport} disabled={exportingPdf || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.accent, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exportingPdf ? "GENERATING..." : "EXPORT PDF"}
+                  </button>
+                  <button className="export-btn" onClick={handleExportXlsx} disabled={exportingXlsx || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: "#217346", border: "1px solid #1a5c38", borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    ↓ {exportingXlsx ? "GENERATING..." : "EXPORT XLSX"}
+                  </button>
+                  <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
+                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 18px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
+                    <span style={{ color: C.primary }}>✦</span> {summarizing ? "ANALYZING..." : "AI SUMMARY"}
+                  </button>
+                </div>
                 {/* ── Last Session Card ── */}
                 {(() => {
                   const myName = user?.user_metadata?.full_name || user?.email || "";
@@ -3025,25 +3064,7 @@ export default function App() {
                     </div>
                   ) : null}
                 </div>
-                {/* Action buttons */}
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }} className="export-row">
-                  <button className="export-btn" onClick={handleExport} disabled={exporting || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.primary, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ↓ {exporting ? "GENERATING..." : "EXPORT PPTX"}
-                  </button>
-                  <button className="export-btn" onClick={handlePdfExport} disabled={exportingPdf || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.accent, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ↓ {exportingPdf ? "GENERATING..." : "EXPORT PDF"}
-                  </button>
-                  <button className="export-btn" onClick={handleExportXlsx} disabled={exportingXlsx || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: "#217346", border: "1px solid #1a5c38", borderRadius: 8, padding: "11px 18px", color: "white", cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    ↓ {exportingXlsx ? "GENERATING..." : "EXPORT XLSX"}
-                  </button>
-                  <button className="summarize" onClick={handleSummarize} disabled={summarizing || filteredDashboard.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 18px", color: C.ink, cursor: filteredDashboard.length === 0 ? "not-allowed" : "pointer", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", opacity: summarizing || filteredDashboard.length === 0 ? 0.5 : 1 }}>
-                    <span style={{ color: C.primary }}>✦</span> {summarizing ? "ANALYZING..." : "AI SUMMARY"}
-                  </button>
-                </div>
+                {/* Action buttons removed from here — moved to top of dashboard */}
                 {(summary || summarizing) && (
                   <div ref={summaryRef} style={{ background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.primary}`, borderRadius: "0 10px 10px 0", padding: "20px 24px" }}>
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.1em", marginBottom: 12 }}>✦ AI CLINICAL ANALYSIS</div>
@@ -3066,7 +3087,12 @@ export default function App() {
                 <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
+                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryUnitFilter("All"); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
+                {historyHospitalFilter !== "All" && (() => {
+                  const units = [...new Set(proxyEntries.filter(e => e.hospital === historyHospitalFilter && e.location).map(e => e.location))].sort();
+                  if (units.length <= 1) return null;
+                  return <FilterBar value={historyUnitFilter} onChange={v => { setHistoryUnitFilter(v); setHistoryPage(20); }} label="UNIT" hospitals={units} />;
+                })()}
                 {(isDirector || isVP) && regionRepNames.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>REP</span>
