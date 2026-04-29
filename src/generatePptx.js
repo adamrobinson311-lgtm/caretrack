@@ -279,14 +279,6 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     sBed.addText("Bed-Level Compliance", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
     sBed.addText("Sessions recorded using Per Bed mode — individual bed data", { x: 0.38, y: 1.1, w: 9.3, h: 0.25, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
 
-    // Bucketed metric order matching PDF
-    const BED_BUCKETS = [
-      { label: "Turn Protocol",    ids: ["turning_criteria"],                                    single: true  },
-      { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                         single: false },
-      { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"],   single: false },
-      { label: "Air Supply",       ids: ["air_supply"],                                          single: true  },
-    ];
-
     // Use bucketed metric list directly — don't rely on detecting from bed keys
     const BED_BUCKETS = [
       { label: "Turn Protocol",    ids: ["turning_criteria"],                                    single: true  },
