@@ -2557,9 +2557,14 @@ export default function App() {
                         <div style={{ flex: "0 0 auto" }}>
                           <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 4 }}>NUMBER OF BEDS</label>
                           <input type="number" min="1" max="100" value={bedCount || ""} placeholder="0"
-                            onChange={e => handleBedCountChange(e.target.value)}
+                            onChange={e => {
+                              const n = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
+                              setBedCount(n); // update display immediately
+                            }}
+                            onBlur={e => handleBedCountChange(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") { e.target.blur(); handleBedCountChange(e.target.value); } }}
                             style={{ width: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontFamily: "'Libre Baskerville', serif", color: C.ink, textAlign: "center" }}
-                            onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
+                            onFocus={e => e.target.style.borderColor = C.primary} />
                         </div>
                         {bedCount > 0 && (
                           <div style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", paddingTop: 16, display: "flex", alignItems: "center", gap: 6 }}>
