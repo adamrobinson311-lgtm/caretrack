@@ -1352,6 +1352,9 @@ export default function App() {
   const [inviteSuccess, setInviteSuccess] = useState(null);
   const [resendingId, setResendingId] = useState(null);
   const [copiedInviteId, setCopiedInviteId] = useState(null);
+  const [editingRepInviteId, setEditingRepInviteId] = useState(null); // which accepted invite is currently being edited
+  const [editingRepNewId, setEditingRepNewId] = useState(""); // new rep_id chosen in the edit dropdown
+  const [savingRepChange, setSavingRepChange] = useState(false);
 
   // Excel export
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -1654,6 +1657,62 @@ export default function App() {
     } catch (e) {
       setInviteError("Failed to copy link.");
       setTimeout(() => setInviteError(null), 3000);
+    }
+  };
+
+  const handleStartEditRep = (invite) => {
+    setEditingRepInviteId(invite.id);
+    setEditingRepNewId(invite.rep_id || "");
+    setInviteError(null);
+    setInviteSuccess(null);
+  };
+
+  const handleCancelEditRep = () => {
+    setEditingRepInviteId(null);
+    setEditingRepNewId("");
+  };
+
+  const handleSaveRepChange = async (invite) => {
+    if (!editingRepNewId || editingRepNewId === invite.rep_id) {
+      handleCancelEditRep();
+      return;
+    }
+    setSavingRepChange(true);
+    setInviteError(null);
+    try {
+      // Update both the user_profile (so the clinical user's view re-filters) and
+      // the clinical_invites row (so the Admin invite list shows the new rep).
+      // Match the user_profile by email since clinical_rep_id lives on the clinical user's profile.
+      const { error: profileError } = await supabase
+        .from("user_profiles")
+        .update({ clinical_rep_id: editingRepNewId })
+        .eq("email", invite.email)
+        .eq("role", "clinical");
+      if (profileError) throw profileError;
+
+      const { error: inviteError } = await supabase
+        .from("clinical_invites")
+        .update({ rep_id: editingRepNewId })
+        .eq("id", invite.id);
+      if (inviteError) throw inviteError;
+
+      const oldRep = userProfiles.find(p => p.id === invite.rep_id);
+      const newRep = userProfiles.find(p => p.id === editingRepNewId);
+      await logAudit("CLINICAL_REP_REASSIGNED", {
+        clinical_email: invite.email,
+        hospital: invite.hospital,
+        old_rep: oldRep ? (oldRep.full_name || oldRep.email) : "(unknown)",
+        new_rep: newRep ? (newRep.full_name || newRep.email) : "(unknown)",
+      });
+
+      setClinicalInvites(prev => prev.map(i => i.id === invite.id ? { ...i, rep_id: editingRepNewId } : i));
+      setInviteSuccess(`Rep reassigned to ${newRep ? (newRep.full_name || newRep.email) : "selected user"}`);
+      setTimeout(() => setInviteSuccess(null), 4000);
+      handleCancelEditRep();
+    } catch (e) {
+      setInviteError("Failed to update rep: " + (e.message || "unknown error"));
+    } finally {
+      setSavingRepChange(false);
     }
   };
 
@@ -2031,6 +2090,23 @@ export default function App() {
           });
         }
       } catch (e) { console.warn("Shared rep notification failed:", e); }
+
+      // Notify the clinical user's assigned rep when a clinical user logs a session
+      try {
+        if (isClinical && myProfile?.clinical_rep_id) {
+          const rep = userProfiles.find(p => p.id === myProfile.clinical_rep_id);
+          if (rep?.email) {
+            await supabase.functions.invoke("notify-clinical-session", {
+              body: {
+                session: finalData,
+                repEmail: rep.email,
+                repName: rep.full_name || rep.email,
+                clinicalUserName: user?.user_metadata?.full_name || user.email,
+              },
+            });
+          }
+        }
+      } catch (e) { console.warn("Clinical session notification failed:", e); }
 
       // Push to Salesforce if hospital is mapped
       try {
@@ -5081,6 +5157,31 @@ export default function App() {
                               <div style={{ fontSize: 10, color: C.inkFaint, marginTop: 2 }}>
                                 Sent {new Date(inv.created_at).toLocaleDateString()} · {expiresOrUsed}
                               </div>
+                              {/* Inline rep editor for accepted invites */}
+                              {editingRepInviteId === inv.id && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                                  <select value={editingRepNewId} onChange={e => setEditingRepNewId(e.target.value)}
+                                    style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: C.surface, color: C.ink, fontFamily: "inherit", flex: 1, minWidth: 200 }}>
+                                    <option value="">Select rep or KAM...</option>
+                                    {userProfiles
+                                      .filter(p => (p.role === "rep" || p.role === "kam") && p.is_active !== false)
+                                      .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email))
+                                      .map(p => (
+                                        <option key={p.id} value={p.id}>
+                                          {p.full_name || p.email}{p.role === "kam" ? " (KAM)" : ""}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <button onClick={() => handleSaveRepChange(inv)} disabled={savingRepChange || !editingRepNewId || editingRepNewId === inv.rep_id}
+                                    style={{ background: C.primary, color: "white", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em", cursor: savingRepChange ? "wait" : "pointer", opacity: (savingRepChange || !editingRepNewId || editingRepNewId === inv.rep_id) ? 0.5 : 1 }}>
+                                    {savingRepChange ? "SAVING..." : "SAVE"}
+                                  </button>
+                                  <button onClick={handleCancelEditRep}
+                                    style={{ background: "none", color: C.inkLight, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em", cursor: "pointer" }}>
+                                    CANCEL
+                                  </button>
+                                </div>
+                              )}
                             </div>
                             {status === "pending" && (
                               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -5091,6 +5192,14 @@ export default function App() {
                                 <button onClick={() => handleResendInvite(inv)} disabled={resendingId === inv.id}
                                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: resendingId === inv.id ? "wait" : "pointer", letterSpacing: "0.05em", opacity: resendingId === inv.id ? 0.6 : 1 }}>
                                   {resendingId === inv.id ? "SENDING..." : "RESEND"}
+                                </button>
+                              </div>
+                            )}
+                            {status === "used" && editingRepInviteId !== inv.id && (
+                              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                <button onClick={() => handleStartEditRep(inv)}
+                                  style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                  EDIT REP
                                 </button>
                               </div>
                             )}
