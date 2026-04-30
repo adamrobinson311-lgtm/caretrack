@@ -427,10 +427,11 @@ const ClinicalInviteScreen = ({ token, currentUser, onComplete }) => {
       if (rpcError) throw rpcError;
 
       setSuccess(true);
-      // Brief pause so the user sees the success state, then clear URL and load app
+      // Brief pause so the user sees the success state, then hard-reload to /
+      // — the persisted Supabase session will pick up and render the app
+      // for the now-authenticated clinical user.
       setTimeout(() => {
-        window.history.replaceState({}, "", "/");
-        onComplete();
+        window.location.href = "/";
       }, 1500);
     } catch (e) {
       setSubmitError(e.message || "Something went wrong. Please try again.");
