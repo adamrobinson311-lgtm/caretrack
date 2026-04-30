@@ -2083,6 +2083,26 @@ export default function App() {
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
 
+  // ── TEMP DIAGNOSTIC — remove after debugging ──
+  if (isClinical && typeof window !== "undefined") {
+    console.log("[CLINICAL DEBUG]", {
+      isClinical,
+      myProfileRole: myProfile?.role,
+      clinical_hospital: myProfile?.clinical_hospital,
+      hospitalFilter,
+      unitFilter,
+      repFilter,
+      dateFrom, dateTo,
+      entries_length: entries.length,
+      proxyEntries_length: proxyEntries.length,
+      filteredDashboard_length: filteredDashboard.length,
+      sample_entry: entries[0] ? { hospital: entries[0].hospital, location: entries[0].location, logged_by: entries[0].logged_by, date: entries[0].date } : null,
+      after_applyFilters: applyFilters(proxyEntries, hospitalFilter).length,
+      isTrial: isTrialHospital(hospitalFilter),
+    });
+  }
+  // ── END TEMP DIAGNOSTIC ──
+
   // Use branding for the selected hospital, or auto-detect if only one hospital in view
   const activeBranding = (() => {
     if (hospitalFilter !== "All" && hospitalBranding[hospitalFilter]) return hospitalBranding[hospitalFilter];
