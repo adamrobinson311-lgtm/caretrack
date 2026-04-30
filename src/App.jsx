@@ -338,6 +338,240 @@ const PasswordResetScreen = ({ onComplete }) => {
 };
 
 
+// ── Clinical Invite Signup Screen ───────────────────────────────────────────
+// Shown when a user lands on /invite/<token>. Validates the invite, lets the
+// user create an account, then consumes the invite via the consume_clinical_invite RPC.
+const ClinicalInviteScreen = ({ token, currentUser, onComplete }) => {
+  const [loading, setLoading] = useState(true);
+  const [invite, setInvite] = useState(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  // Validate the invite on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("clinical_invites")
+          .select("*")
+          .eq("token", token)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) {
+          setErrorMsg("This invite link is not valid. Please contact your CareTrack administrator for a new invitation.");
+        } else if (data.used_at) {
+          setErrorMsg("This invite has already been accepted. If you've already created your account, please sign in instead.");
+        } else if (new Date(data.expires_at) < new Date()) {
+          setErrorMsg("This invite has expired. Please contact your CareTrack administrator for a new invitation.");
+        } else {
+          setInvite(data);
+        }
+      } catch (e) {
+        setErrorMsg("We couldn't load this invite. Please try again or contact your CareTrack administrator.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    // Force a reload so the auth state is fresh
+    window.location.reload();
+  };
+
+  const handleSignup = async () => {
+    setSubmitError("");
+    if (password.length < 6) { setSubmitError("Password must be at least 6 characters."); return; }
+    if (password !== confirm) { setSubmitError("Passwords do not match."); return; }
+    setSubmitting(true);
+    try {
+      // 1. Create the auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: invite.email,
+        password,
+        options: { data: { full_name: invite.name } },
+      });
+      if (authError) throw authError;
+      if (!authData?.user) throw new Error("Account creation failed. Please try again.");
+
+      // 2. Sign in immediately (signUp doesn't always create a session if email confirmation is enabled)
+      let userId = authData.user.id;
+      if (!authData.session) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: invite.email,
+          password,
+        });
+        if (signInError) throw signInError;
+        userId = signInData.user.id;
+      }
+
+      // 3. Ensure a user_profile row exists (for new auth users)
+      await supabase.from("user_profiles").upsert([{
+        id: userId,
+        email: invite.email,
+        full_name: invite.name,
+        is_active: true,
+        pending_approval: false,
+      }], { onConflict: "id" });
+
+      // 4. Consume the invite (sets role=clinical, clinical_hospital, clinical_rep_id atomically)
+      const { error: rpcError } = await supabase.rpc("consume_clinical_invite", {
+        p_token: token,
+        p_user_id: userId,
+      });
+      if (rpcError) throw rpcError;
+
+      setSuccess(true);
+      // Brief pause so the user sees the success state, then clear URL and load app
+      setTimeout(() => {
+        window.history.replaceState({}, "", "/");
+        onComplete();
+      }, 1500);
+    } catch (e) {
+      setSubmitError(e.message || "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  };
+
+  const inp = { width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 14px", fontSize: 14, color: C.ink, outline: "none", fontFamily: "'IBM Plex Sans', sans-serif" };
+
+  // ── Loading state ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#7C7270" }}>Loading invitation...</div>
+      </div>
+    );
+  }
+
+  // ── Error state (invalid / expired / used) ───────────────────────────────
+  if (errorMsg) {
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 420 }}>
+          <div style={{ textAlign: "center", marginBottom: 36 }}>
+            <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+          </div>
+          <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)", textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.redLight, border: `1px solid ${C.red}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 24 }}>⚠</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.red, letterSpacing: "0.12em", marginBottom: 12 }}>INVITE UNAVAILABLE</div>
+            <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 12 }}>We can't accept this invite</h2>
+            <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6, marginBottom: 24 }}>{errorMsg}</p>
+            <a href="/" style={{ display: "inline-block", background: C.primary, color: "white", textDecoration: "none", borderRadius: 8, padding: "11px 24px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em" }}>GO TO CARETRACK →</a>
+          </div>
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#c0bbb9", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Already-logged-in state ──────────────────────────────────────────────
+  if (currentUser && currentUser.email !== invite.email) {
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 440 }}>
+          <div style={{ textAlign: "center", marginBottom: 36 }}>
+            <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+          </div>
+          <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.amber, letterSpacing: "0.12em", marginBottom: 12 }}>SIGN IN MISMATCH</div>
+            <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 12 }}>You're already signed in</h2>
+            <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6, marginBottom: 20 }}>
+              You're currently signed in as <strong style={{ color: C.ink }}>{currentUser.email}</strong>, but this invite is for <strong style={{ color: C.ink }}>{invite.email}</strong>.
+            </p>
+            <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6, marginBottom: 24 }}>
+              To accept this invite, you'll need to sign out of your current account first.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={handleSignOut} style={{ flex: 1, background: C.primary, color: "white", border: "none", borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", cursor: "pointer" }}>
+                SIGN OUT & CONTINUE
+              </button>
+              <a href="/" style={{ flex: 1, background: "none", color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.06em", cursor: "pointer", textDecoration: "none", textAlign: "center" }}>
+                CANCEL
+              </a>
+            </div>
+          </div>
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#c0bbb9", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Success state ────────────────────────────────────────────────────────
+  if (success) {
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 420 }}>
+          <div style={{ textAlign: "center", marginBottom: 36 }}>
+            <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+          </div>
+          <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)", textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.greenLight, border: `1px solid ${C.green}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 24 }}>✓</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.green, letterSpacing: "0.12em", marginBottom: 12 }}>ACCOUNT CREATED</div>
+            <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 12 }}>Welcome to CareTrack</h2>
+            <p style={{ fontSize: 13, color: C.inkLight, lineHeight: 1.6 }}>Loading your dashboard...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Signup form ──────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight: "100vh", background: `linear-gradient(135deg, #e8eff1 0%, #f5f3f1 50%, #f3eef1 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <img src="/hovertech-logo.png" alt="HoverTech" style={{ height: 52, objectFit: "contain" }} />
+        </div>
+        <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.primary, letterSpacing: "0.12em", marginBottom: 12 }}>YOU'VE BEEN INVITED</div>
+          <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 4 }}>Create your account</h2>
+          <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 22, lineHeight: 1.6 }}>
+            View wound care compliance reporting for <strong style={{ color: C.ink }}>{invite.hospital}</strong>.
+          </p>
+          {submitError && <div style={{ background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 20 }}>⚠ {submitError}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>NAME</label>
+              <input type="text" value={invite.name} disabled style={{ ...inp, background: C.bg, color: C.inkMid, cursor: "not-allowed" }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
+              <input type="email" value={invite.email} disabled style={{ ...inp, background: C.bg, color: C.inkMid, cursor: "not-allowed" }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>PASSWORD</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters" style={inp}
+                onFocus={e => e.target.style.borderColor = C.primary}
+                onBlur={e => e.target.style.borderColor = C.border} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>CONFIRM PASSWORD</label>
+              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat your password" style={inp}
+                onFocus={e => e.target.style.borderColor = C.primary}
+                onBlur={e => e.target.style.borderColor = C.border}
+                onKeyDown={e => e.key === "Enter" && handleSignup()} />
+            </div>
+          </div>
+          <button onClick={handleSignup} disabled={submitting} style={{ width: "100%", marginTop: 24, background: C.primary, border: "none", borderRadius: 8, padding: "13px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "CREATING ACCOUNT..." : "CREATE ACCOUNT →"}
+          </button>
+          <p style={{ textAlign: "center", marginTop: 18, fontSize: 11, color: C.inkFaint, lineHeight: 1.6 }}>
+            By creating an account, you agree to access compliance data for {invite.hospital} only as authorised by HoverTech International.
+          </p>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#c0bbb9", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
+      </div>
+    </div>
+  );
+};
+
+
 const MetricInput = ({ metric, num, den, onChange }) => {
   const isNA = num === "na" && den === "na";
   const p = isNA ? null : pct(num, den);
@@ -2239,6 +2473,20 @@ export default function App() {
   // Password reset screen — shown when user clicks reset link from email
   if (showPasswordReset) {
     return <PasswordResetScreen onComplete={() => { setShowPasswordReset(false); }} />;
+  }
+
+  // Clinical invite signup — shown when user lands on /invite/<token>
+  // Match runs before the auth gate so both logged-in and logged-out users hit it.
+  const inviteMatch = typeof window !== "undefined" && window.location.pathname.match(/^\/invite\/([0-9a-f-]{36})\/?$/i);
+  if (inviteMatch) {
+    if (authLoading) {
+      return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
+    }
+    return <ClinicalInviteScreen
+      token={inviteMatch[1]}
+      currentUser={user}
+      onComplete={() => { /* URL is cleared by the screen; auth state change reloads the app naturally */ }}
+    />;
   }
 
   if (authLoading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkLight }}>Loading...</div></div>;
