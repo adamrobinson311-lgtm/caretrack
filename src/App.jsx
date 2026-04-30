@@ -1497,10 +1497,11 @@ export default function App() {
       if (!user) return;
       // Ignore when typing in inputs
       if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
-      // Clinical users only get dashboard + history shortcuts
+      // Clinical users get dashboard, history, and log shortcuts
       if (isClinical) {
-        if (e.key === "1") setTab("dashboard");
-        if (e.key === "2") setTab("history");
+        if (e.key === "1") setTab("log");
+        if (e.key === "2") setTab("dashboard");
+        if (e.key === "3") setTab("history");
         if (e.key === "?" ) setShowChangelog(true);
         if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); }
         return;
@@ -1518,18 +1519,22 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [user, isAdmin, isClinical, isDirector, isVP]);
 
-  // Clinical users may only land on dashboard or history. Redirect them
+  // Clinical users may only land on dashboard, history, or log. Redirect them
   // off any other tab — covers bookmarked URLs, stale state, and the default
   // "log" landing tab. Also lock their hospital filter to their assigned hospital.
   useEffect(() => {
     if (!isClinical) return;
-    const allowedTabs = ["dashboard", "history"];
+    const allowedTabs = ["dashboard", "history", "log"];
     if (!allowedTabs.includes(tab)) setTab("dashboard");
     if (myProfile?.clinical_hospital) {
       if (hospitalFilter !== myProfile.clinical_hospital) setHospitalFilter(myProfile.clinical_hospital);
       if (historyHospitalFilter !== myProfile.clinical_hospital) setHistoryHospitalFilter(myProfile.clinical_hospital);
+      // Pre-fill the log session form with their hospital and prevent edits
+      if (form.hospital !== myProfile.clinical_hospital) {
+        setForm(f => ({ ...f, hospital: myProfile.clinical_hospital }));
+      }
     }
-  }, [isClinical, tab, myProfile?.clinical_hospital, hospitalFilter, historyHospitalFilter]);
+  }, [isClinical, tab, myProfile?.clinical_hospital, hospitalFilter, historyHospitalFilter, form.hospital]);
 
   // Audit log helper
   const logAudit = async (action, details = {}, targetUser = null, sessionId = null) => {
@@ -1938,7 +1943,12 @@ export default function App() {
     }
 
     setSaving(true); setSaveError(null);
-    const userName = user?.user_metadata?.full_name || user?.email || "Unknown";
+    const baseUserName = user?.user_metadata?.full_name || user?.email || "Unknown";
+    // Clinical users get a combined "Name (Clinical, Hospital)" attribution so
+    // both the rep and the clinical user can see the session in their dashboards.
+    const userName = isClinical && myProfile?.clinical_hospital
+      ? `${baseUserName} (Clinical, ${myProfile.clinical_hospital})`
+      : baseUserName;
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
@@ -2416,7 +2426,7 @@ export default function App() {
     }
     // Swipe left/right to change tab
     const tabs = isClinical
-      ? ["dashboard", "history"]
+      ? ["log", "dashboard", "history"]
       : ["log", "dashboard", "history", "performers", "planner", ...((isDirector || isVP) ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
     const swipeX = e.changedTouches[0].clientX - touchStartX.current;
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
@@ -2775,7 +2785,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
-            {!isClinical && <Tab id="log" label="LOG AUDIT" />}
+            <Tab id="log" label="LOG AUDIT" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             {!isClinical && <Tab id="performers" label="PERFORMERS" />}
@@ -2826,7 +2836,13 @@ export default function App() {
           <div style={{ maxWidth: 720 }} className="mobile-full log-form-bottom">
             <div style={{ marginBottom: 20 }}>
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Log Audit</h1>
-              <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
+              {isClinical ? (
+                <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>
+                  Logging as <strong>{userName}</strong> for <strong>{myProfile?.clinical_hospital}</strong>
+                </p>
+              ) : (
+                <p style={{ color: C.inkMid, fontSize: 13, marginTop: 4 }}>Logging as <strong>{userName}</strong>{viewAsUser && <span style={{ color: C.amber, marginLeft: 6 }}>(viewing as {userName})</span>}</p>
+              )}
             </div>
 
             {/* Monthly summary strip */}
@@ -2894,7 +2910,17 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
+              {isClinical ? (
+                <>
+                  <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>HOSPITAL NAME</label>
+                  <div style={{ width: "100%", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 36px 10px 12px", fontSize: 14, color: C.inkMid, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "not-allowed" }}>
+                    <span>{form.hospital || myProfile?.clinical_hospital || "—"}</span>
+                    <span style={{ fontSize: 11, opacity: 0.6 }}>🔒</span>
+                  </div>
+                </>
+              ) : (
+                <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
+              )}
             </div>
             <div style={{ marginBottom: 16 }}>
               <UnitInput
@@ -6380,7 +6406,7 @@ export default function App() {
               <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
           )}] : []),
-        ].filter(item => !isClinical || ["dashboard", "history"].includes(item.id)).map(({ id, label, icon, badge }) => {
+        ].filter(item => !isClinical || ["log", "dashboard", "history"].includes(item.id)).map(({ id, label, icon, badge }) => {
           const active = tab === id;
           return (
             <button key={id} onClick={() => { setTab(id); haptic("light"); }}
