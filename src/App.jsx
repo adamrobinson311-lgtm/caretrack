@@ -1746,6 +1746,29 @@ export default function App() {
 
       setEntries(allHospitalData);
 
+      // Clinical users: ALSO fetch all sessions visible to them at their assigned
+      // hospital (their rep's sessions + their own, courtesy of RLS).
+      // The default fetch above only matches by logged_by, which misses the rep.
+      // We query my own profile directly because myProfile state isn't populated yet
+      // (userProfiles is set later in this same effect).
+      const { data: myProfileRow } = await supabase.from("user_profiles")
+        .select("role, clinical_hospital")
+        .eq("email", user.email)
+        .maybeSingle();
+      if (myProfileRow?.role === "clinical" && myProfileRow?.clinical_hospital) {
+        const { data: clinicalData } = await supabase.from("sessions")
+          .select("*")
+          .eq("hospital", myProfileRow.clinical_hospital)
+          .order("created_at", { ascending: true });
+        if (clinicalData && clinicalData.length > 0) {
+          // Merge with any existing entries, dedup by id
+          const existingIds = new Set(allHospitalData.map(e => e.id));
+          const merged = [...allHospitalData];
+          clinicalData.forEach(e => { if (!existingIds.has(e.id)) merged.push(e); });
+          setEntries(merged);
+        }
+      }
+
       // Seed localStorage hospital/unit data from existing entries (so picklist works immediately)
       allHospitalData.forEach(e => {
         if (e.hospital && e.location) saveHospitalUnit(e.hospital, e.location, e.protocol_for_use || "");
