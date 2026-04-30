@@ -1219,10 +1219,15 @@ const UnitManagerBody = ({ onClose }) => {
   );
 };
 
-const FilterBar = ({ value, onChange, label, hospitals }) => (
+const FilterBar = ({ value, onChange, label, hospitals, locked = false }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} className="filter-bar">
     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em" }}>{label}</span>
-    {["All", ...hospitals].map(h => (
+    {locked ? (
+      <div style={{ padding: "6px 14px", borderRadius: 20, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", border: `1px solid ${C.primary}`, background: C.primary, color: "white", minHeight: 36, display: "flex", alignItems: "center", gap: 6, cursor: "default" }}>
+        <span>{value}</span>
+        <span style={{ fontSize: 10, opacity: 0.75 }}>🔒</span>
+      </div>
+    ) : ["All", ...hospitals].map(h => (
       <button key={h} onClick={() => onChange(h)}
         style={{ padding: "6px 14px", borderRadius: 20, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${value === h ? C.primary : C.border}`, background: value === h ? C.primary : "none", color: value === h ? "white" : C.inkMid, minHeight: 36 }}>
         {h}
@@ -1416,6 +1421,10 @@ export default function App() {
   const isVP = !isAdmin && myProfile?.role === "vp";
   // KAM: either explicit role, OR admin with KAM accounts assigned
   const isKAM = !isAdmin && (myProfile?.role === "kam" || (myProfile?.accounts || []).length > 0);
+  // Clinical: hospital-side viewer who only sees one rep's sessions at one hospital
+  const isClinical = !isAdmin && myProfile?.role === "clinical";
+  const clinicalRep = isClinical ? userProfiles.find(p => p.id === myProfile?.clinical_rep_id) : null;
+  const clinicalRepName = clinicalRep ? (clinicalRep.full_name || clinicalRep.email) : null;
   const myRegion = myProfile?.region || "";
   const kamAccounts = myProfile?.accounts || []; // array of hospital names assigned to this KAM
   const regionReps = isVP
@@ -1488,6 +1497,14 @@ export default function App() {
       if (!user) return;
       // Ignore when typing in inputs
       if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+      // Clinical users only get dashboard + history shortcuts
+      if (isClinical) {
+        if (e.key === "1") setTab("dashboard");
+        if (e.key === "2") setTab("history");
+        if (e.key === "?" ) setShowChangelog(true);
+        if (e.key === "Escape") { setShowChangelog(false); setShowOnboarding(false); }
+        return;
+      }
       if (e.key === "1") setTab("log");
       if (e.key === "2") setTab("dashboard");
       if (e.key === "3") setTab("history");
@@ -1499,7 +1516,20 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [user, isAdmin]);
+  }, [user, isAdmin, isClinical, isDirector, isVP]);
+
+  // Clinical users may only land on dashboard or history. Redirect them
+  // off any other tab — covers bookmarked URLs, stale state, and the default
+  // "log" landing tab. Also lock their hospital filter to their assigned hospital.
+  useEffect(() => {
+    if (!isClinical) return;
+    const allowedTabs = ["dashboard", "history"];
+    if (!allowedTabs.includes(tab)) setTab("dashboard");
+    if (myProfile?.clinical_hospital) {
+      if (hospitalFilter !== myProfile.clinical_hospital) setHospitalFilter(myProfile.clinical_hospital);
+      if (historyHospitalFilter !== myProfile.clinical_hospital) setHistoryHospitalFilter(myProfile.clinical_hospital);
+    }
+  }, [isClinical, tab, myProfile?.clinical_hospital, hospitalFilter, historyHospitalFilter]);
 
   // Audit log helper
   const logAudit = async (action, details = {}, targetUser = null, sessionId = null) => {
@@ -2385,7 +2415,9 @@ export default function App() {
       setPulling(false);
     }
     // Swipe left/right to change tab
-    const tabs = ["log", "dashboard", "history", "performers", "planner", ...((isDirector || isVP) ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
+    const tabs = isClinical
+      ? ["dashboard", "history"]
+      : ["log", "dashboard", "history", "performers", "planner", ...((isDirector || isVP) ? ["region"] : []), ...(isAdmin ? ["admin"] : [])];
     const swipeX = e.changedTouches[0].clientX - touchStartX.current;
     const swipeY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     if (Math.abs(swipeX) > 60 && swipeY < 40) {
@@ -2719,12 +2751,13 @@ export default function App() {
               </div>
               <div style={{ width: 1, height: 20, background: C.border }} className="header-divider" />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : C.primaryLight, border: `1px solid ${isAdmin ? C.accent : C.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : C.primary }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdmin ? C.accentLight : isClinical ? C.greenLight : C.primaryLight, border: `1px solid ${(isAdmin ? C.accent : isClinical ? C.green : C.primary)}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: isAdmin ? C.accent : isClinical ? C.green : C.primary }}>
                   {userName.charAt(0).toUpperCase()}
                 </div>
                 <div className="header-user-name">
                   <div style={{ fontSize: 12, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>{userName}</div>
                   {isAdmin && <div style={{ fontSize: 9, color: C.accent, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>ADMIN</div>}
+                  {isClinical && <div style={{ fontSize: 9, color: C.green, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CLINICAL USER</div>}
                 </div>
                 <button onClick={() => {
                     const next = !darkMode;
@@ -2742,11 +2775,11 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
-            <Tab id="log" label="LOG AUDIT" />
+            {!isClinical && <Tab id="log" label="LOG AUDIT" />}
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
-            <Tab id="performers" label="PERFORMERS" />
-            <Tab id="planner" label="PLANNER" />
+            {!isClinical && <Tab id="performers" label="PERFORMERS" />}
+            {!isClinical && <Tab id="planner" label="PLANNER" />}
             {(isDirector || isVP || isAdmin) && <Tab id="region" label={isVP || isAdmin ? "ALL REGIONS" : "MY REGION"} />}
             {isAdmin && <Tab id="admin" label="ADMIN" badge="ADMIN" />}
           </div>
@@ -3076,10 +3109,21 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }} className="dashboard-header">
               <div>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400, marginBottom: 4, color: activeBranding?.accentColor || C.ink }} className="dashboard-title">Compliance Dashboard</h1>
-                <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${unitFilter !== "All" ? ` · ${unitFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
+                {isClinical ? (
+                  <p style={{ color: C.inkMid, fontSize: 13 }}>
+                    Compliance for <strong style={{ color: C.ink }}>{myProfile?.clinical_hospital}</strong>
+                    {clinicalRepName && <> · Reporting from <strong style={{ color: C.ink }}>{clinicalRepName}</strong></>}
+                    {!loading && <> · {filteredDashboard.length} session{filteredDashboard.length !== 1 ? "s" : ""}</>}
+                  </p>
+                ) : (
+                  <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${unitFilter !== "All" ? ` · ${unitFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
+                )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
-                {hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); }} label="HOSPITAL" hospitals={hospitals} />}
+                {isClinical
+                  ? <FilterBar value={hospitalFilter} onChange={() => {}} label="HOSPITAL" hospitals={[]} locked={true} />
+                  : (hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); }} label="HOSPITAL" hospitals={hospitals} />)
+                }
                 {hospitalFilter !== "All" && (() => {
                   const units = [...new Set(proxyEntries.filter(e => e.hospital === hospitalFilter && e.location).map(e => e.location))].sort();
                   if (units.length <= 1) return null;
@@ -3459,10 +3503,13 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Session History</h1>
-                <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
+                {!isClinical && <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-                {hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryUnitFilter("All"); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />}
+                {isClinical
+                  ? <FilterBar value={historyHospitalFilter !== "All" ? historyHospitalFilter : (myProfile?.clinical_hospital || "")} onChange={() => {}} label="HOSPITAL" hospitals={[]} locked={true} />
+                  : (hospitals.length > 0 && <FilterBar value={historyHospitalFilter} onChange={v => { setHistoryHospitalFilter(v); setHistoryUnitFilter("All"); setHistoryPage(20); }} label="HOSPITAL" hospitals={hospitals} />)
+                }
                 {historyHospitalFilter !== "All" && (() => {
                   const units = [...new Set(proxyEntries.filter(e => e.hospital === historyHospitalFilter && e.location).map(e => e.location))].sort();
                   if (units.length <= 1) return null;
@@ -6333,7 +6380,7 @@ export default function App() {
               <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
           )}] : []),
-        ].map(({ id, label, icon, badge }) => {
+        ].filter(item => !isClinical || ["dashboard", "history"].includes(item.id)).map(({ id, label, icon, badge }) => {
           const active = tab === id;
           return (
             <button key={id} onClick={() => { setTab(id); haptic("light"); }}
