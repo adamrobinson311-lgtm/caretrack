@@ -1420,7 +1420,8 @@ export default function App() {
   const isDirector = !isAdmin && myProfile?.role === "director";
   const isVP = !isAdmin && myProfile?.role === "vp";
   // KAM: either explicit role, OR admin with KAM accounts assigned
-  const isKAM = !isAdmin && (myProfile?.role === "kam" || (myProfile?.accounts || []).length > 0);
+  // (clinical users are explicitly excluded — they may inherit accounts from a previous role)
+  const isKAM = !isAdmin && myProfile?.role !== "clinical" && (myProfile?.role === "kam" || (myProfile?.accounts || []).length > 0);
   // Clinical: hospital-side viewer who only sees one rep's sessions at one hospital
   const isClinical = !isAdmin && myProfile?.role === "clinical";
   const clinicalRep = isClinical ? userProfiles.find(p => p.id === myProfile?.clinical_rep_id) : null;
@@ -2082,26 +2083,6 @@ export default function App() {
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
   const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
-
-  // ── TEMP DIAGNOSTIC — remove after debugging ──
-  if (isClinical && typeof window !== "undefined") {
-    console.log("[CLINICAL DEBUG]", {
-      isClinical,
-      myProfileRole: myProfile?.role,
-      clinical_hospital: myProfile?.clinical_hospital,
-      hospitalFilter,
-      unitFilter,
-      repFilter,
-      dateFrom, dateTo,
-      entries_length: entries.length,
-      proxyEntries_length: proxyEntries.length,
-      filteredDashboard_length: filteredDashboard.length,
-      sample_entry: entries[0] ? { hospital: entries[0].hospital, location: entries[0].location, logged_by: entries[0].logged_by, date: entries[0].date } : null,
-      after_applyFilters: applyFilters(proxyEntries, hospitalFilter).length,
-      isTrial: isTrialHospital(hospitalFilter),
-    });
-  }
-  // ── END TEMP DIAGNOSTIC ──
 
   // Use branding for the selected hospital, or auto-detect if only one hospital in view
   const activeBranding = (() => {
