@@ -1340,6 +1340,7 @@ export default function App() {
   const [clinicalInvites, setClinicalInvites] = useState([]);
   const [hospitalList, setHospitalList] = useState([]); // from hospital_branding table
   const [inviteForm, setInviteForm] = useState({ hospital: "", rep_id: "", name: "", email: "" });
+  const [addingNewHospital, setAddingNewHospital] = useState(false);
   const [sendingInvite, setSendingInvite] = useState(false);
   const [inviteError, setInviteError] = useState(null);
   const [inviteSuccess, setInviteSuccess] = useState(null);
@@ -1523,7 +1524,8 @@ export default function App() {
     setInviteError(null);
     setInviteSuccess(null);
     const { hospital, rep_id, name, email } = inviteForm;
-    if (!hospital || !rep_id || !name.trim() || !email.trim()) {
+    const hospitalTrimmed = (hospital || "").trim();
+    if (!hospitalTrimmed || !rep_id || !name.trim() || !email.trim()) {
       setInviteError("All fields are required.");
       return;
     }
@@ -1533,12 +1535,25 @@ export default function App() {
     }
     setSendingInvite(true);
     try {
+      // If this is a brand-new hospital, create a hospital_branding row first.
+      // Use case-insensitive match against existing list to avoid dupes from
+      // typos like "St. Mary's" vs "St Mary's".
+      const isNewHospital = !hospitalList.some(h => h.toLowerCase() === hospitalTrimmed.toLowerCase());
+      if (isNewHospital) {
+        const { error: hbError } = await supabase
+          .from("hospital_branding")
+          .insert([{ hospital: hospitalTrimmed, is_trial: true }]);
+        if (hbError && hbError.code !== "23505") throw hbError; // 23505 = unique violation, ignore (race condition with another admin)
+        setHospitalList(prev => [...prev, hospitalTrimmed].sort((a, b) => a.localeCompare(b)));
+        await logAudit("HOSPITAL_CREATED_VIA_INVITE", { hospital: hospitalTrimmed });
+      }
+
       const { data: invite, error } = await supabase
         .from("clinical_invites")
         .insert([{
           email: email.trim().toLowerCase(),
           name: name.trim(),
-          hospital,
+          hospital: hospitalTrimmed,
           rep_id,
           created_by_email: user.email,
         }])
@@ -1556,11 +1571,14 @@ export default function App() {
       });
       if (fnError) throw fnError;
 
-      await logAudit("CLINICAL_INVITE_SENT", { hospital, email: invite.email, rep_id });
+      await logAudit("CLINICAL_INVITE_SENT", { hospital: hospitalTrimmed, email: invite.email, rep_id, new_hospital: isNewHospital });
       setClinicalInvites(prev => [invite, ...prev]);
       setInviteForm({ hospital: "", rep_id: "", name: "", email: "" });
-      setInviteSuccess(`Invite sent to ${invite.email}`);
-      setTimeout(() => setInviteSuccess(null), 4000);
+      setAddingNewHospital(false);
+      setInviteSuccess(isNewHospital
+        ? `Invite sent to ${invite.email} · ${hospitalTrimmed} added to hospital list`
+        : `Invite sent to ${invite.email}`);
+      setTimeout(() => setInviteSuccess(null), 5000);
     } catch (e) {
       setInviteError(e.message || "Failed to send invite.");
     } finally {
@@ -4856,13 +4874,27 @@ export default function App() {
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }} className="invite-form-grid">
                     <div>
-                      <label style={{ display: "block", fontSize: 11, color: C.inkLight, marginBottom: 6, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>HOSPITAL</label>
-                      <select value={inviteForm.hospital}
-                        onChange={e => setInviteForm(f => ({ ...f, hospital: e.target.value }))}
-                        style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.ink, fontFamily: "inherit" }}>
-                        <option value="">Select hospital...</option>
-                        {hospitalList.map(h => <option key={h} value={h}>{h}</option>)}
-                      </select>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <label style={{ fontSize: 11, color: C.inkLight, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>HOSPITAL</label>
+                        <button type="button"
+                          onClick={() => { setAddingNewHospital(v => !v); setInviteForm(f => ({ ...f, hospital: "" })); }}
+                          style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em", padding: 0 }}>
+                          {addingNewHospital ? "← USE EXISTING" : "+ ADD NEW"}
+                        </button>
+                      </div>
+                      {addingNewHospital ? (
+                        <input type="text" value={inviteForm.hospital}
+                          onChange={e => setInviteForm(f => ({ ...f, hospital: e.target.value }))}
+                          placeholder="e.g. Memorial Hospital"
+                          style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.primary}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.ink, fontFamily: "inherit", boxSizing: "border-box" }} />
+                      ) : (
+                        <select value={inviteForm.hospital}
+                          onChange={e => setInviteForm(f => ({ ...f, hospital: e.target.value }))}
+                          style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.ink, fontFamily: "inherit" }}>
+                          <option value="">Select hospital...</option>
+                          {hospitalList.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      )}
                     </div>
                     <div>
                       <label style={{ display: "block", fontSize: 11, color: C.inkLight, marginBottom: 6, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>REP / KAM</label>
