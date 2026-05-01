@@ -1034,22 +1034,28 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       theme: "plain",
     });
 
-    // ── MONTH-OVER-MONTH CHANGE BY HOSPITAL ─────────────────────────────────
-    // Compute per-hospital, per-metric averages for current month vs. previous month
-    // using the full unfiltered set so MoM works regardless of the user's date filter.
+    // ── ROLLING 30-DAY CHANGE BY HOSPITAL ───────────────────────────────────
+    // Compute per-hospital, per-metric averages for last 30 days vs. previous 30 days
+    // (rolling window). Uses the full unfiltered set so trend works regardless of the
+    // user's current date filter.
     const momSource = (fullEntries && fullEntries.length > 0) ? fullEntries : entries;
-    const now = new Date();
-    const curYear = now.getFullYear();
-    const curMonth = now.getMonth(); // 0-indexed
-    const prevDate = new Date(curYear, curMonth - 1, 1);
-    const prevYear = prevDate.getFullYear();
-    const prevMonth = prevDate.getMonth();
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const curStart = new Date(today);
+    curStart.setDate(curStart.getDate() - 29); // last 30 days inclusive of today
+    curStart.setHours(0, 0, 0, 0);
+    const prevEnd = new Date(curStart);
+    prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - 29);
+    prevStart.setHours(0, 0, 0, 0);
 
-    const inMonth = (e, y, m) => {
+    const inRange = (e, start, end) => {
       if (!e.date) return false;
       // Parse YYYY-MM-DD without timezone shifting (matches existing app pattern)
-      const [yy, mm] = e.date.split("-").map(Number);
-      return yy === y && (mm - 1) === m;
+      const [yy, mm, dd] = e.date.split("-").map(Number);
+      const d = new Date(yy, mm - 1, dd);
+      return d >= start && d <= end;
     };
 
     const avgFor = (subset, metricId) => {
@@ -1064,8 +1070,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         const hMetrics = getMetrics(h);
         if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
         const hEntries = momSource.filter(e => e.hospital === h);
-        const cur = avgFor(hEntries.filter(e => inMonth(e, curYear, curMonth)), m.id);
-        const prev = avgFor(hEntries.filter(e => inMonth(e, prevYear, prevMonth)), m.id);
+        const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
+        const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
         if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
         if (prev === null) return { display: "NEW", color: brandHeader };
         if (cur === null) return { display: "—", color: BRAND.inkLight };
@@ -1081,8 +1087,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     // Find Y position after the comparison table; if too close to bottom, new page
     let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
-    // Estimate space needed: header row (~10mm) + rows (~6mm each) + section title (~12mm)
-    const estimatedHeight = 12 + 10 + (momRows.length * 6) + 8;
+    // Estimate space needed: section title + subtitle + date range (~17mm) + header row (~10mm) + rows (~6mm each)
+    const estimatedHeight = 17 + 10 + (momRows.length * 6) + 8;
     if (momStartY + estimatedHeight > 280) {
       doc.addPage();
       addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
@@ -1096,15 +1102,22 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.text("MONTH-OVER-MONTH CHANGE BY HOSPITAL", 14, momStartY);
+    doc.text("ROLLING 30-DAY CHANGE BY HOSPITAL", 14, momStartY);
 
     doc.setTextColor(...BRAND.ink);
     doc.setFontSize(13);
-    doc.text("Trend vs. Previous Month", 14, momStartY + 7);
+    doc.text("Trend vs. Previous 30 Days", 14, momStartY + 7);
+
+    // Date range subtitle so the reader knows what's being compared
+    const fmtRange = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${fmtRange(curStart)} – ${fmtRange(today)} vs. ${fmtRange(prevStart)} – ${fmtRange(prevEnd)}`, 14, momStartY + 13);
 
     // Render the MoM table using autoTable with cell-level styling for color
     autoTable(doc, {
-      startY: momStartY + 11,
+      startY: momStartY + 17,
       head: [["Metric", ...hospitals]],
       body: momRows.map(r => [r.label, ...r.cells.map(c => c.display)]),
       styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
