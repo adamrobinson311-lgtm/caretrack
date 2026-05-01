@@ -749,30 +749,12 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
   const bed = beds[safeIdx] || {};
   const isNa = !!bed.na;
 
-  // Progress: count beds that have been touched (any metric tapped)
-  const touchedCount = beds.filter(b => b.na || metrics.some(m => b[`${m.id}_touched`] === true || b[`${m.id}_na`] === true)).length;
-  const progressPct = beds.length > 0 ? Math.round((touchedCount / beds.length) * 100) : 0;
-
   // Compliance colour for a pct value
   const pctCol = (p) => p === null ? C.inkFaint : p >= 90 ? C.green : p >= 70 ? C.amber : C.red;
   const pctBg2 = (p) => p === null ? C.surfaceAlt : p >= 90 ? C.greenLight : p >= 70 ? C.amberLight : C.redLight;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
-      {/* ── Sticky progress bar ── */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkLight, letterSpacing: "0.08em" }}>BEDS COMPLETED</span>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: progressPct === 100 ? C.green : C.primary }}>{touchedCount} / {beds.length}</span>
-        </div>
-        <div style={{ height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${progressPct}%`, background: progressPct === 100 ? C.green : C.primary, borderRadius: 3, transition: "width 0.3s ease" }} />
-        </div>
-        {progressPct === 100 && (
-          <div style={{ fontSize: 10, color: C.green, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4, letterSpacing: "0.05em" }}>✓ ALL BEDS ENTERED</div>
-        )}
-      </div>
 
       {/* ── Navigation bar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -832,9 +814,13 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
 
             const toggleCompliant = () => {
               if (metricNa) return;
-              updateCell(`${m.id}_touched`, true);
-              updateCell(`${m.id}_q`, "1");
-              updateCell(`${m.id}_a`, compliant ? "0" : "1");
+              const updated = beds.map((b, i) => i === safeIdx ? {
+                ...b,
+                [`${m.id}_touched`]: true,
+                [`${m.id}_q`]: "1",
+                [`${m.id}_a`]: compliant ? "0" : "1",
+              } : b);
+              onChange(updated);
             };
 
             const btnBg     = metricNa ? C.surfaceAlt : compliant ? C.greenLight : C.redLight;
