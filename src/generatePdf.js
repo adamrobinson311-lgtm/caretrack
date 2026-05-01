@@ -161,8 +161,17 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFontSize(11);
   doc.text(`Generated ${today}`, 20, 148);
   doc.text(`${entries.length} units audited`, 20, 156);
-  doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
-  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
+
+  // Wrap the hospital list within the cover's text margin (left=20, right=20 with edge bars at 0-8 and 202-210).
+  // Available width is roughly 210 - 20*2 = 170mm.
+  const hospitalText = hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals";
+  const hospitalLines = doc.splitTextToSize(hospitalText, 170);
+  doc.text(hospitalLines, 20, 164);
+
+  // Push "Prepared by" below however many lines the hospital list took.
+  const lineHeight = 5; // matches 11pt font line spacing in mm
+  const preparedByY = 164 + (hospitalLines.length * lineHeight) + 3;
+  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, preparedByY); }
 
   // Hospital logo — top left of title page
   if (branding?.logoBase64 && branding?.logoMime) {
