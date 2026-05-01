@@ -1129,12 +1129,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
         ...bedMetricColStyles,
       },
-      margin: { left: 14, right: 14, top: 18 },
+      margin: { left: 14, right: 14 },
       theme: "plain",
-      didDrawPage: (data) => {
-        addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
-      },
       didDrawCell: (data) => {
+        if (data.section !== "body" || data.column.index < BED_FIXED_COLS) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
         const mIdx = data.column.index - BED_FIXED_COLS;
         if (mIdx >= orderedBedMetrics.length) return;
