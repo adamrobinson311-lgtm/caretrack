@@ -931,8 +931,15 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       [HISTORY_BUCKETS.length + 3]: { cellWidth: 18 },
       [HISTORY_BUCKETS.length + 4]: { cellWidth: 16, fontStyle: "italic" },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 14, right: 14, top: 18 },
     theme: "plain",
+    didDrawPage: (data) => {
+      // autoTable creates new pages internally when content overflows. Without this,
+      // those pages have no header bar. The final-pass page-number rewrite then has
+      // nothing to overlay on. Draw a header on every page autoTable touches.
+      // The actual page number gets corrected in the final pass at end of the function.
+      addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
+    },
     willDrawCell: (data) => {
       if (data.section !== "body") return;
       const bucketIdx = data.column.index - 3;
@@ -1122,10 +1129,12 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
         ...bedMetricColStyles,
       },
-      margin: { left: 14, right: 14 },
+      margin: { left: 14, right: 14, top: 18 },
       theme: "plain",
+      didDrawPage: (data) => {
+        addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
+      },
       didDrawCell: (data) => {
-        if (data.section !== "body" || data.column.index < BED_FIXED_COLS) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
         const mIdx = data.column.index - BED_FIXED_COLS;
         if (mIdx >= orderedBedMetrics.length) return;
