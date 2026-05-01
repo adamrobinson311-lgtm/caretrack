@@ -610,6 +610,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   }
 
   // ── PAGE: MONTH-OVER-MONTH ────────────────────────────────────────────────
+  // Page tracker: starts at 3 (Title=1, Summary=2, this is page 3 if MoM renders).
   let histPageNum = 3;
   if (mom?.hasData) {
     doc.addPage();
@@ -1229,6 +1230,23 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(pageLines, textX, 34);
     }
 
+  }
+
+  // ── FINAL PASS: fix page numbers on every page ────────────────────────────
+  // This avoids the gnarly hand-tracked pageNum arithmetic earlier in the file.
+  // jsPDF tracks pages internally; we overwrite the "Page X of Y" text on each.
+  // Skip page 1 — that's the cover/Title which uses a different layout.
+  const actualTotal = doc.getNumberOfPages();
+  for (let i = 2; i <= actualTotal; i++) {
+    doc.setPage(i);
+    // Redraw the right side of the header bar where "Page N of M" lives.
+    // The header bar background is brandHeader; we need to paint over the old number.
+    doc.setFillColor(...brandHeader);
+    doc.rect(170, 0, 40, 14, "F");
+    doc.setTextColor(...BRAND.white);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(`Page ${i} of ${actualTotal}`, 200, 9, { align: "right" });
   }
 
   if (returnBase64) {
