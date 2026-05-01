@@ -2174,8 +2174,11 @@ export default function App() {
 
   const filteredDashboard = (() => {
     if (multiActive) {
+      // Admins and VPs both have access to allEntriesFull (admins via the admin fetch,
+      // VPs via the All Regions tab fetch). Fall back to proxyEntries if not yet loaded.
+      const source = (allEntriesFull && allEntriesFull.length > 0) ? allEntriesFull : proxyEntries;
       const selected = new Set(hospitalMultiFilter);
-      return applyFilters(proxyEntries, "All").filter(e => selected.has(e.hospital));
+      return applyFilters(source, "All").filter(e => selected.has(e.hospital));
     }
     return applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
   })();
