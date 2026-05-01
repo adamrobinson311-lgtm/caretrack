@@ -4881,15 +4881,46 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {userProfiles.filter(profile => {
+                  {(() => {
+                    // Group definitions in display order: Rep > KAM > Clinical > Director > VP > Admin.
+                    // Admins are detected by email (ADMIN_EMAILS), others by role field.
+                    // The final UNCATEGORIZED group catches anyone with no role assigned or a role
+                    // outside the recognized list — surfaces data-quality issues for admins to fix.
+                    const KNOWN_ROLES = new Set(["rep", "kam", "clinical", "director", "vp"]);
+                    const GROUPS = [
+                      { key: "rep",          label: "SALES REPS",     match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "rep" },
+                      { key: "kam",          label: "KAMs",           match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "kam" },
+                      { key: "clinical",     label: "CLINICAL USERS", match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "clinical" },
+                      { key: "director",     label: "DIRECTORS",      match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "director" },
+                      { key: "vp",           label: "VPs",            match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "vp" },
+                      { key: "admin",        label: "ADMINS",         match: (p) => ADMIN_EMAILS.includes(p.email) },
+                      { key: "uncategorized", label: "UNCATEGORIZED · NEEDS ROLE", match: (p) => !ADMIN_EMAILS.includes(p.email) && !KNOWN_ROLES.has(p.role) },
+                    ];
+                    const matchesSearch = (profile) => {
                       const q = userSearch.trim().toLowerCase();
                       if (!q) return true;
                       return (profile.full_name || "").toLowerCase().includes(q)
                           || (profile.email || "").toLowerCase().includes(q)
                           || (profile.region || "").toLowerCase().includes(q)
                           || (profile.role || "").toLowerCase().includes(q);
-                    }).map(profile => {
+                    };
+                    // First pass: assign each profile to the first matching group so it appears once.
+                    const grouped = Object.fromEntries(GROUPS.map(g => [g.key, []]));
+                    userProfiles.filter(matchesSearch).forEach(p => {
+                      const g = GROUPS.find(g => g.match(p));
+                      if (g) grouped[g.key].push(p);
+                    });
+                    return GROUPS.map(g => {
+                      const groupProfiles = grouped[g.key];
+                      if (groupProfiles.length === 0) return null;
+                      const isUncat = g.key === "uncategorized";
+                      return (
+                        <div key={g.key} style={{ marginBottom: 18, ...(isUncat ? { background: C.amberLight + "55", border: `1px solid ${C.amber}33`, borderRadius: 8, padding: "12px 14px" } : {}) }}>
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: isUncat ? C.amber : C.inkLight, letterSpacing: "0.1em", marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${isUncat ? C.amber + "33" : C.border}`, fontWeight: isUncat ? 700 : 400 }}>
+                            {g.label} <span style={{ color: isUncat ? C.amber : C.inkFaint, opacity: isUncat ? 0.8 : 1 }}>· {groupProfiles.length}</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {groupProfiles.map(profile => {
                       const userSessions = allEntriesFull.filter(e => e.logged_by === profile.full_name || e.logged_by === profile.email);
                       const overallVals = METRICS.flatMap(m => userSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
                       const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
@@ -5149,8 +5180,16 @@ export default function App() {
                         </div>
                       );
                     })}
-                    {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
-                  </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
+                  {userProfiles.length > 0 && userSearch.trim() && userProfiles.filter(p => {
+                    const q = userSearch.trim().toLowerCase();
+                    return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q) || (p.region || "").toLowerCase().includes(q) || (p.role || "").toLowerCase().includes(q);
+                  }).length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0", textAlign: "center" }}>No users match "{userSearch}"</div>}
                 </div>
               </div>
             )}
