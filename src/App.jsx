@@ -2040,7 +2040,17 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
-      ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => [[`${m.id}_num`, form[`${m.id}_num`] === "na" ? null : parseInt(form[`${m.id}_num`]) || null], [`${m.id}_den`, form[`${m.id}_den`] === "na" ? null : parseInt(form[`${m.id}_den`]) || null]])),
+      ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => {
+        const rawNum = form[`${m.id}_num`];
+        const rawDen = form[`${m.id}_den`];
+        // Preserve explicit 0; only treat empty/"na"/non-numeric as null
+        const toIntOrNull = (v) => {
+          if (v === "" || v === null || v === undefined || v === "na") return null;
+          const n = parseInt(v);
+          return isNaN(n) ? null : n;
+        };
+        return [[`${m.id}_num`, toIntOrNull(rawNum)], [`${m.id}_den`, toIntOrNull(rawDen)]];
+      })),
       ...(inputMode === "grid" && bedGrid.length > 0 ? { bed_data: bedGrid } : {}),
     };
     // If offline, queue the session locally
@@ -2303,10 +2313,16 @@ export default function App() {
       location: editForm.location || null,
       protocol_for_use: editForm.protocol_for_use || null,
       notes: editForm.notes || null,
-      ...Object.fromEntries(METRICS.flatMap(m => [
-        [`${m.id}_num`, parseInt(editForm[`${m.id}_num`]) || null],
-        [`${m.id}_den`, parseInt(editForm[`${m.id}_den`]) || null]
-      ])),
+      ...Object.fromEntries(METRICS.flatMap(m => {
+        const rawNum = editForm[`${m.id}_num`];
+        const rawDen = editForm[`${m.id}_den`];
+        const toIntOrNull = (v) => {
+          if (v === "" || v === null || v === undefined || v === "na") return null;
+          const n = parseInt(v);
+          return isNaN(n) ? null : n;
+        };
+        return [[`${m.id}_num`, toIntOrNull(rawNum)], [`${m.id}_den`, toIntOrNull(rawDen)]];
+      })),
     };
     const { data, error } = await supabase.from("sessions").update(payload).eq("id", editingId).select().single();
     if (error) { alert("Failed to save: " + error.message); setEditSaving(false); return; }
