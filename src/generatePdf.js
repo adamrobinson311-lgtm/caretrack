@@ -1017,15 +1017,19 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
     });
 
-    // Detailed comparison table
-    const compRows = visibleMetrics.map(m => [
-      m.label,
-      ...hospitalData.map(h => h.metrics[visibleMetrics.indexOf(m)] !== null ? `${h.metrics[visibleMetrics.indexOf(m)]}%` : "—")
+    // Detailed comparison table — hospitals as rows alphabetized, metrics as columns
+    const sortedHospitalData = [...hospitalData].sort((a, b) => a.hospital.localeCompare(b.hospital));
+    const compRows = sortedHospitalData.map(h => [
+      h.hospital,
+      ...visibleMetrics.map(m => {
+        const idx = visibleMetrics.indexOf(m);
+        return h.metrics[idx] !== null ? `${h.metrics[idx]}%` : "—";
+      })
     ]);
 
     autoTable(doc, {
       startY: 80,
-      head: [["Metric", ...hospitalData.map(h => h.hospital)]],
+      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
       body: compRows,
       styles: { fontSize: 8, cellPadding: 2.5 },
       headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
