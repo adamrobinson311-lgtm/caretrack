@@ -1077,10 +1077,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         if (cur === null) return { display: "—", color: BRAND.inkLight };
         const delta = cur - prev;
         if (delta === 0) return { display: "0%", color: BRAND.inkLight };
-        const sign = delta > 0 ? "+" : "";
-        const arrow = delta > 0 ? "▲" : "▼";
+        const sign = delta > 0 ? "+" : "-";
+        const abs = Math.abs(delta);
         const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
-        return { display: `${arrow} ${sign}${delta}%`, color };
+        return { display: `${sign}${abs}%`, color };
       });
       return { label: m.label, cells };
     });
