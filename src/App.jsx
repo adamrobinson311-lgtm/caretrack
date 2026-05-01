@@ -1393,6 +1393,7 @@ export default function App() {
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
   const [hospitalMultiFilter, setHospitalMultiFilter] = useState([]); // admin/VP-only multi-hospital filter for Dashboard
+  const [userSearch, setUserSearch] = useState(""); // admin User Management search box
   const [unitFilter, setUnitFilter] = useState("All");
   const [repFilter, setRepFilter] = useState("All");
   const [regionSortBy, setRegionSortBy] = useState("avg");
@@ -4850,9 +4851,45 @@ export default function App() {
 
                 {/* Per-user breakdown */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>
+                      ALL USERS
+                      {userSearch.trim() && (() => {
+                        const q = userSearch.trim().toLowerCase();
+                        const matches = userProfiles.filter(p =>
+                          (p.full_name || "").toLowerCase().includes(q) ||
+                          (p.email || "").toLowerCase().includes(q) ||
+                          (p.region || "").toLowerCase().includes(q) ||
+                          (p.role || "").toLowerCase().includes(q)
+                        ).length;
+                        return <span style={{ color: C.inkMid, marginLeft: 8 }}>· {matches} of {userProfiles.length}</span>;
+                      })()}
+                    </div>
+                    <div style={{ position: "relative", minWidth: 240 }}>
+                      <input
+                        type="text"
+                        placeholder="Search name, email, region, role..."
+                        value={userSearch}
+                        onChange={e => setUserSearch(e.target.value)}
+                        style={{ width: "100%", padding: "7px 28px 7px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: C.bg, color: C.ink, outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => e.target.style.borderColor = C.primary}
+                        onBlur={e => e.target.style.borderColor = C.border}
+                      />
+                      {userSearch && (
+                        <button onClick={() => setUserSearch("")} title="Clear"
+                          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: C.inkLight, cursor: "pointer", fontSize: 14, padding: "0 6px", lineHeight: 1 }}>×</button>
+                      )}
+                    </div>
+                  </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {userProfiles.map(profile => {
+                    {userProfiles.filter(profile => {
+                      const q = userSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (profile.full_name || "").toLowerCase().includes(q)
+                          || (profile.email || "").toLowerCase().includes(q)
+                          || (profile.region || "").toLowerCase().includes(q)
+                          || (profile.role || "").toLowerCase().includes(q);
+                    }).map(profile => {
                       const userSessions = allEntriesFull.filter(e => e.logged_by === profile.full_name || e.logged_by === profile.email);
                       const overallVals = METRICS.flatMap(m => userSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
                       const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
