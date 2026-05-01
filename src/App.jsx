@@ -825,20 +825,29 @@ const BedGrid = ({ metrics, beds, onChange, onAddBed, onRemoveBed, hospital = ""
             const metricNa = !!bed[`${m.id}_na`];
             const rawQ = bed[`${m.id}_q`];
             const rawA = bed[`${m.id}_a`];
-            // Two states: compliant (a=1) or non-compliant (a=0, default)
-            const compliant = rawA === "1" || rawA === 1;
+            // A metric is "touched" once the user has tapped its YES/NO button — at that
+            // point _q is set to "1". Until then, render a neutral state so an untouched
+            // metric isn't mistaken for a NO answer.
+            const touched = rawQ === "1" || rawQ === 1;
+            const compliant = touched && (rawA === "1" || rawA === 1);
 
             const toggleCompliant = () => {
               if (metricNa) return;
-              updateCell(`${m.id}_q`, "1");
-              updateCell(`${m.id}_a`, compliant ? "0" : "1");
+              if (!touched) {
+                // First tap: mark as YES
+                updateCell(`${m.id}_q`, "1");
+                updateCell(`${m.id}_a`, "1");
+              } else {
+                // Subsequent taps cycle YES → NO → YES
+                updateCell(`${m.id}_a`, compliant ? "0" : "1");
+              }
             };
 
-            const btnBg     = metricNa ? C.surfaceAlt : compliant ? C.greenLight : C.redLight;
-            const btnBorder = metricNa ? C.border : compliant ? C.green + "66" : C.red + "66";
-            const btnColor  = metricNa ? C.inkFaint : compliant ? C.green : C.red;
-            const btnIcon   = compliant ? "✓" : "✗";
-            const btnLabel  = compliant ? "YES" : "NO";
+            const btnBg     = metricNa ? C.surfaceAlt : !touched ? C.surface : compliant ? C.greenLight : C.redLight;
+            const btnBorder = metricNa ? C.border : !touched ? C.border : compliant ? C.green + "66" : C.red + "66";
+            const btnColor  = metricNa ? C.inkFaint : !touched ? C.inkFaint : compliant ? C.green : C.red;
+            const btnIcon   = !touched ? "—" : compliant ? "✓" : "✗";
+            const btnLabel  = !touched ? "TAP" : compliant ? "YES" : "NO";
 
             return (
               <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: mi < metrics.length - 1 ? `1px solid ${C.border}` : "none", opacity: metricNa ? 0.4 : 1, transition: "opacity 0.15s" }}>
@@ -1927,16 +1936,18 @@ export default function App() {
   }, [form.hospital, form.location, inputMode]);
 
   // Auto-sum bed grid values into the form's metric fields
-  // Denominator = eligible (non-N/A) bed count; numerator = YES taps only
+  // Denominator = beds where the user actually answered this metric (tapped YES/NO);
+  // numerator = YES taps only. N/A beds and untouched metrics are excluded.
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0) return;
     const activeMetrics = getMetrics(form.hospital);
     const activeBeds2 = bedGrid.filter(b => !b.na);
     const updates = {};
     activeMetrics.forEach(m => {
-      const eligible = activeBeds2.filter(b => !b[`${m.id}_na`]);
-      const totalQ = eligible.length;
-      const totalA = eligible.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
+      // Only beds where (a) the metric isn't N/A AND (b) the user has tapped YES or NO (q==="1")
+      const answered = activeBeds2.filter(b => !b[`${m.id}_na`] && (b[`${m.id}_q`] === "1" || b[`${m.id}_q`] === 1));
+      const totalQ = answered.length;
+      const totalA = answered.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
       updates[`${m.id}_den`] = totalQ > 0 ? String(totalQ) : "";
       updates[`${m.id}_num`] = totalQ > 0 ? String(totalA) : "";
     });
