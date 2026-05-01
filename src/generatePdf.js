@@ -83,7 +83,7 @@ const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAN
   doc.text(`Generated ${today} · HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = [], mom = null, allEntries = []) {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = [], mom = null, allEntries = [], fullEntries = []) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
   // Robust hex→RGB helper
@@ -1032,6 +1032,100 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       alternateRowStyles: { fillColor: [240, 237, 234] },
       margin: { left: 14, right: 14 },
       theme: "plain",
+    });
+
+    // ── MONTH-OVER-MONTH CHANGE BY HOSPITAL ─────────────────────────────────
+    // Compute per-hospital, per-metric averages for current month vs. previous month
+    // using the full unfiltered set so MoM works regardless of the user's date filter.
+    const momSource = (fullEntries && fullEntries.length > 0) ? fullEntries : entries;
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth(); // 0-indexed
+    const prevDate = new Date(curYear, curMonth - 1, 1);
+    const prevYear = prevDate.getFullYear();
+    const prevMonth = prevDate.getMonth();
+
+    const inMonth = (e, y, m) => {
+      if (!e.date) return false;
+      // Parse YYYY-MM-DD without timezone shifting (matches existing app pattern)
+      const [yy, mm] = e.date.split("-").map(Number);
+      return yy === y && (mm - 1) === m;
+    };
+
+    const avgFor = (subset, metricId) => {
+      const vals = subset.map(e => pct(e[`${metricId}_num`], e[`${metricId}_den`])).filter(v => v !== null);
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+
+    // Build the MoM matrix: for each metric, a row of cells per hospital
+    const momRows = visibleMetrics.map(m => {
+      const cells = hospitals.map(h => {
+        // Only compute for metrics that apply to this hospital
+        const hMetrics = getMetrics(h);
+        if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
+        const hEntries = momSource.filter(e => e.hospital === h);
+        const cur = avgFor(hEntries.filter(e => inMonth(e, curYear, curMonth)), m.id);
+        const prev = avgFor(hEntries.filter(e => inMonth(e, prevYear, prevMonth)), m.id);
+        if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
+        if (prev === null) return { display: "NEW", color: brandHeader };
+        if (cur === null) return { display: "—", color: BRAND.inkLight };
+        const delta = cur - prev;
+        if (delta === 0) return { display: "0%", color: BRAND.inkLight };
+        const sign = delta > 0 ? "+" : "";
+        const arrow = delta > 0 ? "▲" : "▼";
+        const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
+        return { display: `${arrow} ${sign}${delta}%`, color };
+      });
+      return { label: m.label, cells };
+    });
+
+    // Find Y position after the comparison table; if too close to bottom, new page
+    let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
+    // Estimate space needed: header row (~10mm) + rows (~6mm each) + section title (~12mm)
+    const estimatedHeight = 12 + 10 + (momRows.length * 6) + 8;
+    if (momStartY + estimatedHeight > 280) {
+      doc.addPage();
+      addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+      pageNum++;
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      momStartY = 24;
+    }
+
+    // Section title
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("MONTH-OVER-MONTH CHANGE BY HOSPITAL", 14, momStartY);
+
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(13);
+    doc.text("Trend vs. Previous Month", 14, momStartY + 7);
+
+    // Render the MoM table using autoTable with cell-level styling for color
+    autoTable(doc, {
+      startY: momStartY + 11,
+      head: [["Metric", ...hospitals]],
+      body: momRows.map(r => [r.label, ...r.cells.map(c => c.display)]),
+      styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+      didParseCell: (data) => {
+        // Apply per-cell color based on the precomputed color in momRows
+        if (data.section === "body" && data.column.index > 0) {
+          const rowIdx = data.row.index;
+          const colIdx = data.column.index - 1; // first col is label
+          const cellMeta = momRows[rowIdx]?.cells[colIdx];
+          if (cellMeta) {
+            data.cell.styles.textColor = cellMeta.color;
+            if (cellMeta.display !== "—" && cellMeta.display !== "0%") {
+              data.cell.styles.fontStyle = "bold";
+            }
+          }
+        }
+      },
     });
   }
 

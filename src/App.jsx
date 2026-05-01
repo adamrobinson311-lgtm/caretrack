@@ -2477,7 +2477,12 @@ export default function App() {
           brandingWithLogo = { ...brandingWithLogo, logoBase64: b64, logoMime: mime, logoWidth: logoW, logoHeight: logoH };
         } catch { /* logo fetch failed, continue without it */ }
       }
-      await generatePdf(filteredDashboard, summary, false, exportLabel, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries);
+      // For per-hospital MoM in the PDF, pass an unfiltered source — admins/VPs get
+      // the broadest set, everyone else uses their proxyEntries.
+      const fullSourceForMom = (isAdmin || isVP) && allEntriesFull && allEntriesFull.length > 0
+        ? allEntriesFull
+        : proxyEntries;
+      await generatePdf(filteredDashboard, summary, false, exportLabel, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries, fullSourceForMom);
       localStorage.setItem("caretrack_exported", "true");
     } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
