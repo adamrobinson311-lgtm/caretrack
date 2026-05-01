@@ -794,7 +794,10 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
     // Find Y position after the comparison table; if too close to bottom, new page
     let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
-    const estimatedHeight = 17 + 10 + (momRows.length * 6) + 8;
+    // More conservative estimate: hospital labels with long names wrap, making rows ~9-10mm tall
+    // instead of the ~6mm a single-line cell would be. Also includes header (~12mm) + section
+    // title block (~17mm) + bottom margin breathing room (~10mm).
+    const estimatedHeight = 17 + 12 + (momRows.length * 10) + 10;
     if (momStartY + estimatedHeight > 280) {
       doc.addPage();
       addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
