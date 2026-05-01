@@ -653,6 +653,199 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       }, margin: { left: 14, right: 14 }, theme: "plain" });
   }
 
+  // ── HOSPITAL COMPARISON (if multiple) ─────────────────────────────────────
+  // Moved up from after Bed Detail so the comparison view appears immediately
+  // after Monthly Performance, before the long Session History / Per Bed tables.
+  let pageNum = histPageNum;
+  if (hospitals.length > 1) {
+    doc.addPage();
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+    pageNum++;
+
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("HOSPITAL COMPARISON", 14, 24);
+
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(20);
+    doc.text("Performance by Hospital", 14, 35);
+
+    const hospitalData = hospitals.map(h => {
+      const hEntries = entries.filter(e => e.hospital === h);
+      const hMetrics = getMetrics(h);
+      return {
+        hospital: h,
+        sessions: hEntries.length,
+        metrics: visibleMetrics.map(m => {
+          if (!hMetrics.find(x => x.id === m.id)) return null;
+          const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        }),
+        overall: (() => {
+          const vals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        })()
+      };
+    });
+
+    // Hospital summary cards
+    const hCardW = (182 / hospitals.length) - 2;
+    hospitalData.forEach((h, i) => {
+      const cx = 14 + i * (hCardW + 2);
+      const color = pctColor(h.overall);
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, 42, hCardW, 30, 2, 2, "F");
+      doc.setFillColor(...color);
+      doc.rect(cx, 42, hCardW, 2, "F");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      const hLines = doc.splitTextToSize(h.hospital, hCardW - 4);
+      doc.text(hLines, cx + hCardW / 2, 50, { align: "center" });
+      doc.setTextColor(...color);
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.text(h.overall !== null ? `${h.overall}%` : "—", cx + hCardW / 2, 62, { align: "center" });
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
+    });
+
+    // Detailed comparison table — hospitals as rows alphabetized, metrics as columns
+    const sortedHospitalData = [...hospitalData].sort((a, b) => a.hospital.localeCompare(b.hospital));
+    const compRows = sortedHospitalData.map(h => [
+      h.hospital,
+      ...visibleMetrics.map(m => {
+        const idx = visibleMetrics.indexOf(m);
+        return h.metrics[idx] !== null ? `${h.metrics[idx]}%` : "—";
+      })
+    ]);
+
+    autoTable(doc, {
+      startY: 80,
+      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
+      body: compRows,
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+    });
+
+    // ── ROLLING 30-DAY CHANGE BY HOSPITAL ───────────────────────────────────
+    // Compute per-hospital, per-metric averages for last 30 days vs. previous 30 days
+    // (rolling window). Uses the full unfiltered set so trend works regardless of the
+    // user's current date filter.
+    const momSource = (fullEntries && fullEntries.length > 0) ? fullEntries : entries;
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const curStart = new Date(today);
+    curStart.setDate(curStart.getDate() - 29); // last 30 days inclusive of today
+    curStart.setHours(0, 0, 0, 0);
+    const prevEnd = new Date(curStart);
+    prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - 29);
+    prevStart.setHours(0, 0, 0, 0);
+
+    const inRange = (e, start, end) => {
+      if (!e.date) return false;
+      // Parse YYYY-MM-DD without timezone shifting (matches existing app pattern)
+      const [yy, mm, dd] = e.date.split("-").map(Number);
+      const d = new Date(yy, mm - 1, dd);
+      return d >= start && d <= end;
+    };
+
+    const avgFor = (subset, metricId) => {
+      const vals = subset.map(e => pct(e[`${metricId}_num`], e[`${metricId}_den`])).filter(v => v !== null);
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+
+    // Build the MoM matrix with hospitals as rows and metrics as columns.
+    const sortedHospitals = [...hospitals].sort((a, b) => a.localeCompare(b));
+
+    const computeCell = (h, m) => {
+      const hMetrics = getMetrics(h);
+      if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
+      const hEntries = momSource.filter(e => e.hospital === h);
+      const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
+      const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
+      if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
+      if (prev === null) return { display: "NEW", color: brandHeader };
+      if (cur === null) return { display: "—", color: BRAND.inkLight };
+      const delta = cur - prev;
+      if (delta === 0) return { display: "0%", color: BRAND.inkLight };
+      const sign = delta > 0 ? "+" : "-";
+      const abs = Math.abs(delta);
+      const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
+      return { display: `${sign}${abs}%`, color };
+    };
+
+    const momRows = sortedHospitals.map(h => ({
+      hospital: h,
+      cells: visibleMetrics.map(m => computeCell(h, m)),
+    }));
+
+    // Find Y position after the comparison table; if too close to bottom, new page
+    let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
+    const estimatedHeight = 17 + 10 + (momRows.length * 6) + 8;
+    if (momStartY + estimatedHeight > 280) {
+      doc.addPage();
+      addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+      pageNum++;
+      doc.setFillColor(...BRAND.bg);
+      doc.rect(0, 14, 210, 283, "F");
+      momStartY = 24;
+    }
+
+    // Section title
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("ROLLING 30-DAY CHANGE BY HOSPITAL", 14, momStartY);
+
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(13);
+    doc.text("Trend vs. Previous 30 Days", 14, momStartY + 7);
+
+    const fmtRange = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+    doc.setTextColor(...BRAND.inkLight);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${fmtRange(curStart)} – ${fmtRange(today)} vs. ${fmtRange(prevStart)} – ${fmtRange(prevEnd)}`, 14, momStartY + 13);
+
+    autoTable(doc, {
+      startY: momStartY + 17,
+      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
+      body: momRows.map(r => [r.hospital, ...r.cells.map(c => c.display)]),
+      styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+      didParseCell: (data) => {
+        if (data.section === "body" && data.column.index > 0) {
+          const rowIdx = data.row.index;
+          const colIdx = data.column.index - 1;
+          const cellMeta = momRows[rowIdx]?.cells[colIdx];
+          if (cellMeta) {
+            data.cell.styles.textColor = cellMeta.color;
+            if (cellMeta.display !== "—" && cellMeta.display !== "0%") {
+              data.cell.styles.fontStyle = "bold";
+            }
+          }
+        }
+      },
+    });
+    // Bring histPageNum back in sync so downstream sections continue from here
+    histPageNum = pageNum;
+  }
+
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
   addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader, brandSecondary);
@@ -956,200 +1149,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     });
   }
 
-  // ── PAGE 4/5: HOSPITAL COMPARISON (if multiple) ───────────────────────────
-  let pageNum = hasBedData ? 5 : 4;
-  if (hospitals.length > 1) {
-    doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
-    pageNum++;
-
-    doc.setFillColor(...BRAND.bg);
-    doc.rect(0, 14, 210, 283, "F");
-
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.text("HOSPITAL COMPARISON", 14, 24);
-
-    doc.setTextColor(...BRAND.ink);
-    doc.setFontSize(20);
-    doc.text("Performance by Hospital", 14, 35);
-
-    const hospitalData = hospitals.map(h => {
-      const hEntries = entries.filter(e => e.hospital === h);
-      const hMetrics = getMetrics(h);
-      return {
-        hospital: h,
-        sessions: hEntries.length,
-        metrics: visibleMetrics.map(m => {
-          if (!hMetrics.find(x => x.id === m.id)) return null;
-          const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-        }),
-        overall: (() => {
-          const vals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-        })()
-      };
-    });
-
-    // Hospital summary cards
-    const hCardW = (182 / hospitals.length) - 2;
-    hospitalData.forEach((h, i) => {
-      const cx = 14 + i * (hCardW + 2);
-      const color = pctColor(h.overall);
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, 42, hCardW, 30, 2, 2, "F");
-      doc.setFillColor(...color);
-      doc.rect(cx, 42, hCardW, 2, "F");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      const hLines = doc.splitTextToSize(h.hospital, hCardW - 4);
-      doc.text(hLines, cx + hCardW / 2, 50, { align: "center" });
-      doc.setTextColor(...color);
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "bold");
-      doc.text(h.overall !== null ? `${h.overall}%` : "—", cx + hCardW / 2, 62, { align: "center" });
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
-    });
-
-    // Detailed comparison table — hospitals as rows alphabetized, metrics as columns
-    const sortedHospitalData = [...hospitalData].sort((a, b) => a.hospital.localeCompare(b.hospital));
-    const compRows = sortedHospitalData.map(h => [
-      h.hospital,
-      ...visibleMetrics.map(m => {
-        const idx = visibleMetrics.indexOf(m);
-        return h.metrics[idx] !== null ? `${h.metrics[idx]}%` : "—";
-      })
-    ]);
-
-    autoTable(doc, {
-      startY: 80,
-      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
-      body: compRows,
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [240, 237, 234] },
-      margin: { left: 14, right: 14 },
-      theme: "plain",
-    });
-
-    // ── ROLLING 30-DAY CHANGE BY HOSPITAL ───────────────────────────────────
-    // Compute per-hospital, per-metric averages for last 30 days vs. previous 30 days
-    // (rolling window). Uses the full unfiltered set so trend works regardless of the
-    // user's current date filter.
-    const momSource = (fullEntries && fullEntries.length > 0) ? fullEntries : entries;
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const curStart = new Date(today);
-    curStart.setDate(curStart.getDate() - 29); // last 30 days inclusive of today
-    curStart.setHours(0, 0, 0, 0);
-    const prevEnd = new Date(curStart);
-    prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
-    const prevStart = new Date(prevEnd);
-    prevStart.setDate(prevStart.getDate() - 29);
-    prevStart.setHours(0, 0, 0, 0);
-
-    const inRange = (e, start, end) => {
-      if (!e.date) return false;
-      // Parse YYYY-MM-DD without timezone shifting (matches existing app pattern)
-      const [yy, mm, dd] = e.date.split("-").map(Number);
-      const d = new Date(yy, mm - 1, dd);
-      return d >= start && d <= end;
-    };
-
-    const avgFor = (subset, metricId) => {
-      const vals = subset.map(e => pct(e[`${metricId}_num`], e[`${metricId}_den`])).filter(v => v !== null);
-      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-    };
-
-    // Build the MoM matrix with hospitals as rows and metrics as columns.
-    // Sort hospitals alphabetically; only include hospitals with at least some
-    // current-period data so we don't pad rows with all dashes.
-    const sortedHospitals = [...hospitals].sort((a, b) => a.localeCompare(b));
-
-    const computeCell = (h, m) => {
-      const hMetrics = getMetrics(h);
-      if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
-      const hEntries = momSource.filter(e => e.hospital === h);
-      const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
-      const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
-      if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
-      if (prev === null) return { display: "NEW", color: brandHeader };
-      if (cur === null) return { display: "—", color: BRAND.inkLight };
-      const delta = cur - prev;
-      if (delta === 0) return { display: "0%", color: BRAND.inkLight };
-      const sign = delta > 0 ? "+" : "-";
-      const abs = Math.abs(delta);
-      const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
-      return { display: `${sign}${abs}%`, color };
-    };
-
-    const momRows = sortedHospitals.map(h => ({
-      hospital: h,
-      cells: visibleMetrics.map(m => computeCell(h, m)),
-    }));
-
-    // Find Y position after the comparison table; if too close to bottom, new page
-    let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
-    // Estimate space needed: section title + subtitle + date range (~17mm) + header row (~10mm) + rows (~6mm each)
-    const estimatedHeight = 17 + 10 + (momRows.length * 6) + 8;
-    if (momStartY + estimatedHeight > 280) {
-      doc.addPage();
-      addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
-      pageNum++;
-      doc.setFillColor(...BRAND.bg);
-      doc.rect(0, 14, 210, 283, "F");
-      momStartY = 24;
-    }
-
-    // Section title
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.text("ROLLING 30-DAY CHANGE BY HOSPITAL", 14, momStartY);
-
-    doc.setTextColor(...BRAND.ink);
-    doc.setFontSize(13);
-    doc.text("Trend vs. Previous 30 Days", 14, momStartY + 7);
-
-    // Date range subtitle so the reader knows what's being compared
-    const fmtRange = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(`${fmtRange(curStart)} – ${fmtRange(today)} vs. ${fmtRange(prevStart)} – ${fmtRange(prevEnd)}`, 14, momStartY + 13);
-
-    // Render the MoM table using autoTable with cell-level styling for color
-    autoTable(doc, {
-      startY: momStartY + 17,
-      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
-      body: momRows.map(r => [r.hospital, ...r.cells.map(c => c.display)]),
-      styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
-      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [240, 237, 234] },
-      margin: { left: 14, right: 14 },
-      theme: "plain",
-      didParseCell: (data) => {
-        // Apply per-cell color based on the precomputed color in momRows
-        if (data.section === "body" && data.column.index > 0) {
-          const rowIdx = data.row.index;
-          const colIdx = data.column.index - 1; // first col is hospital name
-          const cellMeta = momRows[rowIdx]?.cells[colIdx];
-          if (cellMeta) {
-            data.cell.styles.textColor = cellMeta.color;
-            if (cellMeta.display !== "—" && cellMeta.display !== "0%") {
-              data.cell.styles.fontStyle = "bold";
-            }
-          }
-        }
-      },
-    });
-  }
 
   // ── PAGE: AI SUMMARY ──────────────────────────────────────────────────────
   if (summary && summary.length > 10) {
