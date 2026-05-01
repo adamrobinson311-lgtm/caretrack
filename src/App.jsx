@@ -1394,6 +1394,7 @@ export default function App() {
     });
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
+  const [hospitalMultiFilter, setHospitalMultiFilter] = useState([]); // admin/VP-only multi-hospital filter for Dashboard
   const [unitFilter, setUnitFilter] = useState("All");
   const [repFilter, setRepFilter] = useState("All");
   const [regionSortBy, setRegionSortBy] = useState("avg");
@@ -1490,7 +1491,7 @@ export default function App() {
   const handleExportXlsx = async () => {
     setExportingXlsx(true);
     try {
-      generateXlsx(filteredDashboard, hospitalFilter, user?.user_metadata?.full_name || user?.email || "");
+      generateXlsx(filteredDashboard, exportLabel, user?.user_metadata?.full_name || user?.email || "");
     } catch (e) { alert("Excel export failed. Please try again."); }
     setExportingXlsx(false);
   };
@@ -2158,7 +2159,22 @@ export default function App() {
   const hospitals = [...new Set(proxyEntries.map(e => e.hospital).filter(Boolean))].sort();
   const users = [...new Set(allEntriesFull.map(e => e.logged_by).filter(Boolean))].sort();
   const regionRepNames = [...new Set([...entries, ...regionEntries].map(e => e.logged_by).filter(Boolean))].sort();
-  const filteredDashboard = applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
+  // Multi-hospital filter (admin/VP only): when selections exist and the single-select is "All",
+  // restrict to the selected set instead of showing all hospitals.
+  const multiActive = (isAdmin || isVP) && hospitalFilter === "All" && hospitalMultiFilter.length > 0;
+
+  // Label used by exports (filename + report header). Falls back to the single-select hospitalFilter.
+  const exportLabel = multiActive
+    ? (hospitalMultiFilter.length === 1 ? hospitalMultiFilter[0] : `${hospitalMultiFilter.length} Hospitals`)
+    : hospitalFilter;
+
+  const filteredDashboard = (() => {
+    if (multiActive) {
+      const selected = new Set(hospitalMultiFilter);
+      return applyFilters(proxyEntries, "All").filter(e => selected.has(e.hospital));
+    }
+    return applyFilters(proxyEntries, hospitalFilter).filter(e => hospitalFilter !== "All" ? true : !isTrialHospital(e.hospital));
+  })();
 
   // Use branding for the selected hospital, or auto-detect if only one hospital in view
   const activeBranding = (() => {
@@ -2429,7 +2445,7 @@ export default function App() {
 
   const handleExport = async () => {
     setExporting(true);
-    try { await generatePptx(filteredDashboard, summary, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PowerPoint export failed. Please try again."); }
+    try { await generatePptx(filteredDashboard, summary, exportLabel, user?.user_metadata?.full_name || user?.email || "", activeBranding, chartData, momData); localStorage.setItem("caretrack_exported", "true"); } catch (e) { alert("PowerPoint export failed. Please try again."); }
     setExporting(false);
   };
 
@@ -2454,7 +2470,7 @@ export default function App() {
           brandingWithLogo = { ...brandingWithLogo, logoBase64: b64, logoMime: mime, logoWidth: logoW, logoHeight: logoH };
         } catch { /* logo fetch failed, continue without it */ }
       }
-      await generatePdf(filteredDashboard, summary, false, hospitalFilter, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries);
+      await generatePdf(filteredDashboard, summary, false, exportLabel, user?.user_metadata?.full_name || user?.email || "", brandingWithLogo, chartData, momData, allEntries);
       localStorage.setItem("caretrack_exported", "true");
     } catch (e) { alert("PDF export failed. Please try again."); }
     setExportingPdf(false);
@@ -3242,14 +3258,38 @@ export default function App() {
                     {!loading && <> · {filteredDashboard.length} session{filteredDashboard.length !== 1 ? "s" : ""}</>}
                   </p>
                 ) : (
-                  <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${hospitalFilter !== "All" ? ` · ${hospitalFilter}` : ""}${unitFilter !== "All" ? ` · ${unitFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
+                  <p style={{ color: C.inkMid, fontSize: 13 }}>{loading ? "Loading..." : `${filteredDashboard.length} session${filteredDashboard.length !== 1 ? "s" : ""}${multiActive ? ` · ${hospitalMultiFilter.length} hospitals` : (hospitalFilter !== "All" ? ` · ${hospitalFilter}` : "")}${unitFilter !== "All" ? ` · ${unitFilter}` : ""}${repFilter !== "All" ? ` · ${repFilter.split(" ")[0]}` : ""}${dateFrom || dateTo ? ` · filtered` : ""}`}</p>
                 )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
                 {isClinical
                   ? <FilterBar value={hospitalFilter} onChange={() => {}} label="HOSPITAL" hospitals={[]} locked={true} />
-                  : (hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); }} label="HOSPITAL" hospitals={hospitals} />)
+                  : (hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); setHospitalMultiFilter([]); }} label="HOSPITAL" hospitals={hospitals} />)
                 }
+                {/* Admin/VP multi-hospital selector — only useful when single-select is "All" */}
+                {(isAdmin || isVP) && hospitalFilter === "All" && hospitals.length > 1 && (
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", maxWidth: 680, justifyContent: "flex-end" }} className="filter-bar">
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap", paddingTop: 9 }}>MULTI</span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+                      {hospitals.map(h => {
+                        const selected = hospitalMultiFilter.includes(h);
+                        return (
+                          <button key={h}
+                            onClick={() => setHospitalMultiFilter(prev => selected ? prev.filter(x => x !== h) : [...prev, h])}
+                            style={{ padding: "5px 11px", borderRadius: 14, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", transition: "all 0.15s", border: `1px solid ${selected ? C.primary : C.border}`, background: selected ? C.primary : "none", color: selected ? "white" : C.inkMid, letterSpacing: "0.04em" }}>
+                            {h}
+                          </button>
+                        );
+                      })}
+                      {hospitalMultiFilter.length > 0 && (
+                        <button onClick={() => setHospitalMultiFilter([])}
+                          style={{ padding: "5px 11px", borderRadius: 14, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", border: `1px solid ${C.red}33`, background: "none", color: C.red, letterSpacing: "0.04em" }}>
+                          CLEAR ({hospitalMultiFilter.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {hospitalFilter !== "All" && (() => {
                   const units = [...new Set(proxyEntries.filter(e => e.hospital === hospitalFilter && e.location).map(e => e.location))].sort();
                   if (units.length <= 1) return null;
