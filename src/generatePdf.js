@@ -1063,27 +1063,32 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
     };
 
-    // Build the MoM matrix: for each metric, a row of cells per hospital
-    const momRows = visibleMetrics.map(m => {
-      const cells = hospitals.map(h => {
-        // Only compute for metrics that apply to this hospital
-        const hMetrics = getMetrics(h);
-        if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
-        const hEntries = momSource.filter(e => e.hospital === h);
-        const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
-        const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
-        if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
-        if (prev === null) return { display: "NEW", color: brandHeader };
-        if (cur === null) return { display: "—", color: BRAND.inkLight };
-        const delta = cur - prev;
-        if (delta === 0) return { display: "0%", color: BRAND.inkLight };
-        const sign = delta > 0 ? "+" : "-";
-        const abs = Math.abs(delta);
-        const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
-        return { display: `${sign}${abs}%`, color };
-      });
-      return { label: m.label, cells };
-    });
+    // Build the MoM matrix with hospitals as rows and metrics as columns.
+    // Sort hospitals alphabetically; only include hospitals with at least some
+    // current-period data so we don't pad rows with all dashes.
+    const sortedHospitals = [...hospitals].sort((a, b) => a.localeCompare(b));
+
+    const computeCell = (h, m) => {
+      const hMetrics = getMetrics(h);
+      if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
+      const hEntries = momSource.filter(e => e.hospital === h);
+      const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
+      const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
+      if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
+      if (prev === null) return { display: "NEW", color: brandHeader };
+      if (cur === null) return { display: "—", color: BRAND.inkLight };
+      const delta = cur - prev;
+      if (delta === 0) return { display: "0%", color: BRAND.inkLight };
+      const sign = delta > 0 ? "+" : "-";
+      const abs = Math.abs(delta);
+      const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
+      return { display: `${sign}${abs}%`, color };
+    };
+
+    const momRows = sortedHospitals.map(h => ({
+      hospital: h,
+      cells: visibleMetrics.map(m => computeCell(h, m)),
+    }));
 
     // Find Y position after the comparison table; if too close to bottom, new page
     let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
@@ -1118,8 +1123,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     // Render the MoM table using autoTable with cell-level styling for color
     autoTable(doc, {
       startY: momStartY + 17,
-      head: [["Metric", ...hospitals]],
-      body: momRows.map(r => [r.label, ...r.cells.map(c => c.display)]),
+      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
+      body: momRows.map(r => [r.hospital, ...r.cells.map(c => c.display)]),
       styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
       headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [240, 237, 234] },
@@ -1129,7 +1134,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         // Apply per-cell color based on the precomputed color in momRows
         if (data.section === "body" && data.column.index > 0) {
           const rowIdx = data.row.index;
-          const colIdx = data.column.index - 1; // first col is label
+          const colIdx = data.column.index - 1; // first col is hospital name
           const cellMeta = momRows[rowIdx]?.cells[colIdx];
           if (cellMeta) {
             data.cell.styles.textColor = cellMeta.color;
