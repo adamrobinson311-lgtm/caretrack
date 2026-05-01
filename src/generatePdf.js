@@ -1129,8 +1129,13 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
         ...bedMetricColStyles,
       },
-      margin: { left: 14, right: 14 },
+      margin: { left: 14, right: 14, top: 18 },
       theme: "plain",
+      didDrawPage: (data) => {
+        // Draw the brand header bar on every page autoTable touches (incl. overflow pages).
+        // Page numbers are corrected in the final pass at end of the function.
+        addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
+      },
       didDrawCell: (data) => {
         if (data.section !== "body" || data.column.index < BED_FIXED_COLS) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
