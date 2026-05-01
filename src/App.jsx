@@ -1861,6 +1861,10 @@ export default function App() {
       if (!isAdminUser) {
         const { data: profileData } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: true });
         setUserProfiles(profileData || []);
+        // Also fetch hospital_branding list so VPs (and others) have access to the full hospital list.
+        // This is small (~50 rows) and harmless for users who don't use it.
+        const { data: hospitalData } = await supabase.from("hospital_branding").select("hospital").order("hospital", { ascending: true });
+        setHospitalList((hospitalData || []).map(h => h.hospital).filter(Boolean));
       }
 
       // Register/update user profile on login
@@ -3264,14 +3268,24 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }} className="dashboard-filters">
                 {isClinical
                   ? <FilterBar value={hospitalFilter} onChange={() => {}} label="HOSPITAL" hospitals={[]} locked={true} />
-                  : (hospitals.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); setHospitalMultiFilter([]); }} label="HOSPITAL" hospitals={hospitals} />)
+                  : (() => {
+                      // Admins/VPs see the full hospital_branding list so they can pick hospitals
+                      // that don't yet have any sessions logged.
+                      const list = (isAdmin || isVP) && hospitalList.length > 0 ? hospitalList : hospitals;
+                      return list.length > 0 && <FilterBar value={hospitalFilter} onChange={v => { setHospitalFilter(v); setUnitFilter("All"); setHospitalMultiFilter([]); }} label="HOSPITAL" hospitals={list} />;
+                    })()
                 }
                 {/* Admin/VP multi-hospital selector — only useful when single-select is "All" */}
-                {(isAdmin || isVP) && hospitalFilter === "All" && hospitals.length > 1 && (
+                {(isAdmin || isVP) && hospitalFilter === "All" && (() => {
+                  // Admins/VPs use the full hospital list from hospital_branding so they can pick
+                  // hospitals that don't yet have any sessions logged.
+                  const fullList = hospitalList.length > 0 ? hospitalList : hospitals;
+                  if (fullList.length <= 1) return null;
+                  return (
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", maxWidth: 680, justifyContent: "flex-end" }} className="filter-bar">
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.08em", whiteSpace: "nowrap", paddingTop: 9 }}>MULTI</span>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
-                      {hospitals.map(h => {
+                      {fullList.map(h => {
                         const selected = hospitalMultiFilter.includes(h);
                         return (
                           <button key={h}
@@ -3289,7 +3303,8 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                )}
+                  );
+                })()}
                 {hospitalFilter !== "All" && (() => {
                   const units = [...new Set(proxyEntries.filter(e => e.hospital === hospitalFilter && e.location).map(e => e.location))].sort();
                   if (units.length <= 1) return null;
