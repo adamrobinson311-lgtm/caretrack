@@ -1239,6 +1239,15 @@ export default function App() {
   const [allEntries, setAllEntries] = useState([]); // metric-only, for national avg
   const [allEntriesFull, setAllEntriesFull] = useState([]); // admin only, full data
   const [dbError, setDbError] = useState(null);
+
+  // Auto-dismiss the DB error banner after 30 seconds. If a real outage persists,
+  // the next failed fetch will set it again. This prevents a transient hiccup from
+  // showing a permanent red banner until the user hard-refreshes.
+  useEffect(() => {
+    if (!dbError) return;
+    const t = setTimeout(() => setDbError(null), 30000);
+    return () => clearTimeout(t);
+  }, [dbError]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineQueue, setOfflineQueue] = useState(() => {
     try { return JSON.parse(localStorage.getItem("caretrack_offline_queue") || "[]"); } catch { return []; }
@@ -1770,6 +1779,8 @@ export default function App() {
         .eq("logged_by", userName)
         .order("created_at", { ascending: true });
       if (error) { setDbError("Could not connect to database."); setLoading(false); return; }
+      // Successful fetch — clear any prior connection error so the banner doesn't linger.
+      setDbError(null);
 
       // Step 2: Get the unique hospitals this user has logged for
       const userHospitals = [...new Set((ownData || []).map(e => e.hospital).filter(Boolean))];
@@ -2944,7 +2955,7 @@ export default function App() {
         </div>
       </div>
 
-      {dbError && <div style={{ background: C.redLight, borderBottom: `1px solid #f0c8c8`, padding: "12px 32px" }}><div style={{ maxWidth: 1120, margin: "0 auto", fontSize: 13, color: C.red }}>⚠ {dbError}</div></div>}
+      {dbError && <div onClick={() => setDbError(null)} style={{ background: C.redLight, borderBottom: `1px solid #f0c8c8`, padding: "12px 32px", cursor: "pointer" }} title="Click to dismiss"><div style={{ maxWidth: 1120, margin: "0 auto", fontSize: 13, color: C.red, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>⚠ {dbError}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, opacity: 0.6 }}>DISMISS ✕</span></div></div>}
       {!isOnline && (
         <div style={{ background: "#fdf6e8", borderBottom: `1px solid #e8d4a0`, padding: "10px 32px" }}>
           <div style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
