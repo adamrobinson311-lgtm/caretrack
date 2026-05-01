@@ -4860,6 +4860,7 @@ export default function App() {
                                     {profile.role === "director" && <span style={{ fontSize: 9, background: C.primaryLight, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DIRECTOR</span>}
                                     {profile.role === "vp" && <span style={{ fontSize: 9, background: C.accentLight, color: C.accent, border: `1px solid ${C.accent}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>VP</span>}
                                     {profile.role === "kam" && <span style={{ fontSize: 9, background: C.amberLight, color: C.amber, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>KAM</span>}
+                                    {profile.role === "clinical" && <span style={{ fontSize: 9, background: C.greenLight, color: C.green, border: `1px solid ${C.green}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>CLINICAL USER</span>}
                                     {profile.region && <span style={{ fontSize: 9, background: C.surfaceAlt, color: C.inkMid, border: `1px solid ${C.border}`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{profile.region}</span>}
                                     {!isActive && <span style={{ fontSize: 9, background: C.redLight, color: C.red, border: `1px solid ${C.red}33`, borderRadius: 10, padding: "1px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>DEACTIVATED</span>}
                                     {accountAgeLabel && <span style={{ fontSize: 9, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{accountAgeLabel}</span>}
@@ -4942,6 +4943,7 @@ export default function App() {
                                     <option value="kam">KAM</option>
                                     <option value="director">Director</option>
                                     <option value="vp">VP</option>
+                                    <option value="clinical">Clinical User</option>
                                   </select>
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 140 }}>
