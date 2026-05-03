@@ -2013,7 +2013,13 @@ export default function App() {
     if (!form.hospital.trim()) { setSaveError("Hospital name is required."); return; }
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
     const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
-    if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
+    if (!hasMetric) {
+      const msg = "⚠️ This session has no metrics filled in. Save anyway?\n\nClick OK to save an empty session (e.g., to record a visit only), or Cancel to go back and add metrics.";
+      if (!window.confirm(msg)) {
+        setSaveError(null);
+        return;
+      }
+    }
 
 
     // Duplicate detection — same date OR logged within last 4 hours for same unit
