@@ -1667,6 +1667,25 @@ export default function App() {
     setInviteSuccess(null);
   };
 
+  const handleCancelInvite = async (invite) => {
+    if (!window.confirm(`Cancel the invite to ${invite.email}?\n\nThis will permanently delete the pending invite. The recipient will no longer be able to use the invite link.`)) return;
+    setInviteError(null);
+    try {
+      const { error } = await supabase.from("clinical_invites").delete().eq("id", invite.id);
+      if (error) throw error;
+      await logAudit("CLINICAL_INVITE_CANCELLED", {
+        email: invite.email,
+        name: invite.name,
+        hospital: invite.hospital,
+      });
+      setClinicalInvites(prev => prev.filter(i => i.id !== invite.id));
+      setInviteSuccess(`Invite to ${invite.email} cancelled`);
+      setTimeout(() => setInviteSuccess(null), 4000);
+    } catch (e) {
+      setInviteError("Failed to cancel invite: " + (e.message || "unknown error"));
+    }
+  };
+
   const handleCancelEditRep = () => {
     setEditingRepInviteId(null);
     setEditingRepNewId("");
@@ -5356,6 +5375,10 @@ export default function App() {
                                 <button onClick={() => handleResendInvite(inv)} disabled={resendingId === inv.id}
                                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: resendingId === inv.id ? "wait" : "pointer", letterSpacing: "0.05em", opacity: resendingId === inv.id ? 0.6 : 1 }}>
                                   {resendingId === inv.id ? "SENDING..." : "RESEND"}
+                                </button>
+                                <button onClick={() => handleCancelInvite(inv)}
+                                  style={{ background: "none", border: `1px solid ${C.red}33`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
+                                  CANCEL
                                 </button>
                               </div>
                             )}
