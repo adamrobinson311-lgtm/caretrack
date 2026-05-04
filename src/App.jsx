@@ -2183,11 +2183,13 @@ export default function App() {
 
   const proxyEntries = viewAsUser
     ? ((isDirector || isVP) ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
-    : (isDirector || isVP)
-      ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
-      : isKAM
-        ? kamEntries
-        : entries;
+    : isAdmin && allEntriesFull && allEntriesFull.length > 0
+      ? allEntriesFull
+      : (isDirector || isVP)
+        ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
+        : isKAM
+          ? kamEntries
+          : entries;
 
   // Trial hospitals — excluded from Dashboard, Performers, Planner but kept in History/exports
   const trialHospitals = new Set(
