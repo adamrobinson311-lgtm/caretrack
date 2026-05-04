@@ -1259,7 +1259,7 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
   const [reportSchedules, setReportSchedules] = useState([]);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" });
+  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d" });
   const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSending, setScheduleSending] = useState(null);
@@ -5948,7 +5948,7 @@ export default function App() {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
                     <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
                   </div>
-                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
                     style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
                     + NEW REPORT
                   </button>
@@ -5998,11 +5998,12 @@ export default function App() {
                     </div>
 
                     {/* Frequency + Period row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
                       <div>
                         <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FREQUENCY</label>
                         <select value={scheduleForm.frequency} onChange={e => setScheduleForm(f => ({ ...f, frequency: e.target.value }))}
                           style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                          <option value="daily">Daily</option>
                           <option value="weekly">Weekly</option>
                           <option value="monthly">Monthly</option>
                         </select>
@@ -6026,9 +6027,19 @@ export default function App() {
                         </div>
                       )}
                       <div>
+                        <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>SEND HOUR (ET)</label>
+                        <select value={scheduleForm.sendHour} onChange={e => setScheduleForm(f => ({ ...f, sendHour: e.target.value }))}
+                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                          {Array.from({ length: 24 }).map((_, h) => {
+                            const ampm = h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h-12} PM`;
+                            return <option key={h} value={String(h)}>{ampm}</option>;
+                          })}
+                        </select>
+                      </div>
+                      <div>
                         <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REPORT PERIOD</label>
                         <select value={scheduleForm.period} onChange={e => setScheduleForm(f => ({ ...f, period: e.target.value }))}
-                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
+                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, padding: "8px 12px", borderRadius: 8, fontSize: 12, color: C.ink, outline: "none" }}>
                           <option value="7d">Last 7 days</option>
                           <option value="30d">Last 30 days</option>
                           <option value="mtd">Month to date</option>
@@ -6051,6 +6062,7 @@ export default function App() {
                           frequency: scheduleForm.frequency,
                           day_of_month: scheduleForm.frequency === "monthly" ? parseInt(scheduleForm.dayOfMonth) : null,
                           day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
+                          send_hour: parseInt(scheduleForm.sendHour) || 9,
                           period: scheduleForm.period,
                         };
                         if (editingScheduleId) {
@@ -6093,9 +6105,13 @@ export default function App() {
                 )}
 
                 {reportSchedules.map(sched => {
-                  const freqLabel = sched.frequency === "weekly"
-                    ? `Weekly · ${["","Mon","Tue","Wed","Thu","Fri"][sched.day_of_week] || ""}`
-                    : `Monthly · ${sched.day_of_month}${sched.day_of_month===1?"st":sched.day_of_month===2?"nd":sched.day_of_month===3?"rd":"th"}`;
+                  const sendHour = sched.send_hour ?? 9;
+                  const hourLabel = sendHour === 0 ? "12 AM" : sendHour < 12 ? `${sendHour} AM` : sendHour === 12 ? "12 PM" : `${sendHour-12} PM`;
+                  const freqLabel = sched.frequency === "daily"
+                    ? `Daily · ${hourLabel} ET`
+                    : sched.frequency === "weekly"
+                      ? `Weekly · ${["","Mon","Tue","Wed","Thu","Fri"][sched.day_of_week] || ""} · ${hourLabel} ET`
+                      : `Monthly · ${sched.day_of_month}${sched.day_of_month===1?"st":sched.day_of_month===2?"nd":sched.day_of_month===3?"rd":"th"} · ${hourLabel} ET`;
                   const periodLabel = { "7d":"Last 7 days","30d":"Last 30 days","mtd":"Month to date","all":"All time" }[sched.period] || sched.period;
                   const lastSent = sched.last_sent ? new Date(sched.last_sent).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "Never sent";
 
@@ -6129,6 +6145,7 @@ export default function App() {
                               frequency: sched.frequency || "monthly",
                               dayOfMonth: sched.day_of_month?.toString() || "1",
                               dayOfWeek: sched.day_of_week?.toString() || "1",
+                              sendHour: sched.send_hour != null ? String(sched.send_hour) : "9",
                               period: sched.period || "30d",
                             });
                             setEditingScheduleId(sched.id);
