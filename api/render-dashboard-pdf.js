@@ -5,18 +5,6 @@
 
 const { createClient } = require("@supabase/supabase-js");
 
-// jsPDF + autotable need a browser-ish environment for canvas measurement.
-// jsdom provides enough of one for jsPDF's text-width calculations to work.
-const { JSDOM } = require("jsdom");
-if (typeof global.window === "undefined") {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
-  global.window = dom.window;
-  global.document = dom.window.document;
-  global.navigator = dom.window.navigator;
-  global.HTMLImageElement = dom.window.HTMLImageElement;
-  global.Image = dom.window.Image;
-}
-
 // generatePdf.js is an ES module — require it via dynamic import wrapper
 let _generatePdfPromise = null;
 const loadGeneratePdf = () => {
