@@ -1330,7 +1330,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.3";
+  const CURRENT_VERSION = "3.4";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -6510,7 +6510,14 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "3.3", date: "April 2026", badge: "LATEST", items: [
+              { version: "3.4", date: "May 2026", badge: "LATEST", items: [
+                "Auto report PDF redesign — scheduled reports now attach the full branded dashboard PDF, generated server-side with the same formatting as the manual Export PDF button",
+                "Per-schedule metric selector — when creating or editing an auto report, admins can pick exactly which metrics to include in both the email body and the attached PDF [Admin]",
+                "Auto report timing fix — daily, weekly, and monthly schedules now fire at the configured Eastern Time hour (previously some schedules could fire multiple times per day) [Admin]",
+                "Salesforce account roster refresh — updated to the May 2026 master roster (9,121 accounts), with old account IDs preserved so existing hospital mappings continue to work [Admin]",
+                "Hospital merge tool — admins can now merge duplicate hospital entries via SQL, automatically reassigning sessions, KAM access, and Salesforce mappings [Admin]",
+              ]},
+              { version: "3.3", date: "April 2026", badge: null, items: [
                 "Salesforce integration — compliance sessions automatically sync to the matching Salesforce Account record when logged; deletions in CareTrack also remove the Salesforce record [Admin]",
                 "Salesforce Account ID mapping — admins can map any hospital to its Salesforce Account ID directly in Hospital Configuration, with a built-in search across all 8,000+ HoverTech accounts [Admin]",
                 "Shared hospital accounts — admins can mark a hospital as a shared account; reps who have logged there see each other's sessions across Dashboard, History, and Performers [Admin]",
