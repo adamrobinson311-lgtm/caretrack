@@ -1947,17 +1947,19 @@ export default function App() {
   }, [form.hospital, form.location, inputMode]);
 
   // Auto-sum bed grid values into the form's metric fields
-  // Denominator = beds where the user actively tapped the metric (YES or NO);
-  // numerator = YES taps only. N/A beds and untouched metrics are excluded.
+  // Denominator = beds that are NOT marked N/A (entire bed or per-metric).
+  // Numerator = beds where the rep tapped YES.
+  // Untouched beds count as NO — they visually appear as NO in the grid
+  // (red ✗ default) and reps treat that as their answer.
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0) return;
     const activeMetrics = getMetrics(form.hospital);
     const activeBeds2 = bedGrid.filter(b => !b.na);
     const updates = {};
     activeMetrics.forEach(m => {
-      const answered = activeBeds2.filter(b => !b[`${m.id}_na`] && b[`${m.id}_touched`] === true);
-      const totalQ = answered.length;
-      const totalA = answered.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
+      const eligible = activeBeds2.filter(b => !b[`${m.id}_na`]);
+      const totalQ = eligible.length;
+      const totalA = eligible.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
       updates[`${m.id}_den`] = totalQ > 0 ? String(totalQ) : "";
       updates[`${m.id}_num`] = totalQ > 0 ? String(totalA) : "";
     });
@@ -6454,8 +6456,9 @@ export default function App() {
                     const metricTotals = {};
                     METRICS.forEach(m => {
                       const active = practiceBedGrid.filter(b => !b.na && !b[`${m.id}_na`]);
-                      metricTotals[`${m.id}_den`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0) || null;
-                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0) || null;
+                      // Denominator = all eligible beds (untouched counts as NO).
+                      metricTotals[`${m.id}_den`] = active.length || null;
+                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0) || null;
                     });
                     setPracticeError(null); setPracticeSaving(true);
                     const { data, error } = await supabase.from("sessions").insert([{
@@ -6511,6 +6514,7 @@ export default function App() {
             </div>
             {[
               { version: "3.4", date: "May 2026", badge: "LATEST", items: [
+                "Per Bed totals fix — corrected an issue where untouched beds (visually showing red ✗) were excluded from compliance calculations, causing some sessions to read 100% when actual compliance was lower; untouched beds now count as NO to match the visual default [Critical]",
                 "Auto report PDF redesign — scheduled reports now attach the full branded dashboard PDF, generated server-side with the same formatting as the manual Export PDF button",
                 "Per-schedule metric selector — when creating or editing an auto report, admins can pick exactly which metrics to include in both the email body and the attached PDF [Admin]",
                 "Auto report timing fix — daily, weekly, and monthly schedules now fire at the configured Eastern Time hour (previously some schedules could fire multiple times per day) [Admin]",
