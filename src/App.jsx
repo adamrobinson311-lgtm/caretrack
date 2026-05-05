@@ -1259,7 +1259,7 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
   const [reportSchedules, setReportSchedules] = useState([]);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d" });
+  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d", metrics: ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"] });
   const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSending, setScheduleSending] = useState(null);
@@ -5948,7 +5948,7 @@ export default function App() {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
                     <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
                   </div>
-                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d", metrics: ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"] }); setEditingScheduleId(null); setShowNewSchedule(true); }}
                     style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
                     + NEW REPORT
                   </button>
@@ -6048,6 +6048,48 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Metrics to include in PDF */}
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 8 }}>
+                        METRICS TO INCLUDE ({(scheduleForm.metrics || []).length} of 7)
+                      </label>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8, padding: "12px 14px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                        {[
+                          { id: "matt_applied",     label: "Matt Applied" },
+                          { id: "wedges_applied",   label: "Wedges Applied" },
+                          { id: "turning_criteria", label: "Turning & Repositioning" },
+                          { id: "matt_proper",      label: "Matt Applied Properly" },
+                          { id: "wedges_in_room",   label: "Wedges in Room" },
+                          { id: "wedge_offload",    label: "Proper Wedge Offloading" },
+                          { id: "air_supply",       label: "Air Supply in Room" },
+                        ].map(m => {
+                          const checked = (scheduleForm.metrics || []).includes(m.id);
+                          return (
+                            <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.ink, cursor: "pointer", userSelect: "none" }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setScheduleForm(f => {
+                                    const cur = f.metrics || [];
+                                    const next = cur.includes(m.id) ? cur.filter(x => x !== m.id) : [...cur, m.id];
+                                    return { ...f, metrics: next };
+                                  });
+                                }}
+                                style={{ accentColor: C.primary, cursor: "pointer" }}
+                              />
+                              {m.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {(scheduleForm.metrics || []).length === 0 && (
+                        <div style={{ fontSize: 11, color: C.amber || "#8a6a2a", marginTop: 6 }}>
+                          Select at least one metric, or all metrics will be included by default.
+                        </div>
+                      )}
+                    </div>
+
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                       <button onClick={() => setShowNewSchedule(false)}
                         style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, cursor: "pointer" }}>
@@ -6064,6 +6106,7 @@ export default function App() {
                           day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
                           send_hour: parseInt(scheduleForm.sendHour) || 9,
                           period: scheduleForm.period,
+                          metrics: scheduleForm.metrics && scheduleForm.metrics.length > 0 ? scheduleForm.metrics : null,
                         };
                         if (editingScheduleId) {
                           const { data, error } = await supabase.from("report_schedules").update(payload).eq("id", editingScheduleId).select().single();
@@ -6147,6 +6190,7 @@ export default function App() {
                               dayOfWeek: sched.day_of_week?.toString() || "1",
                               sendHour: sched.send_hour != null ? String(sched.send_hour) : "9",
                               period: sched.period || "30d",
+                              metrics: sched.metrics || ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"],
                             });
                             setEditingScheduleId(sched.id);
                             setShowNewSchedule(true);
