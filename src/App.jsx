@@ -1137,12 +1137,15 @@ const UnitInput = ({ value, onChange, hospital }) => {
 };
 
 // ── Unit Manager ─────────────────────────────────────────────────────────────
-const UnitManagerBody = ({ onClose }) => {
+const UnitManagerBody = ({ onClose, clinicalHospital = null }) => {
   const [data, setData] = useState(getHospitalData());
   const [editKey, setEditKey] = useState(null); // "hospital::unit"
   const [editVal, setEditVal] = useState("");
 
-  const hospitals = Object.keys(data).sort();
+  // When a clinical hospital is passed, only show units for that hospital
+  const hospitals = clinicalHospital
+    ? (data[clinicalHospital] ? [clinicalHospital] : [])
+    : Object.keys(data).sort();
 
   const renameUnit = (hospital, oldUnit, newUnit) => {
     if (!newUnit.trim() || newUnit === oldUnit) { setEditKey(null); return; }
@@ -1168,7 +1171,11 @@ const UnitManagerBody = ({ onClose }) => {
   };
 
   if (hospitals.length === 0) return (
-    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>No saved units yet. Units are saved automatically when you log sessions.</div>
+    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>
+      {clinicalHospital
+        ? `No saved units for ${clinicalHospital} yet. Units are saved automatically when sessions are logged.`
+        : "No saved units yet. Units are saved automatically when you log sessions."}
+    </div>
   );
 
   return (
@@ -3739,7 +3746,7 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Session History</h1>
-                {!isClinical && <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>}
+                <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
                 {isClinical
@@ -6689,7 +6696,7 @@ export default function App() {
               <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Manage Units</h2>
               <button onClick={() => setShowUnitManager(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
-            <UnitManagerBody onClose={() => setShowUnitManager(false)} />
+            <UnitManagerBody onClose={() => setShowUnitManager(false)} clinicalHospital={isClinical ? myProfile?.clinical_hospital : null} />
           </div>
         </div>
       )}
