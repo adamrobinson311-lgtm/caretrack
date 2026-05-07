@@ -2142,22 +2142,8 @@ export default function App() {
         }
       } catch (e) { console.warn("Shared rep notification failed:", e); }
 
-      // Notify the clinical user's assigned rep when a clinical user logs a session
-      try {
-        if (isClinical && myProfile?.clinical_rep_id) {
-          const rep = userProfiles.find(p => p.id === myProfile.clinical_rep_id);
-          if (rep?.email) {
-            await supabase.functions.invoke("notify-clinical-session", {
-              body: {
-                session: finalData,
-                repEmail: rep.email,
-                repName: rep.full_name || rep.email,
-                clinicalUserName: user?.user_metadata?.full_name || user.email,
-              },
-            });
-          }
-        }
-      } catch (e) { console.warn("Clinical session notification failed:", e); }
+      // Per-session emails to the assigned rep have been replaced by the
+      // weekly-rep-digest Edge Function (sends every Monday at 9 AM ET).
 
       // Push to Salesforce if hospital is mapped
       try {
