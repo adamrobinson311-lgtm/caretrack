@@ -1473,6 +1473,23 @@ export default function App() {
   })();
 
   useEffect(() => {
+    // Handle PKCE password recovery: when Supabase redirects back with a
+    // ?code=... param, exchange it for a session before the SDK can race
+    // with anything else. This is what makes PKCE flow work end-to-end.
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) {
+          console.error("Code exchange failed:", error);
+        }
+        // Strip the code from the URL so refreshes don't try to redeem a
+        // now-consumed code (would error and confuse the user).
+        url.searchParams.delete("code");
+        window.history.replaceState({}, "", url.toString());
+      });
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
