@@ -94,7 +94,7 @@ const formatTimestamp = (ts, date) => {
 
 // ── Login Screen ─────────────────────────────────────────────────────────────
 const LoginScreen = ({ onLogin }) => {
-  const [mode, setMode] = useState("login"); // login | signup | forgot
+  const [mode, setMode] = useState("login"); // login | signup | forgot | verify
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -104,6 +104,7 @@ const LoginScreen = ({ onLogin }) => {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pendingApproval, setPendingApproval] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
 
   const REGIONS = ["Northeast", "West", "Central", "Southeast"];
 
@@ -129,9 +130,35 @@ const LoginScreen = ({ onLogin }) => {
       }
       setPendingApproval(true);
     } else if (mode === "forgot") {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+      // Send a 6-digit OTP code to the user's email. Email scanners can
+      // pre-fetch links all they want — they can't type a code into our app,
+      // so the code stays valid until the real user enters it.
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false },
+      });
       if (error) setError(error.message);
-      else setMessage("Password reset email sent — check your inbox.");
+      else {
+        setMessage("Check your inbox for a 6-digit code.");
+        setMode("verify");
+      }
+    } else if (mode === "verify") {
+      // User typed the code from their email. Verify it as a recovery OTP —
+      // this signs them in with a recovery session, which the App's
+      // PASSWORD_RECOVERY listener picks up to show the password reset modal.
+      const code = otpCode.trim();
+      if (code.length < 6) { setError("Enter the 6-digit code from your email."); setLoading(false); return; }
+      const { data, error } = await supabase.auth.verifyOtp({
+        email, token: code, type: "email",
+      });
+      if (error) { setError(error.message); setLoading(false); return; }
+      if (data?.session) {
+        // Manually trigger the password reset UI since verifyOtp doesn't fire
+        // the PASSWORD_RECOVERY auth event the way email-link recovery does.
+        // We pass control via a top-level trigger — dispatching a custom event
+        // the App listens for.
+        window.dispatchEvent(new CustomEvent("caretrack:show-password-reset"));
+      }
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
@@ -190,10 +217,13 @@ const LoginScreen = ({ onLogin }) => {
         </div>
         <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
           <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 4 }}>
-            {mode === "login" ? "Welcome back" : mode === "signup" ? "Request access" : "Reset password"}
+            {mode === "login" ? "Welcome back" : mode === "signup" ? "Request access" : mode === "verify" ? "Enter code" : "Reset password"}
           </h2>
           <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 28 }}>
-            {mode === "login" ? "Sign in to CareTrack" : mode === "signup" ? "Submit your details for admin approval" : "Enter your email and we'll send a reset link"}
+            {mode === "login" ? "Sign in to CareTrack"
+              : mode === "signup" ? "Submit your details for admin approval"
+              : mode === "verify" ? `We sent a 6-digit code to ${email}. Enter it below to reset your password.`
+              : "Enter your email and we'll send you a 6-digit code"}
           </p>
           {error && <div style={{ background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 20 }}>⚠ {error}</div>}
           {message && <div style={{ background: C.greenLight, border: `1px solid #b8dfc9`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.green, marginBottom: 20 }}>✓ {message}</div>}
@@ -222,11 +252,33 @@ const LoginScreen = ({ onLogin }) => {
                 </div>
               </div>
             </>)}
-            <div>
-              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@hovertechinternational.com" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
-            </div>
-            {mode !== "forgot" && (
+            {mode !== "verify" && (
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@hovertechinternational.com" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+              </div>
+            )}
+            {mode === "verify" && (
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>6-DIGIT CODE</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="123456"
+                  style={{ ...inp, fontSize: 22, letterSpacing: "0.4em", textAlign: "center", fontFamily: "'IBM Plex Mono', monospace" }}
+                  onFocus={e => e.target.style.borderColor = C.primary}
+                  onBlur={e => e.target.style.borderColor = C.border}
+                  onKeyDown={e => e.key === "Enter" && handleSubmit()}
+                  autoFocus
+                />
+              </div>
+            )}
+            {mode !== "forgot" && mode !== "verify" && (
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <label style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PASSWORD</label>
@@ -239,12 +291,17 @@ const LoginScreen = ({ onLogin }) => {
             )}
           </div>
           <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", marginTop: 24, background: C.primary, border: "none", borderRadius: 8, padding: "13px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "PLEASE WAIT..." : mode === "login" ? "SIGN IN →" : mode === "signup" ? "REQUEST ACCESS →" : "SEND RESET EMAIL →"}
+            {loading ? "PLEASE WAIT..."
+              : mode === "login" ? "SIGN IN →"
+              : mode === "signup" ? "REQUEST ACCESS →"
+              : mode === "verify" ? "VERIFY CODE →"
+              : "SEND CODE →"}
           </button>
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: C.inkLight }}>
             {mode === "login" && <span>Need access? <button onClick={() => { setMode("signup"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Request an account</button></span>}
             {mode === "signup" && <span>Already have an account? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Sign in</button></span>}
             {mode === "forgot" && <span>Remember it? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Back to sign in</button></span>}
+            {mode === "verify" && <span>Didn't get a code? <button onClick={() => { setMode("forgot"); setOtpCode(""); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Resend</button></span>}
           </div>
         </div>
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
@@ -1506,7 +1563,19 @@ export default function App() {
         }
       }
     });
-    return () => subscription.unsubscribe();
+
+    // Listen for the OTP code verification path. verifyOtp doesn't fire a
+    // PASSWORD_RECOVERY auth event the way email-link recovery does, so the
+    // LoginScreen dispatches this custom event after a successful OTP verify.
+    const handleShowPasswordReset = () => {
+      setShowPasswordReset(true);
+    };
+    window.addEventListener("caretrack:show-password-reset", handleShowPasswordReset);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("caretrack:show-password-reset", handleShowPasswordReset);
+    };
   }, []);
 
   // Active hospital branding
