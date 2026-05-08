@@ -139,7 +139,7 @@ const LoginScreen = ({ onLogin }) => {
       });
       if (error) setError(error.message);
       else {
-        setMessage("Check your inbox for a 6-digit code.");
+        setMessage("Check your inbox for a verification code.");
         setMode("verify");
       }
     } else if (mode === "verify") {
@@ -147,7 +147,7 @@ const LoginScreen = ({ onLogin }) => {
       // this signs them in with a recovery session, which the App's
       // PASSWORD_RECOVERY listener picks up to show the password reset modal.
       const code = otpCode.trim();
-      if (code.length < 6) { setError("Enter the 6-digit code from your email."); setLoading(false); return; }
+      if (code.length < 6) { setError("Enter the code from your email."); setLoading(false); return; }
       const { data, error } = await supabase.auth.verifyOtp({
         email, token: code, type: "email",
       });
@@ -222,8 +222,8 @@ const LoginScreen = ({ onLogin }) => {
           <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 28 }}>
             {mode === "login" ? "Sign in to CareTrack"
               : mode === "signup" ? "Submit your details for admin approval"
-              : mode === "verify" ? `We sent a 6-digit code to ${email}. Enter it below to reset your password.`
-              : "Enter your email and we'll send you a 6-digit code"}
+              : mode === "verify" ? `We sent a verification code to ${email}. Enter it below to reset your password.`
+              : "Enter your email and we'll send you a verification code"}
           </p>
           {error && <div style={{ background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 20 }}>⚠ {error}</div>}
           {message && <div style={{ background: C.greenLight, border: `1px solid #b8dfc9`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.green, marginBottom: 20 }}>✓ {message}</div>}
@@ -260,17 +260,17 @@ const LoginScreen = ({ onLogin }) => {
             )}
             {mode === "verify" && (
               <div>
-                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>6-DIGIT CODE</label>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>VERIFICATION CODE</label>
                 <input
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   autoComplete="one-time-code"
-                  maxLength={6}
+                  maxLength={10}
                   value={otpCode}
                   onChange={e => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
-                  style={{ ...inp, fontSize: 22, letterSpacing: "0.4em", textAlign: "center", fontFamily: "'IBM Plex Mono', monospace" }}
+                  placeholder="Enter code"
+                  style={{ ...inp, fontSize: 22, letterSpacing: "0.3em", textAlign: "center", fontFamily: "'IBM Plex Mono', monospace" }}
                   onFocus={e => e.target.style.borderColor = C.primary}
                   onBlur={e => e.target.style.borderColor = C.border}
                   onKeyDown={e => e.key === "Enter" && handleSubmit()}
