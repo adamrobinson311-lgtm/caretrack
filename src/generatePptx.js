@@ -270,6 +270,50 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     s5.addText(`Showing most recent 12 of ${entries.length} sessions`, { x: 0.38, y: 5.3, w: 9.3, h: 0.22, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
   }
 
+  // ── SLIDE(S): SESSION NOTES (if any sessions have notes) ─────────────────
+  const noteEntries = [...entries].reverse().filter(e => e.notes && String(e.notes).trim().length > 0);
+  if (noteEntries.length > 0) {
+    const NOTE_ROWS_PER_SLIDE = 7;
+    const noteSlideCount = Math.ceil(noteEntries.length / NOTE_ROWS_PER_SLIDE);
+
+    const noteHdr = (text) => ({
+      text,
+      options: { fill: { color: brandPrimary }, color: BRAND.white, bold: true, fontSize: 9, fontFace: "Calibri", align: "left", valign: "middle" },
+    });
+
+    for (let ns = 0; ns < noteSlideCount; ns++) {
+      const slideNotes = noteEntries.slice(ns * NOTE_ROWS_PER_SLIDE, (ns + 1) * NOTE_ROWS_PER_SLIDE);
+      const sNote = pres.addSlide();
+      sNote.background = { color: BRAND.bg };
+      addSectionLabel(sNote, noteSlideCount > 1 ? `SESSION NOTES · ${ns + 1} OF ${noteSlideCount}` : "SESSION NOTES");
+      sNote.addText("Session Notes", { x: 0.38, y: 0.68, w: 9.3, h: 0.5, fontSize: 24, fontFace: "Georgia", color: BRAND.ink, bold: true, margin: 0 });
+      sNote.addText("Field observations recorded with each compliance session", { x: 0.38, y: 1.1, w: 9.3, h: 0.25, fontSize: 9, fontFace: "Calibri", color: BRAND.inkLight, italic: true, margin: 0 });
+
+      const noteHeader = [noteHdr("Date"), noteHdr("Hospital"), noteHdr("Unit"), noteHdr("Note")];
+      const noteRows = slideNotes.map((e, idx) => {
+        const rowBg = idx % 2 === 0 ? BRAND.white : "F0EDEA";
+        const dateStr = e.created_at
+          ? new Date(e.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          : (e.date || "—");
+        let note = String(e.notes).trim().replace(/\s+/g, " ");
+        if (note.length > 240) note = note.slice(0, 237) + "…";
+        return [
+          { text: dateStr, options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 8, fontFace: "Calibri", valign: "top" } },
+          { text: e.hospital || "—", options: { fill: { color: rowBg }, color: brandPrimary, fontSize: 8, fontFace: "Calibri", bold: true, valign: "top" } },
+          { text: e.location || "—", options: { fill: { color: rowBg }, color: BRAND.inkLight, fontSize: 8, fontFace: "Calibri", valign: "top" } },
+          { text: note, options: { fill: { color: rowBg }, color: BRAND.ink, fontSize: 8, fontFace: "Calibri", valign: "top", align: "left" } },
+        ];
+      });
+
+      sNote.addTable([noteHeader, ...noteRows], {
+        x: 0.38, y: 1.45, w: 9.3,
+        border: { pt: 0.5, color: BRAND.light },
+        colW: [1.05, 1.55, 1.2, 5.5],
+        valign: "top",
+      });
+    }
+  }
+
   // ── SLIDE(S): PER BED DETAIL (if any sessions have bed_data) ────────────
   const bedEntries = [...entries].reverse().filter(e => e.bed_data && e.bed_data.length > 0).slice(0, 6);
   if (bedEntries.length > 0) {
