@@ -64,6 +64,9 @@ const getBuckets = (hospital) => {
 
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+// Kaiser South Sacramento gets an extra session-level "Air Supply Connected" dropdown
+const isKaiserSouthSac = (hospital) => isKaiser(hospital) && hospital.toLowerCase().includes("south sac");
+const AIR_SUPPLY_CONNECTED_OPTIONS = ["Yes", "No", "N/A"];
 const getMetrics = (hospital) => [
   ...METRICS,
   ...(isMayo(hospital)   ? MAYO_METRICS   : []),
@@ -72,7 +75,7 @@ const getMetrics = (hospital) => [
 
 const defaultForm = () => ({
   date: new Date().toISOString().slice(0, 10),
-  hospital: "", protocol_for_use: "", location: "", notes: "",
+  hospital: "", protocol_for_use: "", location: "", notes: "", air_supply_connected: "",
   ...Object.fromEntries([...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
 });
 
@@ -2162,6 +2165,7 @@ export default function App() {
     const payload = {
       date: form.date, hospital: form.hospital || null, location: form.location || null,
       protocol_for_use: form.protocol_for_use || null, notes: form.notes || null, logged_by: userName,
+      air_supply_connected: isKaiserSouthSac(form.hospital) ? (form.air_supply_connected || null) : null,
       ...Object.fromEntries(getMetrics(form.hospital).flatMap(m => {
         const rawNum = form[`${m.id}_num`];
         const rawDen = form[`${m.id}_den`];
@@ -2422,6 +2426,7 @@ export default function App() {
       hospital: editForm.hospital || null,
       location: editForm.location || null,
       protocol_for_use: editForm.protocol_for_use || null,
+      air_supply_connected: isKaiserSouthSac(editForm.hospital) ? (editForm.air_supply_connected || null) : null,
       notes: editForm.notes || null,
       ...Object.fromEntries(METRICS.flatMap(m => {
         const rawNum = editForm[`${m.id}_num`];
@@ -2451,7 +2456,7 @@ export default function App() {
     // Build diff of what changed
     const original = entries.find(e => e.id === editingId) || {};
     const changed = {};
-    ["date","hospital","location","protocol_for_use","notes",...METRICS.flatMap(m=>[`${m.id}_num`,`${m.id}_den`])].forEach(k => {
+    ["date","hospital","location","protocol_for_use","air_supply_connected","notes",...METRICS.flatMap(m=>[`${m.id}_num`,`${m.id}_den`])].forEach(k => {
       if (String(original[k]||"") !== String(finalData[k]||"")) changed[k] = { from: original[k], to: finalData[k] };
     });
 
@@ -3173,7 +3178,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
+                <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "", air_supply_connected: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
               )}
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -3233,6 +3238,18 @@ export default function App() {
                       </div>
                     </label>
                   </div>
+                </div>
+              )}
+              {isKaiserSouthSac(form.hospital) && (
+                <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                  <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: C.inkLight, letterSpacing: "0.06em", marginBottom: 6 }}>🔌  AIR SUPPLY CONNECTED</label>
+                  <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5, marginBottom: 8 }}>Was the air supply unit connected? <span style={{ color: C.inkLight }}>(Kaiser South Sacramento only)</span></div>
+                  <select value={form.air_supply_connected || ""} onChange={e => setForm(f => ({ ...f, air_supply_connected: e.target.value }))}
+                    style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 16, color: C.ink, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}
+                    onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border}>
+                    <option value="">— Select —</option>
+                    {AIR_SUPPLY_CONNECTED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
                 </div>
               )}
               {inputMode === "simple" ? (
@@ -3895,6 +3912,15 @@ export default function App() {
                                 <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PROTOCOL</label>
                                 <input type="text" value={ef.protocol_for_use || ""} onChange={ev => setEditForm(f => ({ ...f, protocol_for_use: ev.target.value }))} style={inpStyle} />
                               </div>
+                              {isKaiserSouthSac(ef.hospital) && (
+                                <div>
+                                  <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>AIR SUPPLY CONNECTED</label>
+                                  <select value={ef.air_supply_connected || ""} onChange={ev => setEditForm(f => ({ ...f, air_supply_connected: ev.target.value }))} style={{ ...inpStyle, cursor: "pointer" }}>
+                                    <option value="">— Select —</option>
+                                    {AIR_SUPPLY_CONNECTED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  </select>
+                                </div>
+                              )}
                               <div style={{ gridColumn: "span 2" }}>
                                 <label style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>NOTES</label>
                                 <input type="text" value={ef.notes || ""} onChange={ev => setEditForm(f => ({ ...f, notes: ev.target.value }))} style={inpStyle} />
@@ -3919,6 +3945,7 @@ export default function App() {
                               {e.hospital && <div style={{ fontSize: 13, color: C.primary, marginTop: 4, fontWeight: 500 }}>{e.hospital}</div>}
                               {e.location && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>{e.location}</div>}
                               {e.protocol_for_use && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, fontStyle: "italic" }}>Protocol: {e.protocol_for_use}</div>}
+                              {e.air_supply_connected && <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4 }}>Air Supply Connected: <strong style={{ color: C.ink }}>{e.air_supply_connected}</strong></div>}
                               {e.logged_by && (
                                 <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, background: C.primaryLight, border: `1px solid ${C.primary}22`, borderRadius: 20, padding: "2px 10px" }}>
                                   <div style={{ width: 14, height: 14, borderRadius: "50%", background: C.primary, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "white", fontWeight: 700 }}>{e.logged_by.charAt(0).toUpperCase()}</div>
@@ -4673,6 +4700,7 @@ export default function App() {
                               Hospital: e.hospital || "",
                               "Location / Unit": e.location || "",
                               "Protocol for Use": e.protocol_for_use || "",
+                              "Air Supply Connected": e.air_supply_connected || "",
                               "Logged By": e.logged_by || "",
                               "Created At": e.created_at ? new Date(e.created_at).toLocaleString() : "",
                               "Turning & Repo Num": e.turning_criteria_num ?? "",
@@ -6798,6 +6826,12 @@ export default function App() {
                 <div style={{ gridColumn: "span 2" }}>
                   <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 2 }}>PROTOCOL FOR USE</div>
                   <div style={{ fontSize: 13, color: C.inkMid, fontStyle: "italic" }}>{printSession.protocol_for_use}</div>
+                </div>
+              )}
+              {printSession.air_supply_connected && (
+                <div>
+                  <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 2 }}>AIR SUPPLY CONNECTED</div>
+                  <div style={{ fontSize: 14, color: C.ink, fontWeight: 500 }}>{printSession.air_supply_connected}</div>
                 </div>
               )}
             </div>

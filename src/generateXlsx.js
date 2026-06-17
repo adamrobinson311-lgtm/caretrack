@@ -109,7 +109,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
 
   // ── SHEET 2: RAW SESSIONS ─────────────────────────────────────────────────
   const headers = [
-    "Date", "Submitted At", "Hospital", "Location", "Protocol", "Logged By", "Notes",
+    "Date", "Submitted At", "Hospital", "Location", "Protocol", "Logged By", "Notes", "Air Supply Connected",
     ...summaryMetrics.flatMap(m => [`${m.label} (Num)`, `${m.label} (Den)`, `${m.label} (%)`]),
     "Overall %",
   ];
@@ -128,7 +128,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
     const overall = overallVals.length ? Math.round(overallVals.reduce((a, b) => a + b, 0) / overallVals.length) : null;
     return [
       e.date || "", e.created_at ? new Date(e.created_at).toLocaleString("en-US") : "",
-      e.hospital || "", e.location || "", e.protocol_for_use || "", e.logged_by || "", e.notes || "",
+      e.hospital || "", e.location || "", e.protocol_for_use || "", e.logged_by || "", e.notes || "", e.air_supply_connected || "",
       ...metricCols, overall !== null ? `${overall}%` : "—",
     ];
   });
