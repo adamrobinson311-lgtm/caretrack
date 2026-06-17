@@ -31,12 +31,15 @@ const KAISER_METRICS = [
   { id: "heel_boots", label: "Heel Boots" },
   { id: "turn_clock", label: "Turn Clock" },
 ];
+const KAISER_SOUTH_SAC_METRICS = [{ id: "air_supply_connected", label: "Air Supply Connected" }];
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const isKaiserSouthSac = (hospital) => isKaiser(hospital) && hospital.toLowerCase().includes("south sac");
 const getMetrics = (hospital) => {
   let m = [...METRICS];
   if (isMayo(hospital))   m = [...m, ...MAYO_METRICS];
   if (isKaiser(hospital)) m = [...m, ...KAISER_METRICS];
+  if (isKaiserSouthSac(hospital)) m = [...m, ...KAISER_SOUTH_SAC_METRICS];
   return m;
 };
 
@@ -103,7 +106,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
-  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : [])];
+  const hasKaiserSouthSac = entries.some(e => isKaiserSouthSac(e.hospital));
+  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : []), ...(hasKaiserSouthSac ? KAISER_SOUTH_SAC_METRICS : [])];
   // Per-hospital metric visibility — admin configured, PDF only
   const visibleMetrics = branding?.enabledMetrics
     ? summaryMetrics.filter(m => branding.enabledMetrics.includes(m.id))
@@ -883,14 +887,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     { label: "Turning",          ids: ["turning_criteria"],                                  single: true },
     ...(hasMayo   ? [{ label: "Air Repos.",     ids: ["air_reposition"], single: true }] : []),
     { label: "Air Supply",       ids: ["air_supply"],                                        single: true },
-    ...(hasKaiser ? [{ label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"], single: false }] : []),
+    ...(hasKaiser ? [{ label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock", ...(hasKaiserSouthSac ? ["air_supply_connected"] : [])], single: false }] : []),
   ];
 
   const METRIC_SHORT = {
     matt_applied: "Applied", matt_proper: "Properly",
     wedges_in_room: "In Room", wedges_applied: "Applied", wedge_offload: "Offloading",
     turning_criteria: "Turning", air_supply: "Air Supply",
-    air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock",
+    air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock", air_supply_connected: "Air Conn.",
   };
 
   // Build plain-text rows (autoTable needs strings for layout/height calculation)
@@ -1028,7 +1032,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"],                     single: false },
       { label: "Wedge Compliance",ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], single: false },
       { label: "Air Supply",      ids: ["air_supply", "air_reposition"], single: true  },
-      { label: "Kaiser Metrics",  ids: ["heel_boots", "turn_clock"],     single: false },
+      { label: "Kaiser Metrics",  ids: ["heel_boots", "turn_clock", "air_supply_connected"],     single: false },
     ];
     const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
       b.ids.map(id => visibleMetrics.find(m => m.id === id)).filter(Boolean)
@@ -1037,7 +1041,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     const METRIC_SHORT_PDF = {
       matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turn Protocol",
       matt_proper: "Matt Prop.", wedges_in_room: "Wdg Room", wedge_offload: "Offloading",
-      air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock",
+      air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock", air_supply_connected: "Air Conn.",
     };
 
     const darkHeader = [Math.max(0,brandHeader[0]-30), Math.max(0,brandHeader[1]-30), Math.max(0,brandHeader[2]-30)];

@@ -18,12 +18,17 @@ const KAISER_METRICS = [
   { id: "heel_boots", label: "Heel Boots On" },
   { id: "turn_clock", label: "Turn Clock" },
 ];
+const KAISER_SOUTH_SAC_METRICS = [
+  { id: "air_supply_connected", label: "Air Supply Connected" },
+];
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
+const isKaiserSouthSac = (hospital) => isKaiser(hospital) && hospital.toLowerCase().includes("south sac");
 const getMetrics = (hospital) => [
   ...METRICS,
   ...(isMayo(hospital)   ? MAYO_METRICS   : []),
   ...(isKaiser(hospital) ? KAISER_METRICS : []),
+  ...(isKaiserSouthSac(hospital) ? KAISER_SOUTH_SAC_METRICS : []),
 ];
 
 const pct = (n, d) => {
@@ -45,10 +50,12 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   // Determine if any entries are from Mayo hospitals — include Mayo metric in summary if so
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
+  const hasKaiserSouthSac = entries.some(e => isKaiserSouthSac(e.hospital));
   const summaryMetrics = [
     ...METRICS,
     ...(hasMayo   ? MAYO_METRICS   : []),
     ...(hasKaiser ? KAISER_METRICS : []),
+    ...(hasKaiserSouthSac ? KAISER_SOUTH_SAC_METRICS : []),
   ];
 
   // ── SHEET 1: SUMMARY ──────────────────────────────────────────────────────
@@ -109,7 +116,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
 
   // ── SHEET 2: RAW SESSIONS ─────────────────────────────────────────────────
   const headers = [
-    "Date", "Submitted At", "Hospital", "Location", "Protocol", "Logged By", "Notes", "Air Supply Connected",
+    "Date", "Submitted At", "Hospital", "Location", "Protocol", "Logged By", "Notes",
     ...summaryMetrics.flatMap(m => [`${m.label} (Num)`, `${m.label} (Den)`, `${m.label} (%)`]),
     "Overall %",
   ];
@@ -128,7 +135,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
     const overall = overallVals.length ? Math.round(overallVals.reduce((a, b) => a + b, 0) / overallVals.length) : null;
     return [
       e.date || "", e.created_at ? new Date(e.created_at).toLocaleString("en-US") : "",
-      e.hospital || "", e.location || "", e.protocol_for_use || "", e.logged_by || "", e.notes || "", e.air_supply_connected || "",
+      e.hospital || "", e.location || "", e.protocol_for_use || "", e.logged_by || "", e.notes || "",
       ...metricCols, overall !== null ? `${overall}%` : "—",
     ];
   });
@@ -153,7 +160,7 @@ export function generateXlsx(entries, hospitalFilter = "", preparedBy = "") {
   if (bedEntries.length > 0) {
     const allSessionMetrics = [...new Set(bedEntries.flatMap(e => getMetrics(e.hospital).map(m => m.id)))];
     const metaLabels = allSessionMetrics.flatMap(id => {
-      const m = [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].find(x => x.id === id);
+      const m = [...METRICS, ...MAYO_METRICS, ...KAISER_METRICS, ...KAISER_SOUTH_SAC_METRICS].find(x => x.id === id);
       const label = m ? m.label : id;
       return [`${label} (Qual)`, `${label} (Adh)`, `${label} (%)`];
     });

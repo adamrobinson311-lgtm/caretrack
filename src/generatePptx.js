@@ -334,7 +334,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                         single: false },
       { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"],   single: false },
       { label: "Air Supply",       ids: ["air_supply"],                                          single: true  },
-      { label: "Kaiser Metrics",   ids: ["heel_boots", "turn_clock"],                            single: false },
+      { label: "Kaiser Metrics",   ids: ["heel_boots", "turn_clock", "air_supply_connected"],         single: false },
     ];
     const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
       b.ids.filter(id => bedEntries.some(e => e.bed_data.some(bed => bed[`${id}_a`] !== undefined || bed[`${id}_na`] !== undefined)))
@@ -343,7 +343,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
     const METRIC_SHORT = {
       matt_applied: "Matt\nApp.", wedges_applied: "Wdg\nApp.", turning_criteria: "Turn\nProt.",
       matt_proper: "Matt\nProp.", wedges_in_room: "Wdg\nRoom", wedge_offload: "Offload",
-      air_supply: "Air\nSupply", heel_boots: "Heel\nBoots", turn_clock: "Trn\nClock",
+      air_supply: "Air\nSupply", heel_boots: "Heel\nBoots", turn_clock: "Trn\nClock", air_supply_connected: "Air\nConn.",
     };
 
     const fixedW = [1.0, 0.85, 0.38, 0.52];
@@ -425,7 +425,7 @@ export async function generatePptx(entries, summary = "", hospitalFilter = "", p
       { label: "Matt Compliance",  ids: ["matt_applied", "matt_proper"],                         single: false },
       { label: "Wedge Compliance", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"],   single: false },
       { label: "Air Supply",       ids: ["air_supply"],                                          single: true  },
-      { label: "Kaiser Metrics",   ids: ["heel_boots", "turn_clock"],                            single: false },
+      { label: "Kaiser Metrics",   ids: ["heel_boots", "turn_clock", "air_supply_connected"],         single: false },
     ];
 
     // Only include metrics that appear in at least one bed record
