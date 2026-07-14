@@ -31,15 +31,12 @@ const KAISER_METRICS = [
   { id: "heel_boots", label: "Heel Boots" },
   { id: "turn_clock", label: "Turn Clock" },
 ];
-const KAISER_SOUTH_SAC_METRICS = [{ id: "air_supply_connected", label: "Air Supply Connected" }];
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
-const isKaiserSouthSac = (hospital) => isKaiser(hospital) && hospital.toLowerCase().includes("south sac");
 const getMetrics = (hospital) => {
   let m = [...METRICS];
   if (isMayo(hospital))   m = [...m, ...MAYO_METRICS];
   if (isKaiser(hospital)) m = [...m, ...KAISER_METRICS];
-  if (isKaiserSouthSac(hospital)) m = [...m, ...KAISER_SOUTH_SAC_METRICS];
   return m;
 };
 
@@ -56,11 +53,11 @@ const pctColor = (v) => {
   return BRAND.red;
 };
 
-const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAND.primary, accentBar = BRAND.accent) => {
+const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAND.primary) => {
   // Top bar
   doc.setFillColor(...headerColor);
   doc.rect(0, 0, 210, 14, "F");
-  doc.setFillColor(...accentBar);
+  doc.setFillColor(...BRAND.accent);
   doc.rect(0, 0, 4, 14, "F");
 
   doc.setTextColor(...BRAND.white);
@@ -86,34 +83,20 @@ const addHeader = (doc, pageNum, totalPages, preparedBy = "", headerColor = BRAN
   doc.text(`Generated ${today} · HoverTech CareTrack${preparedBy ? ` · Prepared by ${preparedBy}` : ""}`, 105, 291, { align: "center" });
 };
 
-export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = [], mom = null, allEntries = [], fullEntries = []) {
+export async function generatePdf(entries, summary = "", returnBase64 = false, hospitalFilter = "", preparedBy = "", branding = null, chartData = [], mom = null, allEntries = []) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-  // Robust hex→RGB helper
-  const hexToRgb = (hex) => {
-    if (!hex || typeof hex !== "string") return null;
-    const clean = hex.replace("#", "").trim();
-    if (clean.length !== 6) return null;
-    const parts = clean.match(/.{2}/g).map(v => parseInt(v, 16));
-    if (parts.some(isNaN)) return null;
-    return parts;
-  };
-  const brandHeader    = hexToRgb(branding?.accentColor)   || BRAND.primary;
-  const brandSecondary = hexToRgb(branding?.secondaryColor) || BRAND.accent;
-  const brandTertiary  = hexToRgb(branding?.tertiaryColor)  || BRAND.secondary;
-  const brandText      = hexToRgb(branding?.textColor)      || BRAND.ink;
-  const brandCover     = hexToRgb(branding?.coverColor)     || brandHeader;
+  // Apply branding accent colour if provided
+  const brandAccent = branding?.accentColor
+    ? branding.accentColor.replace("#","").match(/.{2}/g).map(v => parseInt(v,16))
+    : BRAND.primary;
+  const brandHeader = branding?.accentColor ? brandAccent : BRAND.primary;
 
   const hasMayo   = entries.some(e => isMayo(e.hospital));
   const hasKaiser = entries.some(e => isKaiser(e.hospital));
-  const hasKaiserSouthSac = entries.some(e => isKaiserSouthSac(e.hospital));
-  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : []), ...(hasKaiserSouthSac ? KAISER_SOUTH_SAC_METRICS : [])];
-  // Per-hospital metric visibility — admin configured, PDF only
-  const visibleMetrics = branding?.enabledMetrics
-    ? summaryMetrics.filter(m => branding.enabledMetrics.includes(m.id))
-    : summaryMetrics;
+  const summaryMetrics = [...METRICS, ...(hasMayo ? MAYO_METRICS : []), ...(hasKaiser ? KAISER_METRICS : [])];
 
-  const avgMetrics = visibleMetrics.map(m => {
+  const avgMetrics = summaryMetrics.map(m => {
     const vals = entries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
     return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
   }).sort((a, b) => {
@@ -125,7 +108,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   // Count pages for pagination
-  let totalPages = 3;
+  let totalPages = 3; // title + summary + history
   if (mom?.hasData) totalPages++;
   if (hospitals.length > 1) totalPages++;
   if (summary && summary.length > 10) totalPages++;
@@ -133,72 +116,47 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   if (hasBedData) totalPages++;
 
   // ── PAGE 1: TITLE ─────────────────────────────────────────────────────────
-  // Detect if cover is light or dark to pick contrasting text colors
-  const coverLuminance = (brandCover[0] * 299 + brandCover[1] * 587 + brandCover[2] * 114) / 1000;
-  const coverIsDark = coverLuminance < 160;
-  const coverHeading1 = coverIsDark ? BRAND.white : brandText;
-  const coverHeading2 = coverIsDark ? [222, 218, 217] : brandHeader;
-  const coverMeta     = coverIsDark ? [168, 200, 208] : brandText;
-  const coverSub      = coverIsDark ? BRAND.white : brandHeader;
-  const coverSubLight = coverIsDark ? [168, 200, 208] : [...brandText, 180].slice(0,3);
-
-  doc.setFillColor(...brandCover);
+  doc.setFillColor(...brandHeader);
   doc.rect(0, 0, 210, 297, "F");
-  doc.setFillColor(...brandSecondary);
+  doc.setFillColor(...BRAND.accent);
   doc.rect(0, 0, 8, 297, "F");
-  doc.setFillColor(...brandSecondary);
+  doc.setFillColor(65, 96, 105);
   doc.rect(202, 0, 8, 297, "F");
 
-  doc.setTextColor(...coverHeading1);
+  doc.setTextColor(...BRAND.white);
   doc.setFontSize(36);
   doc.setFont("helvetica", "bold");
   doc.text("Wound Care", 20, 110);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(32);
-  doc.setTextColor(...coverHeading2);
+  doc.setTextColor(222, 218, 217);
   doc.text("Compliance Report", 20, 128);
 
-  doc.setFillColor(...brandSecondary);
+  doc.setFillColor(124, 168, 180);
   doc.rect(20, 138, 60, 0.8, "F");
 
-  doc.setTextColor(...coverMeta);
+  doc.setTextColor(168, 200, 208);
   doc.setFontSize(11);
   doc.text(`Generated ${today}`, 20, 148);
   doc.text(`${entries.length} units audited`, 20, 156);
-
-  // Wrap the hospital list within the cover's text margin (left=20, right=20 with edge bars at 0-8 and 202-210).
-  // Available width is roughly 210 - 20*2 = 170mm.
-  const hospitalText = hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals";
-  const hospitalLines = doc.splitTextToSize(hospitalText, 170);
-  doc.text(hospitalLines, 20, 164);
-
-  // Push "Prepared by" below however many lines the hospital list took.
-  const lineHeight = 5; // matches 11pt font line spacing in mm
-  const preparedByY = 164 + (hospitalLines.length * lineHeight) + 3;
-  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, preparedByY); }
-
-  // Hospital logo — top left of title page
-  if (branding?.logoBase64 && branding?.logoMime) {
-    try {
-      doc.addImage(branding.logoBase64, branding.logoMime.toUpperCase().replace("JPG","JPEG"), 20, 40, 60, 20, undefined, "FAST");
-    } catch (e) { /* logo load failed silently */ }
-  }
+  doc.text(hospitals.length > 0 ? hospitals.join("  ·  ") : "All Hospitals", 20, 164);
+  if (preparedBy) { doc.text(`Prepared by ${preparedBy}`, 20, 172); }
 
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(...coverSub);
-  doc.text("HOVERTECH", 105, 248, { align: "center" });
+  doc.setTextColor(...BRAND.white);
+  doc.text("HOVERTECH", 105, 220, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
-  doc.setTextColor(...coverMeta);
-  doc.text("an Etac Company", 105, 258, { align: "center" });
+  doc.setTextColor(168, 200, 208);
+  doc.text("an Etac Company", 105, 230, { align: "center" });
   doc.setFontSize(8);
-  doc.setTextColor(...coverMeta);
-  doc.text("CARETRACK", 105, 280, { align: "center" });
+  doc.setTextColor(124, 168, 180);
+  doc.text("CARETRACK", 105, 270, { align: "center" });
 
   // ── PAGE 2: COMPLIANCE SUMMARY ────────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
+  addHeader(doc, 2, totalPages, preparedBy, brandHeader);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -208,7 +166,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFont("helvetica", "bold");
   doc.text("COMPLIANCE SUMMARY", 14, 24);
 
-  doc.setTextColor(...brandText);
+  doc.setTextColor(...BRAND.ink);
   doc.setFontSize(20);
   doc.text("Average Compliance by Metric", 14, 35);
   doc.setFontSize(9);
@@ -438,7 +396,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // ── GROUPED METRIC LAYOUT ─────────────────────────────────────────────────
   const GROUPS = [
-    { label: "PATIENT MET CRITERIA", ids: ["turning_criteria"] },
+    { label: null,               ids: ["turning_criteria"] },
     { label: "MATT COMPLIANCE",  ids: ["matt_applied", "matt_proper"] },
     { label: "WEDGE COMPLIANCE", ids: ["wedges_in_room", "wedges_applied", "wedge_offload"] },
     { label: "AIR SUPPLY",       ids: ["air_supply"] },
@@ -447,16 +405,18 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   const metricLookup = {};
   avgMetrics.forEach(m => { metricLookup[m.id] = m; });
-  visibleMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
+  summaryMetrics.forEach(m => { if (!metricLookup[m.id]) metricLookup[m.id] = { ...m, avg: null }; });
 
-  const NATL = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75 };
+  // National averages — computed from full org dataset when available, otherwise hardcoded fallback
+  const NATL_FALLBACK = { turning_criteria: 81, matt_applied: 78, matt_proper: 78, wedges_in_room: 74, wedges_applied: 59, wedge_offload: 58, air_supply: 81, air_reposition: 75, heel_boots: null, turn_clock: null };
+  const NATL = { ...NATL_FALLBACK };
   if (allEntries.length > 0) {
-    visibleMetrics.forEach(m => {
+    summaryMetrics.forEach(m => {
       const vals = allEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
       if (vals.length) NATL[m.id] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     });
   }
-  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 40, GAP = 3, SECTION_H = 6;
+  const PAGE_LEFT = 14, PAGE_W = 182, CARD_H = 38, GAP = 3, SECTION_H = 6;
   let curY = 48;
 
   const drawCard = (m, cx, cy, cw) => {
@@ -499,32 +459,28 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.setTextColor(...BRAND.inkLight);
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
-      doc.text(`National avg: ${natl}%`, cx + 4, cy + 36);
+      doc.text(`National avg: ${natl}%`, cx + 4, cy + 34);
       if (m.avg !== null) {
         const delta = m.avg - natl;
         const dColor = delta >= 0 ? BRAND.green : BRAND.red;
         doc.setTextColor(...dColor);
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
-        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 36, { align: "right" });
+        doc.text(`${delta >= 0 ? "+" : "-"}${Math.abs(delta)}%`, cx + cw - 4, cy + 34, { align: "right" });
       }
     }
   };
 
   GROUPS.forEach(group => {
-    const rowH = SECTION_H + CARD_H + 5;
-    if (curY + rowH > 276) {
-      doc.addPage();
-      addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
-      doc.setFillColor(...BRAND.bg);
-      doc.rect(0, 14, 210, 283, "F");
-      curY = 20;
+    if (group.label) {
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      doc.text(group.label, PAGE_LEFT, curY + 4);
+      curY += SECTION_H;
+    } else {
+      curY += 1;
     }
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.text(group.label, PAGE_LEFT, curY + 4);
-    curY += SECTION_H;
     const n = group.ids.length;
     const cardW = (PAGE_W - GAP * (n - 1)) / n;
     group.ids.forEach((id, idx) => {
@@ -537,13 +493,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
 
   // Legend
   const legendY = curY + 2;
-  if (legendY + 20 > 276) {
-    doc.addPage();
-    addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
-    doc.setFillColor(...BRAND.bg);
-    doc.rect(0, 14, 210, 283, "F");
-    curY = 20;
-  }
   [[BRAND.green, "90%+ \u2014 On Target"], [BRAND.amber, "70-89% \u2014 Monitor"], [BRAND.red, "< 70% \u2014 Needs Attention"]].forEach(([color, label], i) => {
     doc.setFillColor(...color);
     doc.rect(14 + i * 64, legendY, 4, 4, "F");
@@ -563,14 +512,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       return { ...m, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null };
     });
 
-    let shelfY = legendY + 10;
-    if (shelfY + 52 > 276) {
-      doc.addPage();
-      addHeader(doc, 2, totalPages, preparedBy, brandHeader, brandSecondary);
-      doc.setFillColor(...BRAND.bg);
-      doc.rect(0, 14, 210, 283, "F");
-      shelfY = 20;
-    }
+    const shelfY = legendY + 10;
     const SHELF_H = 42;
     const SHELF_CARD_H = 28;
 
@@ -623,249 +565,75 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   }
 
   // ── PAGE: MONTH-OVER-MONTH ────────────────────────────────────────────────
-  // Page tracker: starts at 3 (Title=1, Summary=2, this is page 3 if MoM renders).
   let histPageNum = 3;
   if (mom?.hasData) {
     doc.addPage();
-    addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+    addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader);
     histPageNum++;
-    doc.setFillColor(...BRAND.bg); doc.rect(0, 14, 210, 283, "F");
-    doc.setTextColor(...brandHeader); doc.setFontSize(7); doc.setFont("helvetica", "bold");
-    doc.text("MONTH-OVER-MONTH COMPARISON", 14, 24);
-    doc.setTextColor(...BRAND.ink); doc.setFontSize(20);
-    doc.text("Monthly Performance", 14, 35);
-    doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(...BRAND.inkLight);
-    doc.text(`${mom.lastMonth}  vs  ${mom.thisMonth}`, 14, 42);
-    [{ label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
-     { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
-     { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : BRAND.red },
-    ].forEach((card, i) => {
-      const cx = 14 + i * 62;
-      doc.setFillColor(...BRAND.white); doc.roundedRect(cx, 48, 58, 28, 2, 2, "F");
-      doc.setFillColor(...card.color); doc.rect(cx, 48, 58, 2, "F");
-      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
-      doc.text(card.label, cx + 29, 55, { align: "center" });
-      doc.setTextColor(...card.color); doc.setFontSize(20); doc.setFont("helvetica", "bold");
-      doc.text(card.value, cx + 29, 67, { align: "center" });
-      doc.setTextColor(...BRAND.inkLight); doc.setFontSize(7); doc.setFont("helvetica", "normal");
-      doc.text(card.sub, cx + 29, 73, { align: "center" });
-    });
-    const momRows = mom.metricDeltas.map(m => [m.label, m.last !== null ? `${m.last}%` : "—", m.this !== null ? `${m.this}%` : "—", m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`, m.delta === null ? "neutral" : m.delta > 0 ? "up" : "down"]);
-    autoTable(doc, { startY: 84, head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]], body: momRows, styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" }, headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8, halign: "center" }, alternateRowStyles: { fillColor: [240, 237, 234] }, columnStyles: { 0: { cellWidth: 58, halign: "left" }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } }, didParseCell: (data) => {
-        if (data.column.index === 3 && data.section === "body") { const v = parseFloat(data.cell.raw); if (!isNaN(v)) data.cell.styles.textColor = v > 0 ? BRAND.green : v < 0 ? BRAND.red : BRAND.inkLight; }
-        if (data.column.index === 4 && data.section === "body") { data.cell.text = [""]; }
-      }, didDrawCell: (data) => {
-        if (data.column.index === 4 && data.section === "body") {
-          const val = momRows[data.row.index]?.[4];
-          const color = val === "up" ? BRAND.green : val === "down" ? BRAND.red : BRAND.inkLight;
-          const r = 1.8;
-          const cx = data.cell.x + data.cell.width / 2;
-          const cy = data.cell.y + data.cell.height / 2;
-          doc.setFillColor(...color);
-          doc.circle(cx, cy, r, "F");
-        }
-      }, margin: { left: 14, right: 14 }, theme: "plain" });
-  }
-
-  // ── HOSPITAL COMPARISON (if multiple) ─────────────────────────────────────
-  // Moved up from after Bed Detail so the comparison view appears immediately
-  // after Monthly Performance, before the long Session History / Per Bed tables.
-  let pageNum = histPageNum;
-  if (hospitals.length > 1) {
-    doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
-    pageNum++;
-
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
-
     doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.text("HOSPITAL COMPARISON", 14, 24);
-
+    doc.text("MONTH-OVER-MONTH COMPARISON", 14, 24);
     doc.setTextColor(...BRAND.ink);
     doc.setFontSize(20);
-    doc.text("Performance by Hospital", 14, 35);
-
-    const hospitalData = hospitals.map(h => {
-      const hEntries = entries.filter(e => e.hospital === h);
-      const hMetrics = getMetrics(h);
-      return {
-        hospital: h,
-        sessions: hEntries.length,
-        metrics: visibleMetrics.map(m => {
-          if (!hMetrics.find(x => x.id === m.id)) return null;
-          const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-        }),
-        overall: (() => {
-          const vals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-        })()
-      };
-    });
-
-    // Hospital summary cards
-    const hCardW = (182 / hospitals.length) - 2;
-    hospitalData.forEach((h, i) => {
-      const cx = 14 + i * (hCardW + 2);
-      const color = pctColor(h.overall);
-      doc.setFillColor(...BRAND.white);
-      doc.roundedRect(cx, 42, hCardW, 30, 2, 2, "F");
-      doc.setFillColor(...color);
-      doc.rect(cx, 42, hCardW, 2, "F");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      const hLines = doc.splitTextToSize(h.hospital, hCardW - 4);
-      doc.text(hLines, cx + hCardW / 2, 50, { align: "center" });
-      doc.setTextColor(...color);
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "bold");
-      doc.text(h.overall !== null ? `${h.overall}%` : "—", cx + hCardW / 2, 62, { align: "center" });
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...BRAND.inkLight);
-      doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
-    });
-
-    // Detailed comparison table — hospitals as rows alphabetized, metrics as columns
-    const sortedHospitalData = [...hospitalData].sort((a, b) => a.hospital.localeCompare(b.hospital));
-    const compRows = sortedHospitalData.map(h => [
-      h.hospital,
-      ...visibleMetrics.map(m => {
-        const idx = visibleMetrics.indexOf(m);
-        return h.metrics[idx] !== null ? `${h.metrics[idx]}%` : "—";
-      })
-    ]);
-
-    autoTable(doc, {
-      startY: 80,
-      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
-      body: compRows,
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [240, 237, 234] },
-      margin: { left: 14, right: 14 },
-      theme: "plain",
-    });
-
-    // ── ROLLING 30-DAY CHANGE BY HOSPITAL ───────────────────────────────────
-    // Compute per-hospital, per-metric averages for last 30 days vs. previous 30 days
-    // (rolling window). Uses the full unfiltered set so trend works regardless of the
-    // user's current date filter.
-    const momSource = (fullEntries && fullEntries.length > 0) ? fullEntries : entries;
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const curStart = new Date(today);
-    curStart.setDate(curStart.getDate() - 29); // last 30 days inclusive of today
-    curStart.setHours(0, 0, 0, 0);
-    const prevEnd = new Date(curStart);
-    prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
-    const prevStart = new Date(prevEnd);
-    prevStart.setDate(prevStart.getDate() - 29);
-    prevStart.setHours(0, 0, 0, 0);
-
-    const inRange = (e, start, end) => {
-      if (!e.date) return false;
-      // Parse YYYY-MM-DD without timezone shifting (matches existing app pattern)
-      const [yy, mm, dd] = e.date.split("-").map(Number);
-      const d = new Date(yy, mm - 1, dd);
-      return d >= start && d <= end;
-    };
-
-    const avgFor = (subset, metricId) => {
-      const vals = subset.map(e => pct(e[`${metricId}_num`], e[`${metricId}_den`])).filter(v => v !== null);
-      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-    };
-
-    // Build the MoM matrix with hospitals as rows and metrics as columns.
-    const sortedHospitals = [...hospitals].sort((a, b) => a.localeCompare(b));
-
-    const computeCell = (h, m) => {
-      const hMetrics = getMetrics(h);
-      if (!hMetrics.find(x => x.id === m.id)) return { display: "—", color: BRAND.inkLight };
-      const hEntries = momSource.filter(e => e.hospital === h);
-      const cur = avgFor(hEntries.filter(e => inRange(e, curStart, today)), m.id);
-      const prev = avgFor(hEntries.filter(e => inRange(e, prevStart, prevEnd)), m.id);
-      if (cur === null && prev === null) return { display: "—", color: BRAND.inkLight };
-      if (prev === null) return { display: "NEW", color: brandHeader };
-      if (cur === null) return { display: "—", color: BRAND.inkLight };
-      const delta = cur - prev;
-      if (delta === 0) return { display: "0%", color: BRAND.inkLight };
-      const sign = delta > 0 ? "+" : "-";
-      const abs = Math.abs(delta);
-      const color = delta > 0 ? [58, 125, 92] : [158, 58, 58]; // green / red
-      return { display: `${sign}${abs}%`, color };
-    };
-
-    const momRows = sortedHospitals.map(h => ({
-      hospital: h,
-      cells: visibleMetrics.map(m => computeCell(h, m)),
-    }));
-
-    // Find Y position after the comparison table; if too close to bottom, new page
-    let momStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 12 : 200;
-    // More conservative estimate: hospital labels with long names wrap, making rows ~9-10mm tall
-    // instead of the ~6mm a single-line cell would be. Also includes header (~12mm) + section
-    // title block (~17mm) + bottom margin breathing room (~10mm).
-    const estimatedHeight = 17 + 12 + (momRows.length * 10) + 10;
-    if (momStartY + estimatedHeight > 280) {
-      doc.addPage();
-      addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
-      pageNum++;
-      doc.setFillColor(...BRAND.bg);
-      doc.rect(0, 14, 210, 283, "F");
-      momStartY = 24;
-    }
-
-    // Section title
-    doc.setTextColor(...brandHeader);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.text("ROLLING 30-DAY CHANGE BY HOSPITAL", 14, momStartY);
-
-    doc.setTextColor(...BRAND.ink);
-    doc.setFontSize(13);
-    doc.text("Trend vs. Previous 30 Days", 14, momStartY + 7);
-
-    const fmtRange = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-    doc.setTextColor(...BRAND.inkLight);
-    doc.setFontSize(8);
+    doc.text("Monthly Performance", 14, 35);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text(`${fmtRange(curStart)} – ${fmtRange(today)} vs. ${fmtRange(prevStart)} – ${fmtRange(prevEnd)}`, 14, momStartY + 13);
-
+    doc.setTextColor(...BRAND.inkLight);
+    doc.text(`${mom.lastMonth}  →  ${mom.thisMonth}`, 14, 42);
+    const momCardDefs = [
+      { label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
+      { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
+      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
+    ];
+    momCardDefs.forEach((card, i) => {
+      const cx = 14 + i * 62;
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, 48, 58, 28, 2, 2, "F");
+      doc.setFillColor(...card.color);
+      doc.rect(cx, 48, 58, 2, "F");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(card.label, cx + 29, 55, { align: "center" });
+      doc.setTextColor(...card.color);
+      doc.setFontSize(20);
+      doc.setFont("helvetica", "bold");
+      doc.text(card.value, cx + 29, 67, { align: "center" });
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(card.sub, cx + 29, 73, { align: "center" });
+    });
+    const momRows = mom.metricDeltas.map(m => [
+      m.label,
+      m.last !== null ? `${m.last}%` : "—",
+      m.this !== null ? `${m.this}%` : "—",
+      m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`,
+      m.delta === null ? "—" : m.delta > 0 ? "▲ Improved" : m.delta < 0 ? "▼ Declined" : "→ Unchanged",
+    ]);
     autoTable(doc, {
-      startY: momStartY + 17,
-      head: [["Hospital", ...visibleMetrics.map(m => m.label)]],
-      body: momRows.map(r => [r.hospital, ...r.cells.map(c => c.display)]),
-      styles: { fontSize: 8, cellPadding: 2.5, textColor: BRAND.ink },
-      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
+      startY: 84,
+      head: [["Metric", mom.lastMonth, mom.thisMonth, "Change", "Trend"]],
+      body: momRows,
+      styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold", fontSize: 8 },
       alternateRowStyles: { fillColor: [240, 237, 234] },
+      columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } },
+      didParseCell: (data) => {
+        if (data.column.index === 3 && data.section === "body") { const val = parseFloat(data.cell.raw); if (!isNaN(val)) data.cell.styles.textColor = val > 0 ? BRAND.green : val < 0 ? BRAND.red : BRAND.inkLight; }
+        if (data.column.index === 4 && data.section === "body") { const raw = String(data.cell.raw); data.cell.styles.textColor = raw.startsWith("▲") ? BRAND.green : raw.startsWith("▼") ? BRAND.red : BRAND.inkLight; }
+      },
       margin: { left: 14, right: 14 },
       theme: "plain",
-      didParseCell: (data) => {
-        if (data.section === "body" && data.column.index > 0) {
-          const rowIdx = data.row.index;
-          const colIdx = data.column.index - 1;
-          const cellMeta = momRows[rowIdx]?.cells[colIdx];
-          if (cellMeta) {
-            data.cell.styles.textColor = cellMeta.color;
-            if (cellMeta.display !== "—" && cellMeta.display !== "0%") {
-              data.cell.styles.fontStyle = "bold";
-            }
-          }
-        }
-      },
     });
-    // Bring histPageNum back in sync so downstream sections continue from here
-    histPageNum = pageNum;
   }
 
   // ── PAGE 3: SESSION HISTORY TABLE ─────────────────────────────────────────
   doc.addPage();
-  addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+  addHeader(doc, histPageNum, totalPages, preparedBy, brandHeader);
 
   doc.setFillColor(...BRAND.bg);
   doc.rect(0, 14, 210, 283, "F");
@@ -875,7 +643,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   doc.setFont("helvetica", "bold");
   doc.text("SESSION HISTORY", 14, 24);
 
-  doc.setTextColor(...brandText);
+  doc.setTextColor(...BRAND.ink);
   doc.setFontSize(20);
   doc.text("Session Log", 14, 35);
 
@@ -887,14 +655,14 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     { label: "Turning",          ids: ["turning_criteria"],                                  single: true },
     ...(hasMayo   ? [{ label: "Air Repos.",     ids: ["air_reposition"], single: true }] : []),
     { label: "Air Supply",       ids: ["air_supply"],                                        single: true },
-    ...(hasKaiser ? [{ label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock", ...(hasKaiserSouthSac ? ["air_supply_connected"] : [])], single: false }] : []),
+    ...(hasKaiser ? [{ label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"], single: false }] : []),
   ];
 
   const METRIC_SHORT = {
     matt_applied: "Applied", matt_proper: "Properly",
     wedges_in_room: "In Room", wedges_applied: "Applied", wedge_offload: "Offloading",
     turning_criteria: "Turning", air_supply: "Air Supply",
-    air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock", air_supply_connected: "Air Conn.",
+    air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Turn Clock",
   };
 
   // Build plain-text rows (autoTable needs strings for layout/height calculation)
@@ -944,15 +712,8 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       [HISTORY_BUCKETS.length + 3]: { cellWidth: 18 },
       [HISTORY_BUCKETS.length + 4]: { cellWidth: 16, fontStyle: "italic" },
     },
-    margin: { left: 14, right: 14, top: 18 },
+    margin: { left: 14, right: 14 },
     theme: "plain",
-    didDrawPage: (data) => {
-      // autoTable creates new pages internally when content overflows. Without this,
-      // those pages have no header bar. The final-pass page-number rewrite then has
-      // nothing to overlay on. Draw a header on every page autoTable touches.
-      // The actual page number gets corrected in the final pass at end of the function.
-      addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
-    },
     willDrawCell: (data) => {
       if (data.section !== "body") return;
       const bucketIdx = data.column.index - 3;
@@ -1006,7 +767,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
   const bedEntries = [...entries].reverse().filter(e => e.bed_data && e.bed_data.length > 0).slice(0, 10);
   if (bedEntries.length > 0) {
     doc.addPage();
-    addHeader(doc, 4, totalPages, preparedBy, brandHeader, brandSecondary);
+    addHeader(doc, hasBedData ? (mom?.hasData ? 5 : 4) : (mom?.hasData ? 4 : 4), totalPages, preparedBy, brandHeader);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
@@ -1024,66 +785,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...BRAND.inkLight);
     doc.text("Sessions recorded using Per Bed mode — individual bed data", 14, 42);
 
-    // ── Bucketed metric order matching dashboard ──────────────────────────────
-    // Single-metric buckets (Turn Protocol, Air Supply) span both header rows
-    // Multi-metric buckets (Matt, Wedge) get a label row + sub-metric row
-    const BED_BUCKETS = [
-      { label: "Turn Protocol",   ids: ["turning_criteria"], single: true  },
-      { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"],                     single: false },
-      { label: "Wedge Compliance",ids: ["wedges_in_room", "wedges_applied", "wedge_offload"], single: false },
-      { label: "Air Supply",      ids: ["air_supply", "air_reposition"], single: true  },
-      { label: "Kaiser Metrics",  ids: ["heel_boots", "turn_clock", "air_supply_connected"],     single: false },
-    ];
-    const orderedBedMetrics = BED_BUCKETS.flatMap(b =>
-      b.ids.map(id => visibleMetrics.find(m => m.id === id)).filter(Boolean)
-    );
-
-    const METRIC_SHORT_PDF = {
-      matt_applied: "Matt App.", wedges_applied: "Wdg App.", turning_criteria: "Turn Protocol",
-      matt_proper: "Matt Prop.", wedges_in_room: "Wdg Room", wedge_offload: "Offloading",
-      air_supply: "Air Supply", air_reposition: "Air Repos.", heel_boots: "Heel Boots", turn_clock: "Trn Clock", air_supply_connected: "Air Conn.",
-    };
-
-    const darkHeader = [Math.max(0,brandHeader[0]-30), Math.max(0,brandHeader[1]-30), Math.max(0,brandHeader[2]-30)];
-
-    // Row 1: fixed cols (rowSpan 2) + bucket labels
-    //   single-metric buckets use rowSpan 2 (no row 2 entry needed)
-    //   multi-metric buckets use colSpan
-    const headerRow1 = [
-      { content: "Date",     rowSpan: 2, styles: { valign: "middle" } },
-      { content: "Hospital", rowSpan: 2, styles: { valign: "middle" } },
-      { content: "Location", rowSpan: 2, styles: { valign: "middle" } },
-      { content: "Bed",      rowSpan: 2, styles: { valign: "middle" } },
-      { content: "Room",     rowSpan: 2, styles: { valign: "middle" } },
-    ];
-    BED_BUCKETS.forEach(b => {
-      const present = b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean);
-      if (present.length === 0) return;
-      if (b.single) {
-        headerRow1.push({ content: b.label, rowSpan: 2, styles: { halign: "center", fontStyle: "bold", fillColor: darkHeader } });
-      } else {
-        headerRow1.push({ content: b.label, colSpan: present.length, styles: { halign: "center", fontStyle: "bold", fillColor: darkHeader } });
-      }
-    });
-
-    // Row 2: only sub-labels for multi-metric buckets
-    const headerRow2 = [];
-    BED_BUCKETS.forEach(b => {
-      const present = b.ids.map(id => orderedBedMetrics.find(m => m.id === id)).filter(Boolean);
-      if (present.length === 0 || b.single) return;
-      present.forEach(m => headerRow2.push({
-        content: METRIC_SHORT_PDF[m.id] || m.label,
-        styles: { halign: "center", fontStyle: "normal", fontSize: 5.5, fillColor: [...brandHeader] },
-      }));
-    });
-
-    const bedHead = [headerRow1, headerRow2];
-
-    const BED_FIXED_COLS = 5;
-    const bedFixedW = 76;
-    const bedMetricW = Math.floor((182 - bedFixedW) / orderedBedMetrics.length);
-
-    // Flatten all beds into rows using bucketed column order
+    // Flatten all beds from all bed-entry sessions into one table
     const bedRows = [];
     bedEntries.forEach(e => {
       const dateStr = e.created_at
@@ -1092,43 +794,47 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       e.bed_data.forEach((bed, idx) => {
         if (bed.na) {
           bedRows.push([dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...orderedBedMetrics.map(() => "N/A")]);
+            ...summaryMetrics.map(() => "N/A")]);
         } else {
           bedRows.push([
             dateStr, e.hospital || "—", e.location || "—", String(idx + 1), bed.room || String(idx + 1),
-            ...orderedBedMetrics.map(m => {
+            ...summaryMetrics.map(m => {
               if (bed[`${m.id}_na`]) return "N/A";
-              const a = bed[`${m.id}_a`];
-              if (a === "1" || a === 1) return "YES";
-              if (a === "0" || a === 0) return "NO";
-              return "—";
+              const q = parseInt(bed[`${m.id}_q`]) || 0;
+              const a = parseInt(bed[`${m.id}_a`]) || 0;
+              return q > 0 ? `${Math.round((a / q) * 100)}%` : "—";
             }),
           ]);
         }
       });
     });
 
-    // Color lookup using bucketed order
+    const bedHead = [["Date", "Hospital", "Location", "Bed", "Room",
+      ...summaryMetrics.map(m => m.label.replace("Turning & Repositioning", "Turning").replace("Matt Applied Properly", "Matt Prop.").replace("Proper Wedge Offloading", "Offloading").replace("Air Supply in Room", "Air Supply").replace("Wedges in Room", "Wdg Room").replace("Wedges Applied", "Wdg App.").replace("Matt Applied", "Matt App.").replace("Air Used to Reposition Patient", "Air Repos.").replace("Heel Boots", "Heel Boots").replace("Turn Clock", "Trn Clock"))]];
+
+    // Build color lookup for bed rows
     const bedColorData = [];
     bedEntries.forEach(e => {
       e.bed_data.forEach((bed) => {
         if (bed.na) {
-          bedColorData.push(orderedBedMetrics.map(() => null));
+          bedColorData.push(summaryMetrics.map(() => null));
         } else {
-          bedColorData.push(orderedBedMetrics.map(m => {
-            if (bed[`${m.id}_na`]) return "na";
-            const a = bed[`${m.id}_a`];
-            if (a === "1" || a === 1) return "yes";
-            if (a === "0" || a === 0) return "no";
-            return null;
+          bedColorData.push(summaryMetrics.map(m => {
+            if (bed[`${m.id}_na`]) return null;
+            const q = parseInt(bed[`${m.id}_q`]) || 0;
+            const a = parseInt(bed[`${m.id}_a`]) || 0;
+            return q > 0 ? Math.round((a / q) * 100) : null;
           }));
         }
       });
     });
 
-    const bedMetricColStyles = Object.fromEntries(
-      orderedBedMetrics.map((_, i) => [i + BED_FIXED_COLS, { cellWidth: bedMetricW, halign: "center" }])
-    );
+    // Dynamic metric column widths: 18+22+16+8+12 = 76mm fixed, remaining split among metrics
+    const bedFixedW = 76;
+    const bedMetricW = Math.floor((182 - bedFixedW) / summaryMetrics.length);
+    const bedMetricColStyles = Object.fromEntries(summaryMetrics.map((_, i) => [i + 5, { cellWidth: bedMetricW }]));
+
+    const BED_METRIC_OFFSET = 5;
 
     autoTable(doc, {
       startY: 48,
@@ -1142,28 +848,19 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         3: { cellWidth: 8 },  4: { cellWidth: 12 },
         ...bedMetricColStyles,
       },
-      margin: { left: 14, right: 14, top: 18 },
+      margin: { left: 14, right: 14 },
       theme: "plain",
-      didDrawPage: (data) => {
-        // Draw the brand header bar on every page autoTable touches (incl. overflow pages).
-        // Page numbers are corrected in the final pass at end of the function.
-        addHeader(doc, data.pageNumber, totalPages, preparedBy, brandHeader, brandSecondary);
-      },
       didDrawCell: (data) => {
-        if (data.section !== "body" || data.column.index < BED_FIXED_COLS) return;
+        if (data.section !== "body" || data.column.index < BED_METRIC_OFFSET) return;
         const absIdx = data.row.dataIndex ?? data.row.index;
-        const mIdx = data.column.index - BED_FIXED_COLS;
-        if (mIdx >= orderedBedMetrics.length) return;
+        const mIdx = data.column.index - BED_METRIC_OFFSET;
+        if (mIdx >= summaryMetrics.length) return;
         const pVal = bedColorData[absIdx]?.[mIdx];
         const fc = data.cell.styles.fillColor;
-        const bgColor = pVal === "yes" ? [232, 244, 238] : pVal === "no" ? [253, 240, 240] : Array.isArray(fc) ? fc : BRAND.white;
-        doc.setFillColor(...bgColor);
+        doc.setFillColor(...(Array.isArray(fc) ? fc : BRAND.white));
         doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
-        if (pVal === "yes") {
-          doc.setTextColor(...BRAND.green);
-          doc.setFont("helvetica", "bold");
-        } else if (pVal === "no") {
-          doc.setTextColor(...BRAND.red);
+        if (pVal !== null) {
+          doc.setTextColor(...pctColor(pVal));
           doc.setFont("helvetica", "bold");
         } else {
           doc.setTextColor(...BRAND.inkLight);
@@ -1171,18 +868,97 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
         }
         doc.setFontSize(6);
         const textVal = data.cell.raw || "";
-        doc.text(String(textVal), data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2 + 1.5, { align: "center" });
+        doc.text(String(textVal), data.cell.x + (data.cell.padding("left") || 1.5), data.cell.y + data.cell.height / 2 + 1.5, { align: "left" });
         doc.setTextColor(...BRAND.ink);
         doc.setFont("helvetica", "normal");
       },
     });
   }
 
+  // ── PAGE 4/5: HOSPITAL COMPARISON (if multiple) ───────────────────────────
+  let pageNum = (mom?.hasData ? 1 : 0) + (hasBedData ? 5 : 4);
+  if (hospitals.length > 1) {
+    doc.addPage();
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
+    pageNum++;
+
+    doc.setFillColor(...BRAND.bg);
+    doc.rect(0, 14, 210, 283, "F");
+
+    doc.setTextColor(...brandHeader);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("HOSPITAL COMPARISON", 14, 24);
+
+    doc.setTextColor(...BRAND.ink);
+    doc.setFontSize(20);
+    doc.text("Performance by Hospital", 14, 35);
+
+    const hospitalData = hospitals.map(h => {
+      const hEntries = entries.filter(e => e.hospital === h);
+      const hMetrics = getMetrics(h);
+      return {
+        hospital: h,
+        sessions: hEntries.length,
+        metrics: summaryMetrics.map(m => {
+          if (!hMetrics.find(x => x.id === m.id)) return null;
+          const vals = hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        }),
+        overall: (() => {
+          const vals = hMetrics.flatMap(m => hEntries.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+          return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        })()
+      };
+    });
+
+    // Hospital summary cards
+    const hCardW = (182 / hospitals.length) - 2;
+    hospitalData.forEach((h, i) => {
+      const cx = 14 + i * (hCardW + 2);
+      const color = pctColor(h.overall);
+      doc.setFillColor(...BRAND.white);
+      doc.roundedRect(cx, 42, hCardW, 30, 2, 2, "F");
+      doc.setFillColor(...color);
+      doc.rect(cx, 42, hCardW, 2, "F");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      const hLines = doc.splitTextToSize(h.hospital, hCardW - 4);
+      doc.text(hLines, cx + hCardW / 2, cx + 52, { align: "center" });
+      doc.text(hLines, cx + hCardW / 2, 52, { align: "center" });
+      doc.setTextColor(...color);
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.text(h.overall !== null ? `${h.overall}%` : "—", cx + hCardW / 2, 62, { align: "center" });
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...BRAND.inkLight);
+      doc.text(`${h.sessions} session${h.sessions !== 1 ? "s" : ""}`, cx + hCardW / 2, 69, { align: "center" });
+    });
+
+    // Detailed comparison table
+    const compRows = summaryMetrics.map(m => [
+      m.label,
+      ...hospitalData.map(h => h.metrics[summaryMetrics.indexOf(m)] !== null ? `${h.metrics[summaryMetrics.indexOf(m)]}%` : "—")
+    ]);
+
+    autoTable(doc, {
+      startY: 80,
+      head: [["Metric", ...hospitalData.map(h => h.hospital)]],
+      body: compRows,
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: brandHeader, textColor: BRAND.white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 237, 234] },
+      margin: { left: 14, right: 14 },
+      theme: "plain",
+    });
+  }
 
   // ── PAGE: AI SUMMARY ──────────────────────────────────────────────────────
   if (summary && summary.length > 10) {
     doc.addPage();
-    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader, brandSecondary);
+    addHeader(doc, pageNum, totalPages, preparedBy, brandHeader);
 
     doc.setFillColor(...BRAND.bg);
     doc.rect(0, 14, 210, 283, "F");
@@ -1258,23 +1034,6 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       doc.text(pageLines, textX, 34);
     }
 
-  }
-
-  // ── FINAL PASS: fix page numbers on every page ────────────────────────────
-  // This avoids the gnarly hand-tracked pageNum arithmetic earlier in the file.
-  // jsPDF tracks pages internally; we overwrite the "Page X of Y" text on each.
-  // Skip page 1 — that's the cover/Title which uses a different layout.
-  const actualTotal = doc.getNumberOfPages();
-  for (let i = 2; i <= actualTotal; i++) {
-    doc.setPage(i);
-    // Redraw the right side of the header bar where "Page N of M" lives.
-    // The header bar background is brandHeader; we need to paint over the old number.
-    doc.setFillColor(...brandHeader);
-    doc.rect(170, 0, 40, 14, "F");
-    doc.setTextColor(...BRAND.white);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.text(`Page ${i} of ${actualTotal}`, 200, 9, { align: "right" });
   }
 
   if (returnBase64) {

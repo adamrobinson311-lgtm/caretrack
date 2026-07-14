@@ -9,27 +9,6 @@ import { MetricIcon } from "./MetricIcons";
 
 const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
-// PostgREST caps every query at 1000 rows server-side, so a plain .select()
-// silently truncates once the table grows past that. This pages through with
-// .range() until a short page comes back, returning every matching row.
-// `queryFactory` MUST return a fresh query builder each call (select + filters
-// + order, but NO .range()) so .range() can be applied cleanly per page.
-const PAGE_SIZE = 1000;
-async function fetchAllRows(queryFactory) {
-  let from = 0;
-  let all = [];
-  // Hard ceiling of 100 pages (100k rows) so a logic error can never loop forever.
-  for (let page = 0; page < 100; page++) {
-    const { data, error } = await queryFactory().range(from, from + PAGE_SIZE - 1);
-    if (error) return { data: all, error };
-    const batch = data || [];
-    all = all.concat(batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return { data: all, error: null };
-}
-
 const LIGHT = {
   bg: "#f5f3f1", surface: "#ffffff", surfaceAlt: "#DEDAD9", border: "#cec9c7", borderDark: "#b8b2af",
   ink: "#2a2624", inkMid: "#4F6E77", inkLight: "#7C7270", inkFaint: "#c0bbb9",
@@ -69,11 +48,6 @@ const KAISER_METRICS = [
   { id: "turn_clock",       label: "Turn Clock",                     desc: "Qualifying patients with Turn Clock compliance" },
 ];
 
-// Kaiser South Sacramento-only opt-in metric (functions like the KAISER_METRICS above)
-const KAISER_SOUTH_SAC_METRICS = [
-  { id: "air_supply_connected", label: "Air Supply Connected",       desc: "Was the air supply unit connected?" },
-];
-
 const METRIC_BUCKETS = [
   { label: "Patient Met Criteria", ids: ["turning_criteria"] },
   { label: "Matt Compliance", ids: ["matt_applied", "matt_proper"] },
@@ -81,7 +55,7 @@ const METRIC_BUCKETS = [
   { label: "Air Supply", ids: ["air_supply"] },
 ];
 const MAYO_BUCKET   = { label: "Air Supply",      ids: ["air_supply", "air_reposition"] };
-const KAISER_BUCKET = { label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock", "air_supply_connected"] };
+const KAISER_BUCKET = { label: "Kaiser Metrics", ids: ["heel_boots", "turn_clock"] };
 const getBuckets = (hospital) => {
   let buckets = METRIC_BUCKETS.map(b => b.label === "Air Supply" && isMayo(hospital) ? MAYO_BUCKET : b);
   if (isKaiser(hospital)) buckets = [...buckets, KAISER_BUCKET];
@@ -90,19 +64,16 @@ const getBuckets = (hospital) => {
 
 const isMayo   = (hospital) => hospital && hospital.toLowerCase().includes("mayo");
 const isKaiser = (hospital) => hospital && hospital.toLowerCase().includes("kaiser");
-// Kaiser South Sacramento gets the extra opt-in "Air Supply Connected" metric
-const isKaiserSouthSac = (hospital) => isKaiser(hospital) && hospital.toLowerCase().includes("south sac");
 const getMetrics = (hospital) => [
   ...METRICS,
   ...(isMayo(hospital)   ? MAYO_METRICS   : []),
   ...(isKaiser(hospital) ? KAISER_METRICS : []),
-  ...(isKaiserSouthSac(hospital) ? KAISER_SOUTH_SAC_METRICS : []),
 ];
 
 const defaultForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   hospital: "", protocol_for_use: "", location: "", notes: "",
-  ...Object.fromEntries([...METRICS, ...MAYO_METRICS, ...KAISER_METRICS, ...KAISER_SOUTH_SAC_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
+  ...Object.fromEntries([...METRICS, ...MAYO_METRICS, ...KAISER_METRICS].flatMap(m => [[`${m.id}_num`, ""], [`${m.id}_den`, ""]]))
 });
 
 const pct = (n, d) => { const nv = parseFloat(n), dv = parseFloat(d); if (!dv || isNaN(nv) || isNaN(dv)) return null; return Math.round((nv / dv) * 100); };
@@ -123,7 +94,7 @@ const formatTimestamp = (ts, date) => {
 
 // ── Login Screen ─────────────────────────────────────────────────────────────
 const LoginScreen = ({ onLogin }) => {
-  const [mode, setMode] = useState("login"); // login | signup | forgot | verify
+  const [mode, setMode] = useState("login"); // login | signup | forgot
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -133,7 +104,6 @@ const LoginScreen = ({ onLogin }) => {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pendingApproval, setPendingApproval] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
 
   const REGIONS = ["Northeast", "West", "Central", "Southeast"];
 
@@ -159,35 +129,9 @@ const LoginScreen = ({ onLogin }) => {
       }
       setPendingApproval(true);
     } else if (mode === "forgot") {
-      // Send a 6-digit OTP code to the user's email. Email scanners can
-      // pre-fetch links all they want — they can't type a code into our app,
-      // so the code stays valid until the real user enters it.
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: false },
-      });
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
       if (error) setError(error.message);
-      else {
-        setMessage("Check your inbox for a verification code.");
-        setMode("verify");
-      }
-    } else if (mode === "verify") {
-      // User typed the code from their email. Verify it as a recovery OTP —
-      // this signs them in with a recovery session, which the App's
-      // PASSWORD_RECOVERY listener picks up to show the password reset modal.
-      const code = otpCode.trim();
-      if (code.length < 6) { setError("Enter the code from your email."); setLoading(false); return; }
-      const { data, error } = await supabase.auth.verifyOtp({
-        email, token: code, type: "email",
-      });
-      if (error) { setError(error.message); setLoading(false); return; }
-      if (data?.session) {
-        // Manually trigger the password reset UI since verifyOtp doesn't fire
-        // the PASSWORD_RECOVERY auth event the way email-link recovery does.
-        // We pass control via a top-level trigger — dispatching a custom event
-        // the App listens for.
-        window.dispatchEvent(new CustomEvent("caretrack:show-password-reset"));
-      }
+      else setMessage("Password reset email sent — check your inbox.");
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
@@ -246,13 +190,10 @@ const LoginScreen = ({ onLogin }) => {
         </div>
         <div style={{ background: C.surface, borderRadius: 16, padding: "36px", boxShadow: "0 4px 32px rgba(79,110,119,0.10)" }}>
           <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400, color: C.ink, marginBottom: 4 }}>
-            {mode === "login" ? "Welcome back" : mode === "signup" ? "Request access" : mode === "verify" ? "Enter code" : "Reset password"}
+            {mode === "login" ? "Welcome back" : mode === "signup" ? "Request access" : "Reset password"}
           </h2>
           <p style={{ fontSize: 13, color: C.inkLight, marginBottom: 28 }}>
-            {mode === "login" ? "Sign in to CareTrack"
-              : mode === "signup" ? "Submit your details for admin approval"
-              : mode === "verify" ? `We sent a verification code to ${email}. Enter it below to reset your password.`
-              : "Enter your email and we'll send you a verification code"}
+            {mode === "login" ? "Sign in to CareTrack" : mode === "signup" ? "Submit your details for admin approval" : "Enter your email and we'll send a reset link"}
           </p>
           {error && <div style={{ background: C.redLight, border: `1px solid #f0c8c8`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.red, marginBottom: 20 }}>⚠ {error}</div>}
           {message && <div style={{ background: C.greenLight, border: `1px solid #b8dfc9`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.green, marginBottom: 20 }}>✓ {message}</div>}
@@ -281,33 +222,11 @@ const LoginScreen = ({ onLogin }) => {
                 </div>
               </div>
             </>)}
-            {mode !== "verify" && (
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@hovertechinternational.com" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
-              </div>
-            )}
-            {mode === "verify" && (
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>VERIFICATION CODE</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="one-time-code"
-                  maxLength={10}
-                  value={otpCode}
-                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="Enter code"
-                  style={{ ...inp, fontSize: 22, letterSpacing: "0.3em", textAlign: "center", fontFamily: "'IBM Plex Mono', monospace" }}
-                  onFocus={e => e.target.style.borderColor = C.primary}
-                  onBlur={e => e.target.style.borderColor = C.border}
-                  onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                  autoFocus
-                />
-              </div>
-            )}
-            {mode !== "forgot" && mode !== "verify" && (
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>EMAIL</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@hovertechinternational.com" style={inp} onFocus={e => e.target.style.borderColor = C.primary} onBlur={e => e.target.style.borderColor = C.border} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+            </div>
+            {mode !== "forgot" && (
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <label style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em" }}>PASSWORD</label>
@@ -320,17 +239,12 @@ const LoginScreen = ({ onLogin }) => {
             )}
           </div>
           <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", marginTop: 24, background: C.primary, border: "none", borderRadius: 8, padding: "13px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", color: "white", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "PLEASE WAIT..."
-              : mode === "login" ? "SIGN IN →"
-              : mode === "signup" ? "REQUEST ACCESS →"
-              : mode === "verify" ? "VERIFY CODE →"
-              : "SEND CODE →"}
+            {loading ? "PLEASE WAIT..." : mode === "login" ? "SIGN IN →" : mode === "signup" ? "REQUEST ACCESS →" : "SEND RESET EMAIL →"}
           </button>
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: C.inkLight }}>
             {mode === "login" && <span>Need access? <button onClick={() => { setMode("signup"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Request an account</button></span>}
             {mode === "signup" && <span>Already have an account? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Sign in</button></span>}
             {mode === "forgot" && <span>Remember it? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Back to sign in</button></span>}
-            {mode === "verify" && <span>Didn't get a code? <button onClick={() => { setMode("forgot"); setOtpCode(""); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Resend</button></span>}
           </div>
         </div>
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.05em" }}>CARETRACK · WOUND CARE COMPLIANCE</div>
@@ -1223,15 +1137,12 @@ const UnitInput = ({ value, onChange, hospital }) => {
 };
 
 // ── Unit Manager ─────────────────────────────────────────────────────────────
-const UnitManagerBody = ({ onClose, clinicalHospital = null }) => {
+const UnitManagerBody = ({ onClose }) => {
   const [data, setData] = useState(getHospitalData());
   const [editKey, setEditKey] = useState(null); // "hospital::unit"
   const [editVal, setEditVal] = useState("");
 
-  // When a clinical hospital is passed, only show units for that hospital
-  const hospitals = clinicalHospital
-    ? (data[clinicalHospital] ? [clinicalHospital] : [])
-    : Object.keys(data).sort();
+  const hospitals = Object.keys(data).sort();
 
   const renameUnit = (hospital, oldUnit, newUnit) => {
     if (!newUnit.trim() || newUnit === oldUnit) { setEditKey(null); return; }
@@ -1257,11 +1168,7 @@ const UnitManagerBody = ({ onClose, clinicalHospital = null }) => {
   };
 
   if (hospitals.length === 0) return (
-    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>
-      {clinicalHospital
-        ? `No saved units for ${clinicalHospital} yet. Units are saved automatically when sessions are logged.`
-        : "No saved units yet. Units are saved automatically when you log sessions."}
-    </div>
+    <div style={{ textAlign: "center", padding: "40px 0", color: C.inkLight, fontSize: 13 }}>No saved units yet. Units are saved automatically when you log sessions.</div>
   );
 
   return (
@@ -1352,7 +1259,7 @@ export default function App() {
   const [adminSection, setAdminSection] = useState("sessions"); // sessions | audit | users | hospitals | auto_reports
   const [reportSchedules, setReportSchedules] = useState([]);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d", metrics: ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"] });
+  const [scheduleForm, setScheduleForm] = useState({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" });
   const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSending, setScheduleSending] = useState(null);
@@ -1423,7 +1330,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.4";
+  const CURRENT_VERSION = "3.3";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -1466,7 +1373,6 @@ export default function App() {
   const [inputMode, setInputMode] = useState(() => localStorage.getItem("caretrack_input_mode") || "grid"); // "simple" | "grid"
   const [auditHeelBoots, setAuditHeelBoots] = useState(false);
   const [auditTurnClock, setAuditTurnClock] = useState(false);
-  const [auditAirSupplyConnected, setAuditAirSupplyConnected] = useState(false);
   const [bedGrid, setBedGrid] = useState([]);
   const [bedCount, setBedCount] = useState(0);
   const lastGridKey = useRef("");
@@ -1487,7 +1393,6 @@ export default function App() {
   };
   const [hospitalFilter, setHospitalFilter] = useState("All");
   const [hospitalMultiFilter, setHospitalMultiFilter] = useState([]); // admin/VP-only multi-hospital filter for Dashboard
-  const [userSearch, setUserSearch] = useState(""); // admin User Management search box
   const [unitFilter, setUnitFilter] = useState("All");
   const [repFilter, setRepFilter] = useState("All");
   const [regionSortBy, setRegionSortBy] = useState("avg");
@@ -1560,23 +1465,6 @@ export default function App() {
   })();
 
   useEffect(() => {
-    // Handle PKCE password recovery: when Supabase redirects back with a
-    // ?code=... param, exchange it for a session before the SDK can race
-    // with anything else. This is what makes PKCE flow work end-to-end.
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-        if (error) {
-          console.error("Code exchange failed:", error);
-        }
-        // Strip the code from the URL so refreshes don't try to redeem a
-        // now-consumed code (would error and confuse the user).
-        url.searchParams.delete("code");
-        window.history.replaceState({}, "", url.toString());
-      });
-    }
-
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -1593,19 +1481,7 @@ export default function App() {
         }
       }
     });
-
-    // Listen for the OTP code verification path. verifyOtp doesn't fire a
-    // PASSWORD_RECOVERY auth event the way email-link recovery does, so the
-    // LoginScreen dispatches this custom event after a successful OTP verify.
-    const handleShowPasswordReset = () => {
-      setShowPasswordReset(true);
-    };
-    window.addEventListener("caretrack:show-password-reset", handleShowPasswordReset);
-
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener("caretrack:show-password-reset", handleShowPasswordReset);
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   // Active hospital branding
@@ -1790,25 +1666,6 @@ export default function App() {
     setInviteSuccess(null);
   };
 
-  const handleCancelInvite = async (invite) => {
-    if (!window.confirm(`Cancel the invite to ${invite.email}?\n\nThis will permanently delete the pending invite. The recipient will no longer be able to use the invite link.`)) return;
-    setInviteError(null);
-    try {
-      const { error } = await supabase.from("clinical_invites").delete().eq("id", invite.id);
-      if (error) throw error;
-      await logAudit("CLINICAL_INVITE_CANCELLED", {
-        email: invite.email,
-        name: invite.name,
-        hospital: invite.hospital,
-      });
-      setClinicalInvites(prev => prev.filter(i => i.id !== invite.id));
-      setInviteSuccess(`Invite to ${invite.email} cancelled`);
-      setTimeout(() => setInviteSuccess(null), 4000);
-    } catch (e) {
-      setInviteError("Failed to cancel invite: " + (e.message || "unknown error"));
-    }
-  };
-
   const handleCancelEditRep = () => {
     setEditingRepInviteId(null);
     setEditingRepNewId("");
@@ -1917,10 +1774,10 @@ export default function App() {
       const isAdminUser = ADMIN_EMAILS.includes(user?.email); // uses real user always
 
       // Step 1: Fetch user's own sessions to discover which hospitals they've logged for
-      const { data: ownData, error } = await fetchAllRows(() => supabase.from("sessions")
+      const { data: ownData, error } = await supabase.from("sessions")
         .select("*")
         .eq("logged_by", userName)
-        .order("created_at", { ascending: true }));
+        .order("created_at", { ascending: true });
       if (error) { setDbError("Could not connect to database."); setLoading(false); return; }
       // Successful fetch — clear any prior connection error so the banner doesn't linger.
       setDbError(null);
@@ -1936,10 +1793,10 @@ export default function App() {
         const sharedSet = new Set((brandingData || []).filter(b => b.is_shared).map(b => b.hospital));
         const sharedUserHospitals = userHospitals.filter(h => sharedSet.has(h));
         if (sharedUserHospitals.length > 0) {
-          const { data: sharedData } = await fetchAllRows(() => supabase.from("sessions")
+          const { data: sharedData } = await supabase.from("sessions")
             .select("*")
             .in("hospital", sharedUserHospitals)
-            .order("created_at", { ascending: true }));
+            .order("created_at", { ascending: true });
           // Merge own sessions + shared hospital sessions, dedup by id
           const merged = [...(ownData || [])];
           const ownIds = new Set(merged.map(e => e.id));
@@ -1960,10 +1817,10 @@ export default function App() {
         .eq("email", user.email)
         .maybeSingle();
       if (myProfileRow?.role === "clinical" && myProfileRow?.clinical_hospital) {
-        const { data: clinicalData } = await fetchAllRows(() => supabase.from("sessions")
+        const { data: clinicalData } = await supabase.from("sessions")
           .select("*")
           .eq("hospital", myProfileRow.clinical_hospital)
-          .order("created_at", { ascending: true }));
+          .order("created_at", { ascending: true });
         if (clinicalData && clinicalData.length > 0) {
           // Merge with any existing entries, dedup by id
           const existingIds = new Set(allHospitalData.map(e => e.id));
@@ -1979,14 +1836,14 @@ export default function App() {
       });
 
       // Fetch all sessions for national average (metric values only, no PII)
-      const { data: allData } = await fetchAllRows(() => supabase.from("sessions")
+      const { data: allData } = await supabase.from("sessions")
         .select("matt_applied_num,matt_applied_den,wedges_applied_num,wedges_applied_den,turning_criteria_num,turning_criteria_den,matt_proper_num,matt_proper_den,wedges_in_room_num,wedges_in_room_den,wedge_offload_num,wedge_offload_den,air_supply_num,air_supply_den")
-        .order("created_at", { ascending: true }));
+        .order("created_at", { ascending: true });
       setAllEntries(allData || []);
 
       // Admins get all sessions + audit log + user profiles
       if (isAdminUser) {
-        const { data: adminData } = await fetchAllRows(() => supabase.from("sessions").select("*").order("created_at", { ascending: true }));
+        const { data: adminData } = await supabase.from("sessions").select("*").order("created_at", { ascending: true });
         setAllEntriesFull(adminData || []);
         const { data: auditData } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(200);
         setAuditLog(auditData || []);
@@ -2025,9 +1882,9 @@ export default function App() {
     (async () => {
       setRegionLoading(true);
       const repNames = regionReps.map(r => r.full_name || r.email).filter(Boolean);
-      const { data } = await fetchAllRows(() => supabase.from("sessions").select("*")
+      const { data } = await supabase.from("sessions").select("*")
         .in("logged_by", repNames)
-        .order("created_at", { ascending: true }));
+        .order("created_at", { ascending: true });
       setRegionEntries(data || []);
       setRegionLoading(false);
     })();
@@ -2037,9 +1894,9 @@ export default function App() {
   useEffect(() => {
     if (!isKAM || kamAccounts.length === 0) return;
     (async () => {
-      const { data } = await fetchAllRows(() => supabase.from("sessions").select("*")
+      const { data } = await supabase.from("sessions").select("*")
         .in("hospital", kamAccounts)
-        .order("created_at", { ascending: true }));
+        .order("created_at", { ascending: true });
       setKamEntries(data || []);
     })();
   }, [isKAM, kamAccounts.join(",")]); // eslint-disable-line
@@ -2070,19 +1927,17 @@ export default function App() {
   }, [form.hospital, form.location, inputMode]);
 
   // Auto-sum bed grid values into the form's metric fields
-  // Denominator = beds that are NOT marked N/A (entire bed or per-metric).
-  // Numerator = beds where the rep tapped YES.
-  // Untouched beds count as NO — they visually appear as NO in the grid
-  // (red ✗ default) and reps treat that as their answer.
+  // Denominator = beds where the user actively tapped the metric (YES or NO);
+  // numerator = YES taps only. N/A beds and untouched metrics are excluded.
   useEffect(() => {
     if (inputMode !== "grid" || bedGrid.length === 0) return;
     const activeMetrics = getMetrics(form.hospital);
     const activeBeds2 = bedGrid.filter(b => !b.na);
     const updates = {};
     activeMetrics.forEach(m => {
-      const eligible = activeBeds2.filter(b => !b[`${m.id}_na`]);
-      const totalQ = eligible.length;
-      const totalA = eligible.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
+      const answered = activeBeds2.filter(b => !b[`${m.id}_na`] && b[`${m.id}_touched`] === true);
+      const totalQ = answered.length;
+      const totalA = answered.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0);
       updates[`${m.id}_den`] = totalQ > 0 ? String(totalQ) : "";
       updates[`${m.id}_num`] = totalQ > 0 ? String(totalA) : "";
     });
@@ -2157,13 +2012,7 @@ export default function App() {
     if (!form.hospital.trim()) { setSaveError("Hospital name is required."); return; }
     if (!form.location.trim()) { setSaveError("Location / Unit is required."); return; }
     const hasMetric = METRICS.some(m => form[`${m.id}_num`] !== "" && form[`${m.id}_num`] !== "na" && form[`${m.id}_den`] !== "" && form[`${m.id}_den`] !== "na");
-    if (!hasMetric) {
-      const msg = "⚠️ This session has no metrics filled in. Save anyway?\n\nClick OK to save an empty session (e.g., to record a visit only), or Cancel to go back and add metrics.";
-      if (!window.confirm(msg)) {
-        setSaveError(null);
-        return;
-      }
-    }
+    if (!hasMetric) { setSaveError("Please fill in at least one metric before saving."); return; }
 
 
     // Duplicate detection — same date OR logged within last 4 hours for same unit
@@ -2258,8 +2107,22 @@ export default function App() {
         }
       } catch (e) { console.warn("Shared rep notification failed:", e); }
 
-      // Per-session emails to the assigned rep have been replaced by the
-      // weekly-rep-digest Edge Function (sends every Monday at 9 AM ET).
+      // Notify the clinical user's assigned rep when a clinical user logs a session
+      try {
+        if (isClinical && myProfile?.clinical_rep_id) {
+          const rep = userProfiles.find(p => p.id === myProfile.clinical_rep_id);
+          if (rep?.email) {
+            await supabase.functions.invoke("notify-clinical-session", {
+              body: {
+                session: finalData,
+                repEmail: rep.email,
+                repName: rep.full_name || rep.email,
+                clinicalUserName: user?.user_metadata?.full_name || user.email,
+              },
+            });
+          }
+        }
+      } catch (e) { console.warn("Clinical session notification failed:", e); }
 
       // Push to Salesforce if hospital is mapped
       try {
@@ -2294,13 +2157,11 @@ export default function App() {
 
   const proxyEntries = viewAsUser
     ? ((isDirector || isVP) ? regionEntries : allEntriesFull).filter(e => e.logged_by === (viewAsUser.full_name || viewAsUser.email))
-    : isAdmin && allEntriesFull && allEntriesFull.length > 0
-      ? allEntriesFull
-      : (isDirector || isVP)
-        ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
-        : isKAM
-          ? kamEntries
-          : entries;
+    : (isDirector || isVP)
+      ? [...entries, ...regionEntries].filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
+      : isKAM
+        ? kamEntries
+        : entries;
 
   // Trial hospitals — excluded from Dashboard, Performers, Planner but kept in History/exports
   const trialHospitals = new Set(
@@ -2704,7 +2565,7 @@ export default function App() {
       haptic("light");
       // Refetch sessions
       const uName = user?.user_metadata?.full_name || user?.email;
-      const { data } = await fetchAllRows(() => supabase.from("sessions").select("*").eq("logged_by", uName).order("created_at", { ascending: true }));
+      const { data } = await supabase.from("sessions").select("*").eq("logged_by", uName).order("created_at", { ascending: true });
       if (data) setEntries(data);
       setPulling(false);
     }
@@ -3203,7 +3064,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); setAuditAirSupplyConnected(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
+                <HospitalInput value={form.hospital} onChange={val => { setForm(f => ({ ...f, hospital: val, location: "", protocol_for_use: "" })); setAuditHeelBoots(false); setAuditTurnClock(false); }} hospitals={isKAM ? kamAccounts : hospitals} entries={isKAM ? kamEntries : entries} />
               )}
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -3263,24 +3124,10 @@ export default function App() {
                       </div>
                     </label>
                   </div>
-                  {isKaiserSouthSac(form.hospital) && (
-                    <div style={{ background: auditAirSupplyConnected ? C.amberLight : C.surfaceAlt, border: `1px solid ${auditAirSupplyConnected ? C.amber : C.border}`, borderRadius: 10, padding: "12px 16px" }}>
-                      <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
-                        <div style={{ marginTop: 2, flexShrink: 0 }}>
-                          <input type="checkbox" checked={auditAirSupplyConnected} onChange={e => setAuditAirSupplyConnected(e.target.checked)}
-                            style={{ width: 18, height: 18, accentColor: C.amber, cursor: "pointer" }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: auditAirSupplyConnected ? C.amber : C.inkLight, letterSpacing: "0.06em", marginBottom: 3 }}>🔌  AUDIT AIR SUPPLY CONNECTED</div>
-                          <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>Check this box to include the <strong>Air Supply Connected</strong> compliance metric for this session. <span style={{ color: C.inkLight }}>(Kaiser South Sacramento)</span></div>
-                        </div>
-                      </label>
-                    </div>
-                  )}
                 </div>
               )}
               {inputMode === "simple" ? (
-                getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock) && (m.id !== "air_supply_connected" || auditAirSupplyConnected)).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
+                getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock)).map(m => <MetricInput key={m.id} metric={m} num={form[`${m.id}_num`]} den={form[`${m.id}_den`]} onChange={(field, val) => updateMetric(m.id, field, val)} />)
               ) : (
                 <>
                   {/* Bed count input */}
@@ -3329,7 +3176,7 @@ export default function App() {
                       </div>
                       {bedCount > 0 && bedGrid.length > 0 && (
                         <BedGrid
-                          metrics={getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock) && (m.id !== "air_supply_connected" || auditAirSupplyConnected))}
+                          metrics={getMetrics(form.hospital).filter(m => (m.id !== "heel_boots" || auditHeelBoots) && (m.id !== "turn_clock" || auditTurnClock))}
                           hospital={form.hospital}
                           beds={bedGrid}
                           onChange={setBedGrid}
@@ -3862,7 +3709,7 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 400 }}>Session History</h1>
-                <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>
+                {!isClinical && <button onClick={() => setShowUnitManager(true)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMid, cursor: "pointer", letterSpacing: "0.05em" }}>MANAGE UNITS</button>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
                 {isClinical
@@ -5003,76 +4850,9 @@ export default function App() {
 
                 {/* Per-user breakdown */}
                 <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em" }}>
-                      ALL USERS
-                      {userSearch.trim() && (() => {
-                        const q = userSearch.trim().toLowerCase();
-                        const matches = userProfiles.filter(p =>
-                          (p.full_name || "").toLowerCase().includes(q) ||
-                          (p.email || "").toLowerCase().includes(q) ||
-                          (p.region || "").toLowerCase().includes(q) ||
-                          (p.role || "").toLowerCase().includes(q)
-                        ).length;
-                        return <span style={{ color: C.inkMid, marginLeft: 8 }}>· {matches} of {userProfiles.length}</span>;
-                      })()}
-                    </div>
-                    <div style={{ position: "relative", minWidth: 240 }}>
-                      <input
-                        type="text"
-                        placeholder="Search name, email, region, role..."
-                        value={userSearch}
-                        onChange={e => setUserSearch(e.target.value)}
-                        style={{ width: "100%", padding: "7px 28px 7px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: C.bg, color: C.ink, outline: "none", fontFamily: "inherit" }}
-                        onFocus={e => e.target.style.borderColor = C.primary}
-                        onBlur={e => e.target.style.borderColor = C.border}
-                      />
-                      {userSearch && (
-                        <button onClick={() => setUserSearch("")} title="Clear"
-                          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: C.inkLight, cursor: "pointer", fontSize: 14, padding: "0 6px", lineHeight: 1 }}>×</button>
-                      )}
-                    </div>
-                  </div>
-                  {(() => {
-                    // Group definitions in display order: Rep > KAM > Clinical > Director > VP > Admin.
-                    // Admins are detected by email (ADMIN_EMAILS), others by role field.
-                    // The final UNCATEGORIZED group catches anyone with no role assigned or a role
-                    // outside the recognized list — surfaces data-quality issues for admins to fix.
-                    const KNOWN_ROLES = new Set(["rep", "kam", "clinical", "director", "vp"]);
-                    const GROUPS = [
-                      { key: "rep",          label: "SALES REPS",     match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "rep" },
-                      { key: "kam",          label: "KAMs",           match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "kam" },
-                      { key: "clinical",     label: "CLINICAL USERS", match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "clinical" },
-                      { key: "director",     label: "DIRECTORS",      match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "director" },
-                      { key: "vp",           label: "VPs",            match: (p) => !ADMIN_EMAILS.includes(p.email) && p.role === "vp" },
-                      { key: "admin",        label: "ADMINS",         match: (p) => ADMIN_EMAILS.includes(p.email) },
-                      { key: "uncategorized", label: "UNCATEGORIZED · NEEDS ROLE", match: (p) => !ADMIN_EMAILS.includes(p.email) && !KNOWN_ROLES.has(p.role) },
-                    ];
-                    const matchesSearch = (profile) => {
-                      const q = userSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      return (profile.full_name || "").toLowerCase().includes(q)
-                          || (profile.email || "").toLowerCase().includes(q)
-                          || (profile.region || "").toLowerCase().includes(q)
-                          || (profile.role || "").toLowerCase().includes(q);
-                    };
-                    // First pass: assign each profile to the first matching group so it appears once.
-                    const grouped = Object.fromEntries(GROUPS.map(g => [g.key, []]));
-                    userProfiles.filter(matchesSearch).forEach(p => {
-                      const g = GROUPS.find(g => g.match(p));
-                      if (g) grouped[g.key].push(p);
-                    });
-                    return GROUPS.map(g => {
-                      const groupProfiles = grouped[g.key];
-                      if (groupProfiles.length === 0) return null;
-                      const isUncat = g.key === "uncategorized";
-                      return (
-                        <div key={g.key} style={{ marginBottom: 18, ...(isUncat ? { background: C.amberLight + "55", border: `1px solid ${C.amber}33`, borderRadius: 8, padding: "12px 14px" } : {}) }}>
-                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: isUncat ? C.amber : C.inkLight, letterSpacing: "0.1em", marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${isUncat ? C.amber + "33" : C.border}`, fontWeight: isUncat ? 700 : 400 }}>
-                            {g.label} <span style={{ color: isUncat ? C.amber : C.inkFaint, opacity: isUncat ? 0.8 : 1 }}>· {groupProfiles.length}</span>
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            {groupProfiles.map(profile => {
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 16 }}>ALL USERS</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {userProfiles.map(profile => {
                       const userSessions = allEntriesFull.filter(e => e.logged_by === profile.full_name || e.logged_by === profile.email);
                       const overallVals = METRICS.flatMap(m => userSessions.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
                       const overall = overallVals.length ? Math.round(overallVals.reduce((a,b)=>a+b,0)/overallVals.length) : null;
@@ -5332,16 +5112,8 @@ export default function App() {
                         </div>
                       );
                     })}
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                  {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
-                  {userProfiles.length > 0 && userSearch.trim() && userProfiles.filter(p => {
-                    const q = userSearch.trim().toLowerCase();
-                    return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q) || (p.region || "").toLowerCase().includes(q) || (p.role || "").toLowerCase().includes(q);
-                  }).length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0", textAlign: "center" }}>No users match "{userSearch}"</div>}
+                    {userProfiles.length === 0 && <div style={{ fontSize: 13, color: C.inkLight, padding: "20px 0" }}>No users registered yet.</div>}
+                  </div>
                 </div>
               </div>
             )}
@@ -5502,10 +5274,6 @@ export default function App() {
                                 <button onClick={() => handleResendInvite(inv)} disabled={resendingId === inv.id}
                                   style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.primary, cursor: resendingId === inv.id ? "wait" : "pointer", letterSpacing: "0.05em", opacity: resendingId === inv.id ? 0.6 : 1 }}>
                                   {resendingId === inv.id ? "SENDING..." : "RESEND"}
-                                </button>
-                                <button onClick={() => handleCancelInvite(inv)}
-                                  style={{ background: "none", border: `1px solid ${C.red}33`, borderRadius: 6, padding: "5px 10px", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.red, cursor: "pointer", letterSpacing: "0.05em" }}>
-                                  CANCEL
                                 </button>
                               </div>
                             )}
@@ -6073,7 +5841,7 @@ export default function App() {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>AUTO REPORTS</div>
                     <p style={{ fontSize: 13, color: C.inkMid, margin: 0 }}>Schedule compliance PDFs to be emailed automatically to external recipients.</p>
                   </div>
-                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", sendHour: "9", period: "30d", metrics: ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"] }); setEditingScheduleId(null); setShowNewSchedule(true); }}
+                  <button onClick={() => { setScheduleForm({ name: "", hospitals: [], recipients: "", frequency: "monthly", dayOfMonth: "1", dayOfWeek: "1", period: "30d" }); setEditingScheduleId(null); setShowNewSchedule(true); }}
                     style={{ background: C.primary, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: "white", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0 }}>
                     + NEW REPORT
                   </button>
@@ -6123,12 +5891,11 @@ export default function App() {
                     </div>
 
                     {/* Frequency + Period row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
                       <div>
                         <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>FREQUENCY</label>
                         <select value={scheduleForm.frequency} onChange={e => setScheduleForm(f => ({ ...f, frequency: e.target.value }))}
                           style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
-                          <option value="daily">Daily</option>
                           <option value="weekly">Weekly</option>
                           <option value="monthly">Monthly</option>
                         </select>
@@ -6152,67 +5919,15 @@ export default function App() {
                         </div>
                       )}
                       <div>
-                        <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>SEND HOUR (ET)</label>
-                        <select value={scheduleForm.sendHour} onChange={e => setScheduleForm(f => ({ ...f, sendHour: e.target.value }))}
-                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
-                          {Array.from({ length: 24 }).map((_, h) => {
-                            const ampm = h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h-12} PM`;
-                            return <option key={h} value={String(h)}>{ampm}</option>;
-                          })}
-                        </select>
-                      </div>
-                      <div>
                         <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 6 }}>REPORT PERIOD</label>
                         <select value={scheduleForm.period} onChange={e => setScheduleForm(f => ({ ...f, period: e.target.value }))}
-                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, padding: "8px 12px", borderRadius: 8, fontSize: 12, color: C.ink, outline: "none" }}>
+                          style={{ width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}>
                           <option value="7d">Last 7 days</option>
                           <option value="30d">Last 30 days</option>
                           <option value="mtd">Month to date</option>
                           <option value="all">All time</option>
                         </select>
                       </div>
-                    </div>
-
-                    {/* Metrics to include in PDF */}
-                    <div style={{ marginBottom: 20 }}>
-                      <label style={{ display: "block", fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkLight, letterSpacing: "0.08em", marginBottom: 8 }}>
-                        METRICS TO INCLUDE ({(scheduleForm.metrics || []).length} of 7)
-                      </label>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8, padding: "12px 14px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                        {[
-                          { id: "matt_applied",     label: "Matt Applied" },
-                          { id: "wedges_applied",   label: "Wedges Applied" },
-                          { id: "turning_criteria", label: "Turning & Repositioning" },
-                          { id: "matt_proper",      label: "Matt Applied Properly" },
-                          { id: "wedges_in_room",   label: "Wedges in Room" },
-                          { id: "wedge_offload",    label: "Proper Wedge Offloading" },
-                          { id: "air_supply",       label: "Air Supply in Room" },
-                        ].map(m => {
-                          const checked = (scheduleForm.metrics || []).includes(m.id);
-                          return (
-                            <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.ink, cursor: "pointer", userSelect: "none" }}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  setScheduleForm(f => {
-                                    const cur = f.metrics || [];
-                                    const next = cur.includes(m.id) ? cur.filter(x => x !== m.id) : [...cur, m.id];
-                                    return { ...f, metrics: next };
-                                  });
-                                }}
-                                style={{ accentColor: C.primary, cursor: "pointer" }}
-                              />
-                              {m.label}
-                            </label>
-                          );
-                        })}
-                      </div>
-                      {(scheduleForm.metrics || []).length === 0 && (
-                        <div style={{ fontSize: 11, color: C.amber || "#8a6a2a", marginTop: 6 }}>
-                          Select at least one metric, or all metrics will be included by default.
-                        </div>
-                      )}
                     </div>
 
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -6229,9 +5944,7 @@ export default function App() {
                           frequency: scheduleForm.frequency,
                           day_of_month: scheduleForm.frequency === "monthly" ? parseInt(scheduleForm.dayOfMonth) : null,
                           day_of_week: scheduleForm.frequency === "weekly" ? parseInt(scheduleForm.dayOfWeek) : null,
-                          send_hour: parseInt(scheduleForm.sendHour) || 9,
                           period: scheduleForm.period,
-                          metrics: scheduleForm.metrics && scheduleForm.metrics.length > 0 ? scheduleForm.metrics : null,
                         };
                         if (editingScheduleId) {
                           const { data, error } = await supabase.from("report_schedules").update(payload).eq("id", editingScheduleId).select().single();
@@ -6273,13 +5986,9 @@ export default function App() {
                 )}
 
                 {reportSchedules.map(sched => {
-                  const sendHour = sched.send_hour ?? 9;
-                  const hourLabel = sendHour === 0 ? "12 AM" : sendHour < 12 ? `${sendHour} AM` : sendHour === 12 ? "12 PM" : `${sendHour-12} PM`;
-                  const freqLabel = sched.frequency === "daily"
-                    ? `Daily · ${hourLabel} ET`
-                    : sched.frequency === "weekly"
-                      ? `Weekly · ${["","Mon","Tue","Wed","Thu","Fri"][sched.day_of_week] || ""} · ${hourLabel} ET`
-                      : `Monthly · ${sched.day_of_month}${sched.day_of_month===1?"st":sched.day_of_month===2?"nd":sched.day_of_month===3?"rd":"th"} · ${hourLabel} ET`;
+                  const freqLabel = sched.frequency === "weekly"
+                    ? `Weekly · ${["","Mon","Tue","Wed","Thu","Fri"][sched.day_of_week] || ""}`
+                    : `Monthly · ${sched.day_of_month}${sched.day_of_month===1?"st":sched.day_of_month===2?"nd":sched.day_of_month===3?"rd":"th"}`;
                   const periodLabel = { "7d":"Last 7 days","30d":"Last 30 days","mtd":"Month to date","all":"All time" }[sched.period] || sched.period;
                   const lastSent = sched.last_sent ? new Date(sched.last_sent).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "Never sent";
 
@@ -6313,9 +6022,7 @@ export default function App() {
                               frequency: sched.frequency || "monthly",
                               dayOfMonth: sched.day_of_month?.toString() || "1",
                               dayOfWeek: sched.day_of_week?.toString() || "1",
-                              sendHour: sched.send_hour != null ? String(sched.send_hour) : "9",
                               period: sched.period || "30d",
-                              metrics: sched.metrics || ["matt_applied","wedges_applied","turning_criteria","matt_proper","wedges_in_room","wedge_offload","air_supply"],
                             });
                             setEditingScheduleId(sched.id);
                             setShowNewSchedule(true);
@@ -6579,9 +6286,8 @@ export default function App() {
                     const metricTotals = {};
                     METRICS.forEach(m => {
                       const active = practiceBedGrid.filter(b => !b.na && !b[`${m.id}_na`]);
-                      // Denominator = all eligible beds (untouched counts as NO).
-                      metricTotals[`${m.id}_den`] = active.length || null;
-                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (b[`${m.id}_a`] === "1" || b[`${m.id}_a`] === 1 ? 1 : 0), 0) || null;
+                      metricTotals[`${m.id}_den`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_q`]) || 0), 0) || null;
+                      metricTotals[`${m.id}_num`] = active.reduce((s, b) => s + (parseInt(b[`${m.id}_a`]) || 0), 0) || null;
                     });
                     setPracticeError(null); setPracticeSaving(true);
                     const { data, error } = await supabase.from("sessions").insert([{
@@ -6636,18 +6342,7 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "3.5", date: "June 2026", badge: "LATEST", items: [
-                "1000-session cap fixed — once the database grew past 1,000 sessions, the Admin all-sessions list, national-average benchmark, and region/KAM/clinical views were silently dropping every session beyond the first 1,000; all session loads now page through the full dataset [Critical]",
-              ]},
-              { version: "3.4", date: "May 2026", badge: null, items: [
-                "Per Bed totals fix — corrected an issue where untouched beds (visually showing red ✗) were excluded from compliance calculations, causing some sessions to read 100% when actual compliance was lower; untouched beds now count as NO to match the visual default [Critical]",
-                "Auto report PDF redesign — scheduled reports now attach the full branded dashboard PDF, generated server-side with the same formatting as the manual Export PDF button",
-                "Per-schedule metric selector — when creating or editing an auto report, admins can pick exactly which metrics to include in both the email body and the attached PDF [Admin]",
-                "Auto report timing fix — daily, weekly, and monthly schedules now fire at the configured Eastern Time hour (previously some schedules could fire multiple times per day) [Admin]",
-                "Salesforce account roster refresh — updated to the May 2026 master roster (9,121 accounts), with old account IDs preserved so existing hospital mappings continue to work [Admin]",
-                "Hospital merge tool — admins can now merge duplicate hospital entries via SQL, automatically reassigning sessions, KAM access, and Salesforce mappings [Admin]",
-              ]},
-              { version: "3.3", date: "April 2026", badge: null, items: [
+              { version: "3.3", date: "April 2026", badge: "LATEST", items: [
                 "Salesforce integration — compliance sessions automatically sync to the matching Salesforce Account record when logged; deletions in CareTrack also remove the Salesforce record [Admin]",
                 "Salesforce Account ID mapping — admins can map any hospital to its Salesforce Account ID directly in Hospital Configuration, with a built-in search across all 8,000+ HoverTech accounts [Admin]",
                 "Shared hospital accounts — admins can mark a hospital as a shared account; reps who have logged there see each other's sessions across Dashboard, History, and Performers [Admin]",
@@ -6815,7 +6510,7 @@ export default function App() {
               <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 400 }}>Manage Units</h2>
               <button onClick={() => setShowUnitManager(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
-            <UnitManagerBody onClose={() => setShowUnitManager(false)} clinicalHospital={isClinical ? myProfile?.clinical_hospital : null} />
+            <UnitManagerBody onClose={() => setShowUnitManager(false)} />
           </div>
         </div>
       )}
