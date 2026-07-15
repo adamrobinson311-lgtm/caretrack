@@ -1423,7 +1423,7 @@ export default function App() {
   const [showUnitManager, setShowUnitManager] = useState(false);
   const [printSession, setPrintSession] = useState(null);
   const lastSeenVersion = localStorage.getItem("caretrack_changelog_seen");
-  const CURRENT_VERSION = "3.7";
+  const CURRENT_VERSION = "3.8";
   const [changelogBadge, setChangelogBadge] = useState(lastSeenVersion !== CURRENT_VERSION);
 
   // White-label
@@ -2379,8 +2379,101 @@ export default function App() {
     return enriched;
   });
 
-  // Month-over-month calculation
+  // Month-over-month / period-over-period calculation.
+  // No date filter → current calendar month vs previous calendar month (original behavior).
+  // Date filter active → the selected range vs the equal-length period immediately before it,
+  // pulling the comparison period from date-unfiltered entries (same hospital/unit/rep filters).
   const momData = (() => {
+    const avg = (arr) => {
+      const vals = METRICS.flatMap(m => arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+    const metricAvg = (arr, m) => {
+      const vals = arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+    const buildResult = (curEntries, prevEntries, curLabel, prevLabel, isRange) => {
+      const thisAvg = avg(curEntries);
+      const lastAvg = avg(prevEntries);
+      const metricDeltas = METRICS.map(m => {
+        const t = metricAvg(curEntries, m);
+        const l = metricAvg(prevEntries, m);
+        return { ...m, this: t, last: l, delta: t !== null && l !== null ? t - l : null };
+      });
+      return {
+        thisMonth: curLabel,
+        lastMonth: prevLabel,
+        thisAvg, lastAvg,
+        delta: thisAvg !== null && lastAvg !== null ? thisAvg - lastAvg : null,
+        thisSessions: curEntries.length,
+        lastSessions: prevEntries.length,
+        metricDeltas,
+        hasData: curEntries.length > 0 || prevEntries.length > 0,
+        isRange,
+      };
+    };
+
+    // Date-string helpers (local-time safe; all dates are ISO YYYY-MM-DD)
+    const toDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+    const toIso = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    const addDays = (iso, n) => { const dt = toDate(iso); dt.setDate(dt.getDate() + n); return toIso(dt); };
+    const inRange = (e, from, to) => !!e.date && e.date >= from && e.date <= to;
+    const isWholeMonth = (from, to) => {
+      const f = toDate(from), t = toDate(to);
+      if (f.getDate() !== 1) return false;
+      if (f.getFullYear() !== t.getFullYear() || f.getMonth() !== t.getMonth()) return false;
+      return t.getDate() === new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+    };
+    const monthLabel = (iso) => toDate(iso).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const rangeLabel = (from, to) => {
+      if (isWholeMonth(from, to)) return monthLabel(from);
+      const f = toDate(from), t = toDate(to);
+      const fStr = f.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(f.getFullYear() !== t.getFullYear() ? { year: "numeric" } : {}) });
+      const tStr = t.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return `${fStr} – ${tStr}`;
+    };
+
+    if (dateFrom) {
+      // ── Range mode ──
+      const effFrom = dateFrom;
+      const effTo = dateTo || toIso(new Date());
+      // Comparison entries must come from date-UNFILTERED data with the same
+      // hospital/unit/rep filters, since the prior period lies outside the range.
+      const source = multiActive
+        ? ((allEntriesFull && allEntriesFull.length > 0) ? allEntriesFull : proxyEntries)
+        : proxyEntries;
+      const selectedSet = multiActive ? new Set(hospitalMultiFilter) : null;
+      const baseEntries = source.filter(e => {
+        if (multiActive) { if (!selectedSet.has(e.hospital)) return false; }
+        else {
+          if (hospitalFilter !== "All" && e.hospital !== hospitalFilter) return false;
+          if (hospitalFilter === "All" && isTrialHospital(e.hospital)) return false;
+        }
+        if (unitFilter !== "All" && e.location !== unitFilter) return false;
+        if (repFilter !== "All" && e.logged_by !== repFilter) return false;
+        return true;
+      });
+
+      let prevFrom, prevTo;
+      if (isWholeMonth(effFrom, effTo)) {
+        // Whole calendar month selected → compare against the previous calendar month
+        const f = toDate(effFrom);
+        const pf = new Date(f.getFullYear(), f.getMonth() - 1, 1);
+        const pt = new Date(f.getFullYear(), f.getMonth(), 0);
+        prevFrom = toIso(pf); prevTo = toIso(pt);
+      } else {
+        // Equal-length period immediately before the selected range
+        const days = Math.round((toDate(effTo) - toDate(effFrom)) / 86400000) + 1;
+        prevTo = addDays(effFrom, -1);
+        prevFrom = addDays(prevTo, -(days - 1));
+      }
+
+      const curEntries = baseEntries.filter(e => inRange(e, effFrom, effTo));
+      const prevEntries = baseEntries.filter(e => inRange(e, prevFrom, prevTo));
+      return buildResult(curEntries, prevEntries, rangeLabel(effFrom, effTo), rangeLabel(prevFrom, prevTo), true);
+    }
+
+    // ── Calendar-month mode (no date filter) ──
     const now = new Date();
     const thisMonth = now.getMonth();
     const thisYear = now.getFullYear();
@@ -2398,37 +2491,8 @@ export default function App() {
       return m - 1 === lastMonth && y === lastMonthYear;
     });
 
-    const avg = (arr) => {
-      const vals = METRICS.flatMap(m => arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null));
-      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-    };
-    const metricAvg = (arr, m) => {
-      const vals = arr.map(e => pct(e[`${m.id}_num`], e[`${m.id}_den`])).filter(v => v !== null);
-      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-    };
-
-    const thisAvg = avg(thisMonthEntries);
-    const lastAvg = avg(lastMonthEntries);
-    const delta = thisAvg !== null && lastAvg !== null ? thisAvg - lastAvg : null;
-
-    const metricDeltas = METRICS.map(m => ({
-      ...m,
-      this: metricAvg(thisMonthEntries, m),
-      last: metricAvg(lastMonthEntries, m),
-      delta: metricAvg(thisMonthEntries, m) !== null && metricAvg(lastMonthEntries, m) !== null
-        ? metricAvg(thisMonthEntries, m) - metricAvg(lastMonthEntries, m) : null,
-    }));
-
     const monthName = (m, y) => new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    return {
-      thisMonth: monthName(thisMonth, thisYear),
-      lastMonth: monthName(lastMonth, lastMonthYear),
-      thisAvg, lastAvg, delta,
-      thisSessions: thisMonthEntries.length,
-      lastSessions: lastMonthEntries.length,
-      metricDeltas,
-      hasData: thisMonthEntries.length > 0 || lastMonthEntries.length > 0,
-    };
+    return buildResult(thisMonthEntries, lastMonthEntries, monthName(thisMonth, thisYear), monthName(lastMonth, lastMonthYear), false);
   })();
 
   const avgByMetric = METRICS.map(m => {
@@ -3747,7 +3811,7 @@ export default function App() {
                   <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 20 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                       <div>
-                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>MONTH-OVER-MONTH</div>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkLight, letterSpacing: "0.1em", marginBottom: 4 }}>{momData.isRange ? "PERIOD-OVER-PERIOD" : "MONTH-OVER-MONTH"}</div>
                         <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 400 }}>
                           {momData.thisMonth} vs {momData.lastMonth}
                         </div>
@@ -6644,7 +6708,10 @@ export default function App() {
               <button onClick={() => setShowChangelog(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.inkLight }}>✕</button>
             </div>
             {[
-              { version: "3.7", date: "July 2026", badge: "LATEST", items: [
+              { version: "3.8", date: "July 2026", badge: "LATEST", items: [
+                "Range-aware comparison restored — when a date range filter is set, the Month-over-Month card and the PDF/PowerPoint comparison page compare the selected period against the equal-length period immediately before it, instead of always showing the current calendar month; this v3.6 feature was also lost in the deploy regression and is now back",
+              ]},
+              { version: "3.7", date: "July 2026", badge: null, items: [
                 "Restored v3.4 and v3.5 features after a deploy regression — the v3.6 release was accidentally built on an outdated file, which reverted the 1000-session pagination fix, the Kaiser South Sacramento Air Supply Connected metric, the OTP password reset flow, per-bed compliance fixes, auto-report scheduling controls, and admin user search; all are now back [Critical]",
                 "Incomplete-data warning — if any session data fails to load partway through, the app now shows a visible warning banner instead of silently displaying partial totals [Critical]",
               ]},
