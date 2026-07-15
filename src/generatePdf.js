@@ -575,18 +575,18 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.text("MONTH-OVER-MONTH COMPARISON", 14, 24);
+    doc.text(mom.isRange ? "PERIOD-OVER-PERIOD COMPARISON" : "MONTH-OVER-MONTH COMPARISON", 14, 24);
     doc.setTextColor(...BRAND.ink);
     doc.setFontSize(20);
-    doc.text("Monthly Performance", 14, 35);
+    doc.text(mom.isRange ? "Period Performance" : "Monthly Performance", 14, 35);
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...BRAND.inkLight);
-    doc.text(`${mom.lastMonth}  →  ${mom.thisMonth}`, 14, 42);
+    doc.text(`${mom.lastMonth}  to  ${mom.thisMonth}`, 14, 42);
     const momCardDefs = [
       { label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
       { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
-      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
+      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: mom.isRange ? "vs prior period" : "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
     ];
     momCardDefs.forEach((card, i) => {
       const cx = 14 + i * 62;
