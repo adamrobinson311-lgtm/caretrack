@@ -1,4 +1,4 @@
-// generatePdf v2.8.1
+// generatePdf v2.8.2
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -15,6 +15,24 @@ const BRAND = {
   amber:     [138, 106, 42],
   red:       [158, 58, 58],
 };
+
+// ── WinAnsi safety net ──────────────────────────────────────────────────────
+// jsPDF's built-in Helvetica can only encode WinAnsi (single-byte). Any char
+// outside it forces jsPDF to re-encode the ENTIRE string as 2-byte UTF-16,
+// which the viewer then renders through WinAnsi one byte at a time — producing
+// mojibake like "%\u00b2& &I&m&p&r&o&v&e&d" for "\u25b2 Improved".
+// Em dash, bullet and smart quotes ARE in WinAnsi and are left alone.
+// Wrap any string that reaches doc.text() / autoTable from a dynamic source.
+const PDF_GLYPHS = {
+  "\u2192": " to ", "\u2190": " from ", "\u2194": " to ",
+  "\u2191": "", "\u2193": "", "\u25b2": "", "\u25bc": "", "\u25b6": "-", "\u25c0": "-",
+  "\u2713": "yes", "\u2717": "no", "\u2265": ">=", "\u2264": "<=", "\u2260": "!=",
+};
+export const pdfSafe = (s) =>
+  String(s ?? "")
+    .replace(/[\u2192\u2190\u2194\u2191\u2193\u25b2\u25bc\u25b6\u25c0\u2713\u2717\u2265\u2264\u2260]/g, (ch) => PDF_GLYPHS[ch])
+    .replace(/[^\x00-\xFF]/g, "")
+    .replace(/[ \t]{2,}/g, " ");
 
 const METRICS = [
   { id: "matt_applied",     label: "Matt Applied" },
@@ -575,18 +593,18 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     doc.setTextColor(...brandHeader);
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.text("MONTH-OVER-MONTH COMPARISON", 14, 24);
+    doc.text(mom.isRange ? "PERIOD-OVER-PERIOD COMPARISON" : "MONTH-OVER-MONTH COMPARISON", 14, 24);
     doc.setTextColor(...BRAND.ink);
     doc.setFontSize(20);
-    doc.text("Monthly Performance", 14, 35);
+    doc.text(mom.isRange ? "Period Performance" : "Monthly Performance", 14, 35);
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...BRAND.inkLight);
-    doc.text(`${mom.lastMonth}  →  ${mom.thisMonth}`, 14, 42);
+    doc.text(`${mom.lastMonth}  to  ${mom.thisMonth}`, 14, 42);
     const momCardDefs = [
       { label: mom.thisMonth, value: mom.thisAvg !== null ? `${mom.thisAvg}%` : "—", sub: `${mom.thisSessions} sessions`, color: mom.thisAvg !== null ? pctColor(mom.thisAvg) : BRAND.inkLight },
       { label: mom.lastMonth, value: mom.lastAvg !== null ? `${mom.lastAvg}%` : "—", sub: `${mom.lastSessions} sessions`, color: mom.lastAvg !== null ? pctColor(mom.lastAvg) : BRAND.inkLight },
-      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
+      { label: "Change", value: mom.delta !== null ? `${mom.delta > 0 ? "+" : ""}${mom.delta}%` : "—", sub: mom.isRange ? "vs prior period" : "vs last month", color: mom.delta === null ? BRAND.inkLight : mom.delta > 0 ? BRAND.green : mom.delta < 0 ? BRAND.red : BRAND.inkLight },
     ];
     momCardDefs.forEach((card, i) => {
       const cx = 14 + i * 62;
@@ -612,7 +630,11 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       m.last !== null ? `${m.last}%` : "—",
       m.this !== null ? `${m.this}%` : "—",
       m.delta === null ? "—" : m.delta > 0 ? `+${m.delta}%` : `${m.delta}%`,
-      m.delta === null ? "—" : m.delta > 0 ? "▲ Improved" : m.delta < 0 ? "▼ Declined" : "→ Unchanged",
+      // Trend is rendered as a stoplight dot in didDrawCell, not as text.
+      // Never put a glyph here: Helvetica (WinAnsi) cannot encode U+25B2/U+25BC,
+      // and jsPDF silently re-encodes the whole string as 2-byte UTF-16, which
+      // renders as mojibake ("%\u00b2& &I&m&p&r&o&v&e&d"). See pdfSafe() above.
+      m.delta === null ? "none" : m.delta > 0 ? "up" : m.delta < 0 ? "down" : "flat",
     ]);
     autoTable(doc, {
       startY: 84,
@@ -624,7 +646,21 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 28, halign: "center" }, 2: { cellWidth: 28, halign: "center" }, 3: { cellWidth: 24, halign: "center" }, 4: { cellWidth: 36, halign: "center" } },
       didParseCell: (data) => {
         if (data.column.index === 3 && data.section === "body") { const val = parseFloat(data.cell.raw); if (!isNaN(val)) data.cell.styles.textColor = val > 0 ? BRAND.green : val < 0 ? BRAND.red : BRAND.inkLight; }
-        if (data.column.index === 4 && data.section === "body") { const raw = String(data.cell.raw); data.cell.styles.textColor = raw.startsWith("▲") ? BRAND.green : raw.startsWith("▼") ? BRAND.red : BRAND.inkLight; }
+        if (data.column.index === 4 && data.section === "body") { data.cell.text = [""]; } // blanked; dot drawn in didDrawCell
+      },
+      didDrawCell: (data) => {
+        // Stoplight indicator — vector geometry, no font glyph involved
+        if (data.column.index !== 4 || data.section !== "body") return;
+        const d = mom.metricDeltas[data.row.index]?.delta;
+        const color =
+          d === null || d === undefined ? BRAND.light :
+          d > 0 ? BRAND.green :
+          d < 0 ? BRAND.red :
+          BRAND.amber;
+        const cx = data.cell.x + data.cell.width / 2;
+        const cy = data.cell.y + data.cell.height / 2;
+        doc.setFillColor(...color);
+        doc.circle(cx, cy, 1.9, "F");
       },
       margin: { left: 14, right: 14 },
       theme: "plain",
@@ -979,6 +1015,9 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
       .replace(/#{1,6}\s+/g, "")           // ## headings → plain
       .replace(/^\s*[-•]\s+/gm, "- ")      // normalise bullets
       .trim();
+    // Model output can contain arrows, checkmarks or emoji — strip anything
+    // Helvetica/WinAnsi can't encode before it reaches doc.text()
+    const safeSummary = pdfSafe(cleanSummary);
 
     // Render summary with multi-page support
     const cardX = 14, cardW = 182, textX = 22, textW = 166;
@@ -986,7 +1025,7 @@ export async function generatePdf(entries, summary = "", returnBase64 = false, h
     const fontSize = 8.5;
     doc.setFontSize(fontSize);
     doc.setFont("helvetica", "normal");
-    const allLines = doc.splitTextToSize(cleanSummary, textW);
+    const allLines = doc.splitTextToSize(safeSummary, textW);
 
     // Draw card and accent bar on first page, then paginate
     let currentY = 62;
