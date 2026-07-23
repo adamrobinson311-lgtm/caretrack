@@ -22,6 +22,45 @@ const METRICS = [
   { id: "air_supply",       label: "Air Supply in Room" },
 ];
 
+// ── PAGINATED FETCH ──────────────────────────────────────────────────────────
+// PostgREST silently caps every unbounded .select() at 1,000 rows — no error,
+// no warning. The sessions table is past 1,800, so a full-table read returned
+// roughly half the data. This endpoint filters by hospital AFTER fetching, so
+// the loss compounded: Northwell LIJ reported 589 of its 1,130 sessions.
+// The .order() is required — without a stable sort, .range() pages can skip or
+// duplicate rows as the table changes underneath the loop.
+const fetchAllRows = async (supabase, table, columns = "*") => {
+  const PAGE = 1000;
+  const out = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(table).select(columns)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+    out.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+};
+
+// sessions.date is a plain calendar date with no timezone. Cutoffs must be
+// computed on the Eastern calendar or the boundary lands on the wrong day.
+// Noon-UTC arithmetic is immune to DST and to the host's timezone.
+const easternIsoDate = (now = new Date()) => {
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now).reduce((acc, x) => (x.type !== "literal" && (acc[x.type] = x.value), acc), {});
+  return `${p.year}-${p.month}-${p.day}`;
+};
+
+const shiftIsoDate = (iso, days) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
 const pct = (n, d) => {
   const nv = parseFloat(n), dv = parseFloat(d);
   if (!dv || isNaN(nv) || isNaN(dv)) return null;
@@ -30,11 +69,11 @@ const pct = (n, d) => {
 
 // Filter sessions by schedule's hospital list + period (mirrors send-scheduled-reports)
 const filterSessions = (allSessions, hospitals, period) => {
-  const now = new Date();
+  const todayIso = easternIsoDate();
   let cutoff = null;
-  if (period === "7d")       cutoff = new Date(now.getTime() - 7  * 86400000).toISOString().slice(0, 10);
-  else if (period === "30d") cutoff = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
-  else if (period === "mtd") cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  if (period === "7d")       cutoff = shiftIsoDate(todayIso, -7);
+  else if (period === "30d") cutoff = shiftIsoDate(todayIso, -30);
+  else if (period === "mtd") cutoff = `${todayIso.slice(0, 7)}-01`;
   return allSessions.filter(e => {
     if (!hospitals.includes(e.hospital)) return false;
     if (cutoff && e.date < cutoff) return false;
@@ -150,8 +189,8 @@ module.exports = async (req, res) => {
     if (!hospitals.length) return res.status(400).json({ error: "Schedule has no hospitals" });
 
     // Load all sessions, then filter
-    const { data: allSessions } = await supabase.from("sessions").select("*");
-    const filtered = filterSessions(allSessions || [], hospitals, sched.period || "30d");
+    const allSessions = await fetchAllRows(supabase, "sessions", "*");
+    const filtered = filterSessions(allSessions, hospitals, sched.period || "30d");
 
     // Load branding for the FIRST hospital in the list (cover/colors).
     // For multi-hospital combined PDFs, we use the first hospital's branding
@@ -201,7 +240,7 @@ module.exports = async (req, res) => {
       brandingPayload,
       chartData,
       momData,
-      allSessions || [],     // allEntries (for national avg)
+      allSessions,           // allEntries (for national avg)
       filtered               // fullEntries (for per-hospital MoM)
     );
 
