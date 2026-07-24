@@ -27,6 +27,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
         "Logged By": a.logged_by || "",
         Product: "",
         "Part Number": "",
+        "Hospital Item Number": "",
         "Protocol For Use": "",
         "Current Practice Workflow": "",
         Photos: 0,
@@ -42,6 +43,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
         "Logged By": a.logged_by || "",
         Product: p.product || "",
         "Part Number": p.part_number || "",
+        "Hospital Item Number": p.hospital_item_number || "",
         "Protocol For Use": (p.protocol_for_use || "").trim(),
         "Current Practice Workflow": (p.current_practice_workflow || "").trim(),
         Photos: Array.isArray(p.photos) ? p.photos.length : 0,
@@ -51,7 +53,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
   }
 
   if (!rows.length) rows.push({ Date: "", Hospital: "", Unit: "", "Logged By": "", Product: "",
-    "Part Number": "", "Protocol For Use": "", "Current Practice Workflow": "",
+    "Part Number": "", "Hospital Item Number": "", "Protocol For Use": "", "Current Practice Workflow": "",
     Photos: 0, "Visit Notes": "" });
 
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -63,6 +65,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
     { wch: 22 },  // Logged By
     { wch: 26 },  // Product
     { wch: 16 },  // Part Number
+    { wch: 20 },  // Hospital Item Number
     { wch: 46 },  // Protocol
     { wch: 46 },  // Current Practice
     { wch: 8 },   // Photos
@@ -71,7 +74,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
 
   // Freeze the header. SheetJS wants these as strings.
   ws["!freeze"] = { xSplit: "0", ySplit: "1", topLeftCell: "A2", activePane: "bottomLeft" };
-  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: rows.length } }) };
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 10, r: rows.length } }) };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Assessments");

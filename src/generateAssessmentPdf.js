@@ -141,45 +141,47 @@ export async function generateAssessmentPdf(assessments = [], label = "", prepar
     for (const p of products) {
       const protocol = safe(p.protocol_for_use || "");
       const practice = safe(p.current_practice_workflow || "");
+      const partNo   = safe(p.part_number || "");
+      const hospNo   = safe(p.hospital_item_number || "");
+
       const colW = (CW - 8) / 2;
+      const colX = [M, M + colW + 8];
+
+      // Identifier row is single-line; the usage row grows with its content.
+      const idH = 13;
       const pLines = doc.splitTextToSize(protocol || "Not recorded", colW - 6);
       const cLines = doc.splitTextToSize(practice || "Not recorded", colW - 6);
-      const bodyH = Math.max(pLines.length, cLines.length) * 4.2 + 14;
+      const useH = Math.max(pLines.length, cLines.length) * 4.2 + 12;
 
       const photos = Array.isArray(p.photos) ? p.photos.slice(0, 3) : [];
       const photoH = photos.length ? 30 : 0;
 
-      need(bodyH + photoH + 16);
+      need(idH + useH + photoH + 18);
 
-      // product heading
       doc.setTextColor(...BRAND.ink).setFont("helvetica", "bold").setFontSize(10);
       doc.text(safe(p.product || "Unnamed product"), M, y);
-      if (p.part_number) {
-        doc.setTextColor(...BRAND.inkLight).setFont("helvetica", "normal").setFontSize(8);
-        doc.text(safe(p.part_number), PW - M, y, { align: "right" });
-      }
-      y += 3;
+      y += 5;
 
-      y += 2;
+      // All four fields share one box treatment: label above, value below.
+      const box = (x, yy, h, label, labelColor, textLines, filled) => {
+        doc.setDrawColor(...BRAND.rule).setLineWidth(0.2);
+        doc.rect(x, yy, colW, h);
+        doc.setTextColor(...labelColor).setFont("helvetica", "bold").setFontSize(6.5);
+        doc.text(label, x + 3, yy + 5);
+        doc.setFont("helvetica", "normal").setFontSize(8.5);
+        doc.setTextColor(...(filled ? BRAND.ink : BRAND.inkLight));
+        doc.text(textLines, x + 3, yy + 10);
+      };
 
-      // two columns
-      const boxY = y;
-      doc.setDrawColor(...BRAND.rule).setLineWidth(0.2);
-      doc.rect(M, boxY, colW, bodyH);
-      doc.rect(M + colW + 8, boxY, colW, bodyH);
+      const idY = y;
+      box(colX[0], idY, idH, "PART NUMBER",          BRAND.inkMid, [partNo || "Not recorded"], !!partNo);
+      box(colX[1], idY, idH, "HOSPITAL ITEM NUMBER", BRAND.inkMid, [hospNo || "Not recorded"], !!hospNo);
 
-      doc.setTextColor(...BRAND.primary).setFont("helvetica", "bold").setFontSize(6.5);
-      doc.text("PROTOCOL FOR USE", M + 3, boxY + 5);
-      doc.setTextColor(...BRAND.accent);
-      doc.text("CURRENT PRACTICE", M + colW + 11, boxY + 5);
+      const useY = idY + idH + 3;
+      box(colX[0], useY, useH, "PROTOCOL FOR USE", BRAND.primary, pLines, !!protocol);
+      box(colX[1], useY, useH, "CURRENT PRACTICE", BRAND.accent,  cLines, !!practice);
 
-      doc.setFont("helvetica", "normal").setFontSize(8.5);
-      doc.setTextColor(...(protocol ? BRAND.ink : BRAND.inkLight));
-      doc.text(pLines, M + 3, boxY + 11);
-      doc.setTextColor(...(practice ? BRAND.ink : BRAND.inkLight));
-      doc.text(cLines, M + colW + 11, boxY + 11);
-
-      y = boxY + bodyH + 5;
+      y = useY + useH + 5;
 
       // photos
       if (photos.length) {

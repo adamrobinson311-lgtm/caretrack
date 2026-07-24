@@ -45,6 +45,7 @@ const newProduct = () => ({
   uid: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
   product: "",
   part_number: "",
+  hospital_item_number: "",      // the hospital's own SKU for this product
   protocol_for_use: "",          // what the protocol says to do
   current_practice_workflow: "", // what the unit actually does
   photos: [],                    // uploaded URLs
@@ -132,7 +133,7 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
     if (!form.hospital || !partNumber.trim()) return;
     const { data } = await supabase
       .from("product_protocols")
-      .select("protocol_for_use, product")
+      .select("protocol_for_use, product, hospital_item_number")
       .eq("hospital", form.hospital)
       .eq("part_number", partNumber.trim())
       .maybeSingle();
@@ -143,6 +144,7 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
         ...p,
         protocol_for_use: p.protocol_for_use || data.protocol_for_use || "",
         product: p.product || data.product || "",
+        hospital_item_number: p.hospital_item_number || data.hospital_item_number || "",
       };
     }));
   };
@@ -230,6 +232,7 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
             hospital: form.hospital,
             part_number: p.part_number.trim(),
             product: p.product || null,
+            hospital_item_number: p.hospital_item_number || null,
             protocol_for_use: p.protocol_for_use,
             updated_at: new Date().toISOString(),
             updated_by: userId,
@@ -384,25 +387,19 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
                     )}
                     {products.map((p, i) => (
                       <div key={i} style={{ marginBottom: 18 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{p.product || "Unnamed product"}</span>
-                          {p.part_number && (
-                            <span style={{ fontSize: 11, ...mono, color: C.inkLight }}>{p.part_number}</span>
-                          )}
-                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{p.product || "Unnamed product"}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
-                          <div style={{ padding: 10, borderRadius: 6, border: `1px solid ${C.border}` }}>
-                            <div style={{ fontSize: 9, ...mono, color: C.primary, letterSpacing: "0.06em", marginBottom: 5 }}>PROTOCOL FOR USE</div>
-                            <div style={{ fontSize: 12, color: p.protocol_for_use ? C.ink : C.inkLight }}>
-                              {p.protocol_for_use || "Not recorded"}
+                          {[
+                            ["PART NUMBER",          p.part_number,              C.inkMid],
+                            ["HOSPITAL ITEM NUMBER", p.hospital_item_number,     C.inkMid],
+                            ["PROTOCOL FOR USE",     p.protocol_for_use,         C.primary],
+                            ["CURRENT PRACTICE",     p.current_practice_workflow, C.accent || "#7C5366"],
+                          ].map(([lbl, val, col]) => (
+                            <div key={lbl} style={{ padding: 10, borderRadius: 6, border: `1px solid ${C.border}` }}>
+                              <div style={{ fontSize: 9, ...mono, color: col, letterSpacing: "0.06em", marginBottom: 5 }}>{lbl}</div>
+                              <div style={{ fontSize: 12, color: val ? C.ink : C.inkLight }}>{val || "Not recorded"}</div>
                             </div>
-                          </div>
-                          <div style={{ padding: 10, borderRadius: 6, border: `1px solid ${C.border}` }}>
-                            <div style={{ fontSize: 9, ...mono, color: C.accent || "#7C5366", letterSpacing: "0.06em", marginBottom: 5 }}>CURRENT PRACTICE</div>
-                            <div style={{ fontSize: 12, color: p.current_practice_workflow ? C.ink : C.inkLight }}>
-                              {p.current_practice_workflow || "Not recorded"}
-                            </div>
-                          </div>
+                          ))}
                         </div>
                         {Array.isArray(p.photos) && p.photos.length > 0 && (
                           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -487,11 +484,18 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
                   onChange={e => update(idx, { product: e.target.value })} style={inputStyle} />
               </div>
 
-              <div>
-                <label style={labelStyle}>PART NUMBER</label>
-                <input value={p.part_number} placeholder="e.g. HM34DM"
-                  onChange={e => update(idx, { part_number: e.target.value })}
-                  onBlur={e => recallProtocol(idx, e.target.value)} style={inputStyle} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>PART NUMBER</label>
+                  <input value={p.part_number} placeholder="e.g. HM34DM"
+                    onChange={e => update(idx, { part_number: e.target.value })}
+                    onBlur={e => recallProtocol(idx, e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>HOSPITAL ITEM NUMBER</label>
+                  <input value={p.hospital_item_number} placeholder="Hospital's own SKU"
+                    onChange={e => update(idx, { hospital_item_number: e.target.value })} style={inputStyle} />
+                </div>
               </div>
 
               <div>
