@@ -6,6 +6,7 @@ import { generatePptx } from "./generatePptx";
 import { generatePdf } from "./generatePdf";
 import { generateXlsx } from "./generateXlsx";
 import { MetricIcon } from "./MetricIcons";
+import AssessmentTab from "./AssessmentTab";
 
 const ADMIN_EMAILS = ["arobinson@hovertechinternational.com", "edoherty@hovertechinternational.com"];
 
@@ -1627,6 +1628,7 @@ export default function App() {
       // Clinical users get dashboard, history, and log shortcuts
       if (isClinical) {
         if (e.key === "1") setTab("log");
+      if (e.key === "a" || e.key === "A") setTab("assessment");
         if (e.key === "2") setTab("dashboard");
         if (e.key === "3") setTab("history");
         if (e.key === "?" ) setShowChangelog(true);
@@ -3142,6 +3144,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", marginTop: 4 }} className="nav-tabs">
             <Tab id="log" label="LOG AUDIT" />
+            <Tab id="assessment" label="ASSESSMENT" />
             <Tab id="dashboard" label="DASHBOARD" />
             <Tab id="history" label="HISTORY" badge={entries.length > 0 ? entries.length : null} />
             {!isClinical && <Tab id="performers" label="PERFORMERS" />}
@@ -3489,6 +3492,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── ASSESSMENT ── */}
+        {tab === "assessment" && (
+          <AssessmentTab
+            C={C}
+            userName={userName}
+            hospitals={isKAM ? kamAccounts : hospitals}
+            entries={isKAM ? kamEntries : entries}
+            HospitalInput={HospitalInput}
+            UnitInput={UnitInput}
+          />
+        )}
 
       {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
