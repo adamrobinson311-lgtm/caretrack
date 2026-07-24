@@ -92,6 +92,7 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
   const [exporting, setExporting] = useState("");
 
   // ── Styles (match CareTrack conventions) ─────────────────────────────────
@@ -269,17 +270,31 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
 
   useEffect(() => { if (view === "history") loadHistory(); /* eslint-disable-next-line */ }, [view]);
 
-  const exportLabel = () => {
-    const set = [...new Set(history.map(h => h.hospital).filter(Boolean))];
+  // Nothing ticked means "everything" — the common case is exporting the lot,
+  // and forcing a select-all first would be busywork.
+  const exportSet = () => (selected.size ? history.filter(h => selected.has(h.id)) : history);
+
+  const toggleSelected = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const exportLabel = (rows) => {
+    if (rows.length === 1) {
+      return [rows[0].hospital, rows[0].location].filter(Boolean).join(" ");
+    }
+    const set = [...new Set(rows.map(h => h.hospital).filter(Boolean))];
     return set.length === 1 ? set[0] : "All accounts";
   };
 
   const runExport = async (kind) => {
-    if (!history.length) return;
+    const rows = exportSet();
+    if (!rows.length) return;
     setExporting(kind);
     try {
-      if (kind === "pdf") await generateAssessmentPdf(history, exportLabel(), userName);
-      else generateAssessmentXlsx(history, exportLabel());
+      if (kind === "pdf") await generateAssessmentPdf(rows, exportLabel(rows), userName);
+      else generateAssessmentXlsx(rows, exportLabel(rows));
     } catch (err) {
       console.error("Assessment export failed:", err);
       setHistoryError("Export failed. Try again, or reload the page if it persists.");
@@ -316,21 +331,43 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
 
       {view === "history" && (
         <div>
+          {history.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                          gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 11, ...mono, color: C.inkMid }}>
+                {selected.size
+                  ? `${selected.size} of ${history.length} selected`
+                  : `${history.length} assessment${history.length === 1 ? "" : "s"} \u00b7 exports include all`}
+              </div>
+              <div style={{ display: "flex", gap: 12 }}>
+                <button onClick={() => setSelected(new Set(history.map(h => h.id)))}
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                           fontSize: 11, ...mono, color: C.primary, letterSpacing: "0.04em" }}>
+                  SELECT ALL
+                </button>
+                {selected.size > 0 && (
+                  <button onClick={() => setSelected(new Set())}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                             fontSize: 11, ...mono, color: C.inkMid, letterSpacing: "0.04em" }}>
+                    CLEAR
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-            <button onClick={() => runExport("pdf")} disabled={!history.length || !!exporting}
-              style={{ flex: "1 1 120px", padding: "10px", borderRadius: 6, fontSize: 11, ...mono,
-                       letterSpacing: "0.05em", cursor: history.length ? "pointer" : "not-allowed",
-                       border: `1px solid ${C.border}`, background: C.surface,
-                       color: history.length ? C.primary : C.inkLight }}>
-              {exporting === "pdf" ? "BUILDING..." : "EXPORT PDF"}
-            </button>
-            <button onClick={() => runExport("xlsx")} disabled={!history.length || !!exporting}
-              style={{ flex: "1 1 120px", padding: "10px", borderRadius: 6, fontSize: 11, ...mono,
-                       letterSpacing: "0.05em", cursor: history.length ? "pointer" : "not-allowed",
-                       border: `1px solid ${C.border}`, background: C.surface,
-                       color: history.length ? C.primary : C.inkLight }}>
-              {exporting === "xlsx" ? "BUILDING..." : "EXPORT EXCEL"}
-            </button>
+            {[["pdf", "PDF"], ["xlsx", "EXCEL"]].map(([kind, lbl]) => (
+              <button key={kind} onClick={() => runExport(kind)} disabled={!history.length || !!exporting}
+                style={{ flex: "1 1 120px", padding: "10px", borderRadius: 6, fontSize: 11, ...mono,
+                         letterSpacing: "0.05em", cursor: history.length ? "pointer" : "not-allowed",
+                         border: `1px solid ${C.border}`, background: C.surface,
+                         color: history.length ? C.primary : C.inkLight }}>
+                {exporting === kind
+                  ? "BUILDING..."
+                  : `EXPORT ${lbl}${selected.size ? ` (${selected.size})` : ""}`}
+              </button>
+            ))}
           </div>
 
           {historyError && (
@@ -362,23 +399,30 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
             const products = Array.isArray(a.product_data) ? a.product_data : [];
             const open = expanded === a.id;
             return (
-              <div key={a.id} style={cardStyle}>
-                <button onClick={() => setExpanded(open ? null : a.id)}
-                  style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{a.hospital}</div>
-                      <div style={{ fontSize: 11, ...mono, color: C.inkLight, marginTop: 3 }}>
-                        {[a.location, a.date, a.logged_by].filter(Boolean).join("  ·  ")}
+              <div key={a.id} style={{ ...cardStyle,
+                     borderColor: selected.has(a.id) ? C.primary : C.border }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <input type="checkbox" checked={selected.has(a.id)}
+                    onChange={() => toggleSelected(a.id)}
+                    aria-label={`Include ${a.hospital} ${a.date} in export`}
+                    style={{ marginTop: 3, cursor: "pointer", flexShrink: 0 }} />
+                  <button onClick={() => setExpanded(open ? null : a.id)}
+                    style={{ flex: 1, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{a.hospital}</div>
+                        <div style={{ fontSize: 11, ...mono, color: C.inkLight, marginTop: 3 }}>
+                          {[a.location, a.date, a.logged_by].filter(Boolean).join("  ·  ")}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, ...mono, color: C.inkMid }}>
+                          {products.length} product{products.length === 1 ? "" : "s"}
+                        </div>
                       </div>
                     </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 11, ...mono, color: C.inkMid }}>
-                        {products.length} product{products.length === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                  </button>
+                </div>
 
                 {open && (
                   <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
