@@ -1,9 +1,10 @@
 // generateAssessmentPdf.js — Product assessment report
 //
-// The report's job is to make ONE thing visible: where the protocol and the
-// workflow actually in practice diverge. So each product is a two-column
-// block, protocol beside practice, rather than a row in a wide table where
-// the comparison gets lost.
+// Each product is a two-column block: the protocol it is indicated under
+// beside the workflow it is actually used in. These are complementary
+// attributes, not a before/after pair — protocol is the clinical trigger
+// ("Braden 18 or less"), practice is the application ("use for offloading").
+// Do not compare them for equality; they are answering different questions.
 
 import jsPDF from "jspdf";
 
@@ -15,7 +16,6 @@ const BRAND = {
   inkLight:  [150, 143, 140],
   rule:      [222, 218, 217],
   wash:      [245, 243, 241],
-  flag:      [158, 58, 58],
   white:     [255, 255, 255],
 };
 
@@ -110,16 +110,10 @@ export async function generateAssessmentPdf(assessments = [], label = "", prepar
 
   const totalProducts = assessments.reduce(
     (n, a) => n + (Array.isArray(a.product_data) ? a.product_data.length : 0), 0);
-  const gaps = assessments.reduce((n, a) => n + (Array.isArray(a.product_data)
-    ? a.product_data.filter(p => {
-        const pr = (p.protocol_for_use || "").trim(), cu = (p.current_practice_workflow || "").trim();
-        return pr && cu && pr !== cu;
-      }).length : 0), 0);
-
   doc.setTextColor(...BRAND.inkMid).setFont("helvetica", "normal").setFontSize(10);
-  doc.text(safe(`${assessments.length} assessment${assessments.length === 1 ? "" : "s"} - ` +
-                `${totalProducts} product${totalProducts === 1 ? "" : "s"} - ` +
-                `${gaps} with a protocol/practice gap`), M, y);
+  // \u00b7 (middle dot) is WinAnsi 0xB7, so Helvetica encodes it safely.
+  doc.text(safe(`${assessments.length} assessment${assessments.length === 1 ? "" : "s"} \u00b7 ` +
+                `${totalProducts} product${totalProducts === 1 ? "" : "s"}`), M, y);
   y += 12;
 
   // ── Per-assessment blocks ──────────────────────────────────────────────────
@@ -147,8 +141,6 @@ export async function generateAssessmentPdf(assessments = [], label = "", prepar
     for (const p of products) {
       const protocol = safe(p.protocol_for_use || "");
       const practice = safe(p.current_practice_workflow || "");
-      const isGap = protocol && practice && protocol !== practice;
-
       const colW = (CW - 8) / 2;
       const pLines = doc.splitTextToSize(protocol || "Not recorded", colW - 6);
       const cLines = doc.splitTextToSize(practice || "Not recorded", colW - 6);
@@ -168,15 +160,7 @@ export async function generateAssessmentPdf(assessments = [], label = "", prepar
       }
       y += 3;
 
-      if (isGap) {
-        doc.setFillColor(...BRAND.flag);
-        doc.rect(M, y - 1.2, 22, 4.6, "F");
-        doc.setTextColor(...BRAND.white).setFont("helvetica", "bold").setFontSize(6.5);
-        doc.text("GAP", M + 11, y + 2, { align: "center" });
-        y += 6;
-      } else {
-        y += 2;
-      }
+      y += 2;
 
       // two columns
       const boxY = y;
@@ -186,7 +170,7 @@ export async function generateAssessmentPdf(assessments = [], label = "", prepar
 
       doc.setTextColor(...BRAND.primary).setFont("helvetica", "bold").setFontSize(6.5);
       doc.text("PROTOCOL FOR USE", M + 3, boxY + 5);
-      doc.setTextColor(...(isGap ? BRAND.flag : BRAND.accent));
+      doc.setTextColor(...BRAND.accent);
       doc.text("CURRENT PRACTICE", M + colW + 11, boxY + 5);
 
       doc.setFont("helvetica", "normal").setFontSize(8.5);

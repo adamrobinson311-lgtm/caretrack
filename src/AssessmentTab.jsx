@@ -3,8 +3,10 @@
 // Follows the Log Audit methodology, but enumerates PRODUCTS per unit rather
 // than beds/rooms. Each product records its part number, the protocol it is
 // used under, the workflow actually in practice today, and up to 3 photos.
-// The protocol/practice pair is the point: the gap between them is the
-// finding a rep is there to surface.
+// Protocol and current practice are complementary, not a before/after pair:
+// protocol is the clinical trigger ("Braden 18 or less"), practice is the
+// application ("use for offloading"). They are shown side by side for the
+// reader to interpret; do not compare them programmatically.
 //
 // Writes to public.assessments — deliberately NOT public.sessions. Every
 // report in the system selects from sessions with no type discriminator, so
@@ -264,11 +266,6 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
 
   useEffect(() => { if (view === "history") loadHistory(); /* eslint-disable-next-line */ }, [view]);
 
-  const hasGap = (p) => {
-    const a = (p.protocol_for_use || "").trim(), b = (p.current_practice_workflow || "").trim();
-    return !!a && !!b && a !== b;
-  };
-
   const exportLabel = () => {
     const set = [...new Set(history.map(h => h.hospital).filter(Boolean))];
     return set.length === 1 ? set[0] : "All accounts";
@@ -360,7 +357,6 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
 
           {!loadingHistory && history.map(a => {
             const products = Array.isArray(a.product_data) ? a.product_data : [];
-            const gapCount = products.filter(hasGap).length;
             const open = expanded === a.id;
             return (
               <div key={a.id} style={cardStyle}>
@@ -377,11 +373,6 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
                       <div style={{ fontSize: 11, ...mono, color: C.inkMid }}>
                         {products.length} product{products.length === 1 ? "" : "s"}
                       </div>
-                      {gapCount > 0 && (
-                        <div style={{ fontSize: 10, ...mono, color: "#9E3A3A", marginTop: 3 }}>
-                          {gapCount} gap{gapCount === 1 ? "" : "s"}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </button>
@@ -399,12 +390,6 @@ export default function AssessmentTab({ C, userName, hospitals = [], entries = [
                             <span style={{ fontSize: 11, ...mono, color: C.inkLight }}>{p.part_number}</span>
                           )}
                         </div>
-                        {hasGap(p) && (
-                          <span style={{ display: "inline-block", marginTop: 5, padding: "2px 7px", borderRadius: 3,
-                                         background: "#9E3A3A", color: "#fff", fontSize: 9, ...mono, letterSpacing: "0.06em" }}>
-                            GAP
-                          </span>
-                        )}
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
                           <div style={{ padding: 10, borderRadius: 6, border: `1px solid ${C.border}` }}>
                             <div style={{ fontSize: 9, ...mono, color: C.primary, letterSpacing: "0.06em", marginBottom: 5 }}>PROTOCOL FOR USE</div>

@@ -29,15 +29,12 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
         "Part Number": "",
         "Protocol For Use": "",
         "Current Practice Workflow": "",
-        "Gap": "",
         Photos: 0,
         "Visit Notes": a.notes || "",
       });
       continue;
     }
     for (const p of products) {
-      const protocol = (p.protocol_for_use || "").trim();
-      const practice = (p.current_practice_workflow || "").trim();
       rows.push({
         Date: fmtDate(a.date),
         Hospital: a.hospital || "",
@@ -45,12 +42,8 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
         "Logged By": a.logged_by || "",
         Product: p.product || "",
         "Part Number": p.part_number || "",
-        "Protocol For Use": protocol,
-        "Current Practice Workflow": practice,
-        // Flag rows where both are recorded and differ — the finding worth
-        // acting on. Blank when either side wasn't captured, rather than
-        // implying a gap that wasn't actually observed.
-        "Gap": !protocol || !practice ? "" : (protocol === practice ? "No" : "Yes"),
+        "Protocol For Use": (p.protocol_for_use || "").trim(),
+        "Current Practice Workflow": (p.current_practice_workflow || "").trim(),
         Photos: Array.isArray(p.photos) ? p.photos.length : 0,
         "Visit Notes": a.notes || "",
       });
@@ -58,7 +51,7 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
   }
 
   if (!rows.length) rows.push({ Date: "", Hospital: "", Unit: "", "Logged By": "", Product: "",
-    "Part Number": "", "Protocol For Use": "", "Current Practice Workflow": "", "Gap": "",
+    "Part Number": "", "Protocol For Use": "", "Current Practice Workflow": "",
     Photos: 0, "Visit Notes": "" });
 
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -72,14 +65,13 @@ export function generateAssessmentXlsx(assessments = [], label = "") {
     { wch: 16 },  // Part Number
     { wch: 46 },  // Protocol
     { wch: 46 },  // Current Practice
-    { wch: 7 },   // Gap
     { wch: 8 },   // Photos
     { wch: 34 },  // Visit Notes
   ];
 
   // Freeze the header. SheetJS wants these as strings.
   ws["!freeze"] = { xSplit: "0", ySplit: "1", topLeftCell: "A2", activePane: "bottomLeft" };
-  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 10, r: rows.length } }) };
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: rows.length } }) };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Assessments");
